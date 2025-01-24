@@ -1,10 +1,14 @@
-// app.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+
+// Configure CORS to allow requests from your GitHub Pages domain
+app.use(cors({
+  origin: 'https://dancbsabao.github.io', // Replace with your actual frontend URL
+}));
+
 app.use(express.json());
 
 // Endpoint to fetch environment variables
@@ -34,7 +38,7 @@ app.use((req, res, next) => {
 });
 
 // Use the port assigned by Render
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
