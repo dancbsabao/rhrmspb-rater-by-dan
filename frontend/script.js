@@ -45,8 +45,6 @@ fetch(`${API_BASE_URL}/config`)
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
     SHEET_RANGES = config.SHEET_RANGES;
 
-    console.log("Config loaded successfully:", config);
-
     // Use these constants in the rest of your script
     createEvaluatorSelector();
 
