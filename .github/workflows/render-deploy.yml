@@ -8,12 +8,26 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
+    # Step 1: Checkout the code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Step 2: Set up Node.js
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 20 # Match the version specified in your package.json
+
+    # Step 3: Install dependencies
+    - name: Install dependencies
+      run: yarn install
+
+    # Step 4: Deploy to Render
     - name: Deploy to Render
       env:
         RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
       run: |
+        echo "Triggering deployment on Render..."
         curl -X POST $RENDER_DEPLOY_HOOK
