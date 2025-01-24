@@ -1,6 +1,7 @@
 {
   "name": "your-backend-project",
   "version": "1.0.0",
+  "description": "A backend project using Express.js",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
@@ -13,5 +14,9 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
-  }
+  },
+  "engines": {
+    "node": "20.x"
+  },
+  "license": "MIT"
 }
