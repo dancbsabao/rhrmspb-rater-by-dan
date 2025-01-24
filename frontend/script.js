@@ -58,13 +58,13 @@ fetch(`${API_BASE_URL}/config`)
 
 // Define GIS loading logic globally
 function gisLoaded() {
-  console.log(`GIS loaded with CLIENT_ID: "fuck you"`);
+  console.log(`GIS loaded with CLIENT_ID: "successful"`);
   const gisConfig = {
     client_id: CLIENT_ID,
     scope: SCOPES,
     callback: handleTokenCallback, // Provide a callback function
   };
-  console.log('GIS Config:', "fuck you again");
+  console.log('GIS Config:', "successful");
 
   gisInitialized = true;
   maybeEnableButtons();
