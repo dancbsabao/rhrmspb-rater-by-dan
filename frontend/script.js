@@ -21,16 +21,32 @@ const elements = {
 };
 
 // Fetch constants from the backend
-fetch('http://localhost:3000/config')
-  .then((response) => response.json())
+const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
+
+fetch(`${API_BASE_URL}/config`)
+  .then((response) => {
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    return response.json();
+  })
   .then((config) => {
     // Extract constants from config
-    CLIENT_ID = config.CLIENT_ID;
-    API_KEY = config.API_KEY;
-    SHEET_ID = config.SHEET_ID;
-    SCOPES = config.SCOPES;
-    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
-    SHEET_RANGES = config.SHEET_RANGES;
+    const CLIENT_ID = config.CLIENT_ID;
+    const API_KEY = config.API_KEY;
+    const SHEET_ID = config.SHEET_ID;
+    const SCOPES = config.SCOPES;
+    const EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
+    const SHEET_RANGES = config.SHEET_RANGES;
+
+    console.log("Config loaded successfully:", config);
+
+    // Use these constants in the rest of your script
+  })
+  .catch((error) => {
+    console.error("Error fetching config:", error);
+  });
+
 
     // Log configuration for debugging
    //console.log('Configuration loaded:', {
