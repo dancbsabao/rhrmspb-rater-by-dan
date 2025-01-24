@@ -42,18 +42,13 @@ fetch(`${API_BASE_URL}/config`)
     console.log("Config loaded successfully:", config);
 
     // Use these constants in the rest of your script
-  })
-  .catch((error) => {
-    console.error("Error fetching config:", error);
-  });
-
     createEvaluatorSelector();
 
     // Initialize the app after config is loaded
     initializeApp();
   })
   .catch((error) => {
-    console.error('Failed to load configuration:', error);
+    console.error("Error fetching config:", error);
   });
 
 // Define GIS loading logic globally
