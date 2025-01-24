@@ -47,17 +47,6 @@ fetch(`${API_BASE_URL}/config`)
     console.error("Error fetching config:", error);
   });
 
-
-    // Log configuration for debugging
-   //console.log('Configuration loaded:', {
-      //CLIENT_ID,
-      //API_KEY,
-      //SHEET_ID,
-      //SCOPES,
-      //EVALUATOR_PASSWORDS,
-      //SHEET_RANGES,
-    //});
-
     createEvaluatorSelector();
 
     // Initialize the app after config is loaded
