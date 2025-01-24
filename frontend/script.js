@@ -5,7 +5,12 @@ let tokenClient = null;
 let currentEvaluator = null;
 
 // Variables for config data (populated after fetching from backend)
-let CLIENT_ID, API_KEY, SHEET_ID, SCOPES, EVALUATOR_PASSWORDS, SHEET_RANGES;
+let CLIENT_ID;
+let API_KEY;
+let SHEET_ID;
+let SCOPES;
+let EVALUATOR_PASSWORDS;
+let SHEET_RANGES;
 
 // DOM elements
 const elements = {
@@ -32,12 +37,13 @@ fetch(`${API_BASE_URL}/config`)
   })
   .then((config) => {
     // Extract constants from config
-    const CLIENT_ID = config.CLIENT_ID;
-    const API_KEY = config.API_KEY;
-    const SHEET_ID = config.SHEET_ID;
-    const SCOPES = config.SCOPES;
-    const EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
-    const SHEET_RANGES = config.SHEET_RANGES;
+    // Assign constants to global variables
+    CLIENT_ID = config.CLIENT_ID;
+    API_KEY = config.API_KEY;
+    SHEET_ID = config.SHEET_ID;
+    SCOPES = config.SCOPES;
+    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
+    SHEET_RANGES = config.SHEET_RANGES;
 
     console.log("Config loaded successfully:", config);
 
