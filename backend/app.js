@@ -4,9 +4,22 @@ const cors = require('cors');
 
 const app = express();
 
-// Configure CORS to allow requests from your GitHub Pages domain
+// Configure CORS to allow requests from multiple origins
+const allowedOrigins = [
+  'https://dancbsabao.github.io', // GitHub Pages
+  'http://127.0.0.1:5500',        // Local development (file server)
+  'http://localhost:3000',        // Localhost (adjust port if needed)
+];
+
 app.use(cors({
-  origin: 'https://dancbsabao.github.io', // Replace with your actual frontend URL
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
 }));
 
 app.use(express.json());
@@ -42,3 +55,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
