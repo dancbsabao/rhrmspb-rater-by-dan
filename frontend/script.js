@@ -551,68 +551,88 @@ function displayCandidatesTable(name, itemNumber) {
   }
 }
 
-// Style for the tiles container and individual tiles
-const style = document.createElement('style');
+// Add styles for the updated results area
+const style = document.createElement("style");
 style.innerHTML = `
-  .tiles-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 15px;
-      justify-items: center;
-      padding: 20px;
-  }
-  .tile {
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      padding: 10px;
-      background-color: #f9f9f9;
-      width: 100%;
-      text-align: center;
-      word-wrap: break-word;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      max-height: 200px; /* Limit max height for overflow handling */
-  }
-  .tile h4 {
-      font-size: 14px;
-      font-weight: bold;
-      margin-bottom: 10px;
-      text-align: center;
-  }
-  .tile-content p {
-      font-size: 12px;
-      font-weight: bold;
-      color: #333;
-      word-wrap: break-word;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: normal;
-      margin: 5px 0;
-  }
-  .open-link-button {
-      background-color:rgb(65, 65, 65);
-      color: white;
-      border: none;
-      padding: 5px 10px;
-      font-size: 12px;
-      cursor: pointer;
-      margin-top: 10px;
-  }
-  .open-link-button:hover {
-      background-color:rgb(0, 0, 0);
-  }
-  .open-link-button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-  }
-  .tile-content p.no-data {
-      color: #888;
-      font-style: italic;
-  }
+    .results-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        margin: 30px 0;
+        text-align: center;
+    }
+    .row {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        width: 100%;
+    }
+    .result-tile {
+        background-color: #eaeaea;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: #333;
+        text-transform: uppercase;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        white-space: nowrap;
+    }
+    .small-tile {
+        flex: 1 1 150px;
+    }
+    .large-tile {
+        flex: 1 1 300px;
+        font-size: 1.5rem;
+        color: #2c3e50;
+    }
+    .btn-reset {
+        margin-top: 20px;
+        padding: 10px 20px;
+        font-size: 1rem;
+        color: #fff;
+        background-color: #333;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .btn-reset:hover {
+        background-color: #444;
+    }
+
+    /* Media Query for tablets (max-width: 768px) */
+    @media (max-width: 768px) {
+        .results-area {
+            padding: 0 10px;
+        }
+        .row {
+            flex-direction: column;
+            gap: 10px;
+        }
+        .result-tile {
+            font-size: 1rem;
+            padding: 15px;
+        }
+        .small-tile, .large-tile {
+            flex: 1 1 100%;
+            text-align: center;
+        }
+    }
+
+    /* Media Query for smaller screens (max-width: 480px) */
+    @media (max-width: 480px) {
+        .result-tile {
+            font-size: 0.9rem;
+            padding: 10px;
+        }
+    }
 `;
 document.head.appendChild(style);
+
 
 
 async function fetchCompetenciesFromSheet() {
