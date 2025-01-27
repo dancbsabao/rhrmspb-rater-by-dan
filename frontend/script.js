@@ -126,13 +126,6 @@ function maybeEnableButtons() {
   }
 }
 
-
-
-
-
-
-
-
 function createEvaluatorSelector() {
 
   if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) {
@@ -174,15 +167,6 @@ function createEvaluatorSelector() {
     console.error('Error: .rating-form element not found in the DOM.');
   }
 }
-
-
-
-
-
-
-
-
-
 
 
 // Handle evaluator selection
@@ -237,13 +221,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-
-
-
-
-
-
-
 // Initialize the Google API client
 async function initializeGapiClient() {
   try {
@@ -258,16 +235,6 @@ async function initializeGapiClient() {
     console.error('Error initializing GAPI client:', error);
   }
 }
-
-
-
-
-//CORRECTED
-
-
-
-
-
 
 
 // Enable sign-in/out buttons if both GAPI and GIS are initialized
@@ -292,7 +259,6 @@ function handleAuthClick() {
   };
   tokenClient.requestAccessToken({ prompt: 'consent' });
 }
-
 
 // Handle sign-out
 function handleSignOutClick() {
@@ -402,12 +368,6 @@ function initializeDropdowns(vacancies, candidates, compeCodes, competencies) {
 }
 
 
-
-//CORRECTED
-
-
-
-
 function initializeDropdowns(vacancies, candidates, compeCodes, competencies) {
   // Helper function to disable/enable dropdown
   function setDropdownState(dropdown, enabled) {
@@ -492,6 +452,7 @@ function initializeDropdowns(vacancies, candidates, compeCodes, competencies) {
       const name = elements.nameDropdown.value;
       
       if (item && name) {
+          displayCandidatesTable(name, item);  // Call function to display data for selected name and item
           const selectedCodes = compeCodes
               .filter((row) => row[0] === item)
               .flatMap((row) => row[1].split(','));
@@ -505,11 +466,155 @@ function initializeDropdowns(vacancies, candidates, compeCodes, competencies) {
 
 
 
+// Function to display the candidates table
+// Function to display the candidates table
+function displayCandidatesTable(name, itemNumber) {
+  const candidatesTableContainer = document.getElementById('candidates-table');
+  
+  // Clear previous table content
+  candidatesTableContainer.innerHTML = '';
+
+  // Add the header before the tiles
+  const headerSection = document.createElement('div');
+  headerSection.innerHTML = `
+      <h2 style="font-size: 22px; text-align: center;">YOU ARE RATING</h2>
+      <h2 style="font-size: 36px; text-align: center;">${name}</h2>
+  `;
+  candidatesTableContainer.appendChild(headerSection);
+
+  // Find the matching row in the candidates array
+  const candidateRow = candidates.find(row => row[0] === name && row[1] === itemNumber);
+  
+  if (candidateRow) {
+      // Create a container to hold the tiles
+      const tilesContainer = document.createElement('div');
+      tilesContainer.classList.add('tiles-container'); // Add class for styling
+
+      // Define the headers for columns C to P (name them according to the order you provided)
+      const headers = [
+          'SEX', 'DATE OF BIRTH', 'AGE', 'ELIGIBILITY/PROFESSION', 'PROFESSIONAL LICENSE',
+          'LETTER OF INTENT (PDF FILE)', 'PERSONAL DATA SHEET (SPREADSHEET FILE)',
+          'WORK EXPERIENCE SHEET (WORD FILE)', 'PROOF OF ELIGIBILITY (PDF FILE)', 
+          'CERTIFICATES (PDF FILE)', 'INDIVIDUAL PERFORMANCE COMMITMENT REVIEW (PDF FILE)',
+          'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)', 
+          'TRANSCRIPT OF RECORDS (PDF FILE)'
+      ];
+
+      // Extract data from columns C to P (index 2 to 15)
+      const columnsCtoP = candidateRow.slice(2, 16);
+
+      // Create tiles for each column
+      columnsCtoP.forEach((value, index) => {
+          const tile = document.createElement('div');
+          tile.classList.add('tile'); // Add class for styling
+
+          const header = document.createElement('h4');
+          header.textContent = headers[index]; // Set header as the tile label
+          tile.appendChild(header);
+
+          const content = document.createElement('div');
+          content.classList.add('tile-content');
+
+          if (index < 4) {
+              // Columns C to F (text content)
+              const textContent = document.createElement('p');
+              textContent.textContent = value || 'No Data';
+              content.appendChild(textContent);
+          } else {
+              // Columns G to P (links, hidden until clicked)
+              const button = document.createElement('button');
+              button.classList.add('open-link-button');
+
+              if (value) {
+                  // If there's a link, show the "Open Link" button
+                  button.textContent = 'Open Link'; // Label for the button
+                  button.addEventListener('click', () => {
+                      window.open(value, '_blank'); // Open the link in a new tab
+                  });
+              } else {
+                  // If there's no link or it's empty, show "NONE" label
+                  button.textContent = 'NONE'; // Label for the button
+                  button.disabled = true; // Optionally, disable the button if there's no link
+              }
+
+              content.appendChild(button);
+          }
+          tile.appendChild(content);
+          tilesContainer.appendChild(tile);
+      });
+
+      // Append the tiles container to the main container
+      candidatesTableContainer.appendChild(tilesContainer);
+  } else {
+      // If no matching row is found, display a message
+      candidatesTableContainer.innerHTML = '<p>No matching data found.</p>';
+  }
+}
+
+// Style for the tiles container and individual tiles
+const style = document.createElement('style');
+style.innerHTML = `
+  .tiles-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      justify-items: center;
+      padding: 20px;
+  }
+  .tile {
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 10px;
+      background-color: #f9f9f9;
+      width: 100%;
+      text-align: center;
+      word-wrap: break-word;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      max-height: 200px; /* Limit max height for overflow handling */
+  }
+  .tile h4 {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      text-align: center;
+  }
+  .tile-content p {
+      font-size: 12px;
+      font-weight: bold;
+      color: #333;
+      word-wrap: break-word;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: normal;
+      margin: 5px 0;
+  }
+  .open-link-button {
+      background-color:rgb(65, 65, 65);
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-top: 10px;
+  }
+  .open-link-button:hover {
+      background-color:rgb(0, 0, 0);
+  }
+  .open-link-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+  }
+  .tile-content p.no-data {
+      color: #888;
+      font-style: italic;
+  }
+`;
+document.head.appendChild(style);
 
 
-
-
-// Display Competencies
 async function fetchCompetenciesFromSheet() {
     try {
       const response = await gapi.client.sheets.spreadsheets.values.get({
@@ -532,133 +637,232 @@ async function fetchCompetenciesFromSheet() {
       return { competenciesColumn1: [], competenciesColumn2: [] };
     }
   }
-  
+
+
   async function displayCompetencies(name, competencies) {
-    const { competenciesColumn1, competenciesColumn2 } = await fetchCompetenciesFromSheet(); // Fetch from sheet
-  
-    elements.competencyContainer.innerHTML = `<h3>BASIC COMPETENCIES</h3>`; // Title for Column A Competencies
-  
-    // Display Column A competencies (1-5)
-    competenciesColumn1.forEach((comp, idx) => {
-      if (idx < 5) {  // Limit to 5 items
-        const div = document.createElement('div');
-        div.className = 'competency-item';
-        div.innerHTML = `
-          <label>${idx + 1}. ${comp}</label>
-          <div class="rating-container">
-            ${[1, 2, 3, 4, 5].map((val) => `
-              <input type="radio" id="${comp}-${val}" name="${comp}" value="${val}">
-              <label for="${comp}-${val}">${val}</label>`).join('')}
-          </div>
-        `;
-        elements.competencyContainer.appendChild(div);
-  
-        // Add event listener to each radio button to track selection
-        Array.from(div.querySelectorAll('input[type="radio"]')).forEach(radio => {
-          radio.addEventListener('change', () => {
-            checkAllRatingsSelected();
-          });
-        });
-      }
-    });
-  
-    // Display Column B competencies (1-5)
-    elements.competencyContainer.innerHTML += `<h3>ORGANIZATIONAL COMPETENCIES</h3>`; // Title for Column B Competencies
-  
-    competenciesColumn2.forEach((comp, idx) => {
-      if (idx < 5) {  // Limit to 5 items
-        const div = document.createElement('div');
-        div.className = 'competency-item';
-        div.innerHTML = `
-          <label>${idx + 1}. ${comp}</label>
-          <div class="rating-container">
-            ${[1, 2, 3, 4, 5].map((val) => `
-              <input type="radio" id="${comp}-${val}" name="${comp}" value="${val}">
-              <label for="${comp}-${val}">${val}</label>`).join('')}
-          </div>
-        `;
-        elements.competencyContainer.appendChild(div);
-  
-        // Add event listener to each radio button to track selection
-        Array.from(div.querySelectorAll('input[type="radio"]')).forEach(radio => {
-          radio.addEventListener('change', () => {
-            checkAllRatingsSelected();
-          });
-        });
-      }
-    });
-  
-    // Display remaining competencies under "MINIMUM COMPETENCIES"
-    elements.competencyContainer.innerHTML += `<h3>MINIMUM COMPETENCIES</h3>`; // Title for other competencies
-  
-    // Start numbering from 1 for MINIMUM COMPETENCIES
-    let minimumCompetencyNumber = 1;
-  
-    // Display other competencies (Ordinally numbered based on how many there are)
-    competencies.forEach((comp, idx) => {
-      const div = document.createElement('div');
-      div.className = 'competency-item';
-      div.innerHTML = `
-        <label>${minimumCompetencyNumber++}. ${comp}</label>
-        <div class="rating-container">
-          ${[1, 2, 3, 4, 5].map((val) => `
-            <input type="radio" id="${comp}-${val}" name="${comp}" value="${val}">
-            <label for="${comp}-${val}">${val}</label>`).join('')}
+    const { competenciesColumn1, competenciesColumn2 } = await fetchCompetenciesFromSheet();
+
+    // Clear the container and set the structure
+    elements.competencyContainer.innerHTML = `
+
+        <div class="competency-section" id="basic-competencies">
+            <h3 style="font-size: 32px;">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
+            <h3>BASIC COMPETENCIES</h3>
+            <div class="competency-grid"></div>
         </div>
-      `;
-      elements.competencyContainer.appendChild(div);
-  
-      // Add event listener to each radio button to track selection
-      Array.from(div.querySelectorAll('input[type="radio"]')).forEach(radio => {
-        radio.addEventListener('change', () => {
-          checkAllRatingsSelected();
+        <div class="competency-section" id="organizational-competencies">
+            <h3 style="font-size: 32px;">POTENTIAL</h3>
+            <h3>ORGANIZATIONAL COMPETENCIES</h3>
+            <div class="competency-grid"></div>
+        </div>
+        <div class="competency-section" id="minimum-competencies">
+            <h3>MINIMUM COMPETENCIES</h3>
+            <div class="competency-grid"></div>
+        </div>
+        <!-- Updated Results Area -->
+        <div class="results-area">
+            <h3 style="font-size: 32px;">RATING RESULTS</h3>
+            <div class="row">
+                <div class="result-tile small-tile" id="basic-rating-tile">BASIC COMPETENCIES: 0.00</div>
+                <div class="result-tile small-tile" id="organizational-rating-tile">ORGANIZATIONAL COMPETENCIES: 0.00</div>
+                <div class="result-tile small-tile" id="minimum-rating-tile">MINIMUM COMPETENCIES: 0.00</div>
+            </div>
+            <div class="row">
+                <div class="result-tile large-tile" id="psychosocial-tile">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS: 0.00</div>
+                <div class="result-tile large-tile" id="potential-tile">POTENTIAL: 0.00</div>
+            </div>
+        </div>
+        <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
+    `;
+
+    // Add styles for the updated results area
+    const style = document.createElement("style");
+    style.innerHTML = `
+        .results-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            margin: 30px 0;
+            text-align: center;
+        }
+        .row {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            width: 100%;
+        }
+        .result-tile {
+            background-color: #eaeaea;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #333;
+            text-transform: uppercase;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            white-space: nowrap;
+        }
+        .small-tile {
+            flex: 1 1 150px;
+        }
+        .large-tile {
+            flex: 1 1 300px;
+            font-size: 1.5rem;
+            color: #2c3e50;
+        }
+        .btn-reset {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 1rem;
+            color: #fff;
+            background-color: #333;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .btn-reset:hover {
+            background-color: #444;
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Prepare rating trackers
+    const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
+    const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
+    const minimumCompetencyRatings = Array(competencies.length).fill(0);
+
+    function displayCandidatesTable() {
+    // Extract only columns C:P from the candidates data
+    const candidatesData = candidates.map((row) => row.slice(2, 16));
+
+    // Get the container for the table
+    const container = document.getElementById("candidates-table");
+
+    // Create a table element
+    const table = document.createElement("table");
+
+    // Add headers
+    const headers = candidatesData[0];
+    if (headers) {
+        const thead = table.createTHead();
+        const headerRow = thead.insertRow();
+        headers.forEach((header) => {
+            const th = document.createElement("th");
+            th.textContent = header;
+            headerRow.appendChild(th);
         });
-      });
-    });
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-    // Enable the submit button once all ratings are selected
-    function checkAllRatingsSelected() {
-      const allRated = Array.from(elements.competencyContainer.getElementsByClassName('competency-item'))
-        .every(item => Array.from(item.getElementsByTagName('input')).some(input => input.checked));
-      
-      elements.submitRatings.disabled = !allRated; // Disable submit button if not all ratings are selected
     }
-  
-    // Add functionality to reset ratings
-    const resetButton = document.createElement('button');
-    resetButton.textContent = "Reset Ratings";
-    resetButton.addEventListener('click', () => {
-      Array.from(elements.competencyContainer.getElementsByClassName('competency-item')).forEach(item => {
-        Array.from(item.getElementsByTagName('input')).forEach(input => input.checked = false);
-      });
-      checkAllRatingsSelected();  // Recheck if submit button should be enabled
+
+    // Add body rows
+    const tbody = table.createTBody();
+    candidatesData.slice(1).forEach((row) => {
+        const tr = tbody.insertRow();
+        row.forEach((cell) => {
+            const td = document.createElement("td");
+            td.textContent = cell || ""; // Use an empty string for undefined cells
+            tr.appendChild(td);
+        });
     });
-    elements.competencyContainer.appendChild(resetButton);
-    
-    // Initial check to enable/disable the submit button
-    checkAllRatingsSelected();
-  }
-  
+
+    // Clear the container and append the table
+    container.innerHTML = "";
+    container.appendChild(table);
+}
+
+    function createCompetencyItem(comp, idx, ratings, updateFunction) {
+        const div = document.createElement("div");
+        div.className = "competency-item";
+        div.innerHTML = `
+            <label>${idx + 1}. ${comp}</label>
+            <div class="rating-container">
+                ${[1, 2, 3, 4, 5]
+                    .map(
+                        (val) => `
+                    <input type="radio" id="${comp}-${val}" name="${comp}" value="${val}">
+                    <label for="${comp}-${val}">${val}</label>`
+                    )
+                    .join("")}
+            </div>
+        `;
+        div.querySelectorAll('input[type="radio"]').forEach((radio) => {
+            radio.addEventListener("change", () => {
+                ratings[idx] = parseInt(radio.value, 10);
+                updateFunction();
+                computePsychosocial();
+                computePotential();
+            });
+        });
+        return div;
+    }
+
+    const basicGrid = document.querySelector("#basic-competencies .competency-grid");
+    competenciesColumn1.slice(0, 5).forEach((comp, idx) => {
+        basicGrid.appendChild(
+            createCompetencyItem(comp, idx, basicCompetencyRatings, computeTotalBasicRating)
+        );
+    });
+
+    const organizationalGrid = document.querySelector("#organizational-competencies .competency-grid");
+    competenciesColumn2.slice(0, 5).forEach((comp, idx) => {
+        organizationalGrid.appendChild(
+            createCompetencyItem(comp, idx, organizationalCompetencyRatings, computeOrganizationalRating)
+        );
+    });
+
+    const minimumGrid = document.querySelector("#minimum-competencies .competency-grid");
+    competencies.forEach((comp, idx) => {
+        minimumGrid.appendChild(
+            createCompetencyItem(comp, idx, minimumCompetencyRatings, computeMinimumRating)
+        );
+    });
+
+    function computeTotalBasicRating() {
+        const totalRating = basicCompetencyRatings.filter((r) => r > 0).reduce((sum, r) => sum + (r / 5) * 2, 0);
+        document.getElementById("basic-rating-tile").textContent = `BASIC COMPETENCIES: ${totalRating.toFixed(2)}`;
+    }
+
+    function computeOrganizationalRating() {
+        const totalRating = organizationalCompetencyRatings.filter((r) => r > 0).reduce((sum, r) => sum + r / 5, 0);
+        document.getElementById("organizational-rating-tile").textContent = `ORGANIZATIONAL COMPETENCIES: ${totalRating.toFixed(2)}`;
+    }
+
+    function computeMinimumRating() {
+        const totalRating = minimumCompetencyRatings.filter((r) => r > 0).reduce((sum, r) => sum + r / minimumCompetencyRatings.length, 0);
+        document.getElementById("minimum-rating-tile").textContent = `MINIMUM COMPETENCIES: ${totalRating.toFixed(2)}`;
+    }
+
+    function computePsychosocial() {
+        const basicTotal = parseFloat(document.getElementById("basic-rating-tile").textContent.split(": ")[1]) || 0;
+        document.getElementById("psychosocial-tile").textContent = `PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS: ${basicTotal.toFixed(2)}`;
+    }
+
+    function computePotential() {
+        const organizationalTotal = parseFloat(document.getElementById("organizational-rating-tile").textContent.split(": ")[1]) || 0;
+        const minimumTotal = parseFloat(document.getElementById("minimum-rating-tile").textContent.split(": ")[1]) || 0;
+        const potential = ((organizationalTotal + minimumTotal) / 2) * 2;
+        document.getElementById("potential-tile").textContent = `POTENTIAL: ${potential.toFixed(2)}`;
+    }
+
+    document.getElementById("reset-ratings").addEventListener("click", () => {
+        document.querySelectorAll(".competency-item input[type='radio']").forEach((input) => {
+            input.checked = false;
+        });
+        basicCompetencyRatings.fill(0);
+        organizationalCompetencyRatings.fill(0);
+        minimumCompetencyRatings.fill(0);
+        computeTotalBasicRating();
+        computeOrganizationalRating();
+        computeMinimumRating();
+        computePsychosocial();
+        computePotential();
+    });
+}
 
 
-
-
-
-  
-  
   let fetchTimeout;
 
   async function fetchSubmittedRatings() {
@@ -740,27 +944,59 @@ async function fetchCompetenciesFromSheet() {
   }
   
   // Pre-fill the competency ratings
+  let originalRatings = {};
+
   function prefillRatings(competencyRatings) {
-    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  
-    Array.from(competencyItems).forEach(item => {
-      const competencyName = item.querySelector('label').textContent.split('. ')[1]; // Extract competency name
-      const rating = competencyRatings[competencyName] ? competencyRatings[competencyName][currentEvaluator] : null; // Get rating for this evaluator
-  
-      console.log(`Prefilling rating for: ${competencyName}, Evaluator: ${currentEvaluator}, Rating: ${rating}`); // Debugging line
-  
-      if (rating) {
-        // Select the radio button matching the rating
-        const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
-        if (radio) {
-          radio.checked = true;
-        } else {
-          console.warn(`No radio button found for rating ${rating} in competency ${competencyName}`); // Debugging line
+      // Store original ratings before modification
+      originalRatings = {};
+      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+    
+      Array.from(competencyItems).forEach(item => {
+        const competencyName = item.querySelector('label').textContent.split('. ')[1];
+        const rating = competencyRatings[competencyName] ? competencyRatings[competencyName][currentEvaluator] : null;
+    
+        if (rating) {
+          const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
+          if (radio) {
+            // Store original rating
+            originalRatings[competencyName] = rating;
+            
+            radio.checked = true;
+            radio.dispatchEvent(new Event('change', { bubbles: true }));
+          }
         }
-      } else {
-        console.warn(`No rating found for competency ${competencyName} and evaluator ${currentEvaluator}`); // Debugging line
+      });
+  
+      function checkAllRatingsSelected() {
+        const allItems = Array.from(elements.competencyContainer.getElementsByClassName('competency-item'));
+        
+        // Check if all ratings are selected
+        const allRated = allItems.every(item => {
+          const inputs = Array.from(item.getElementsByTagName('input'));
+          return inputs.some(input => input.checked);
+        });
+        
+        // Check if any rating has changed from original
+        const hasChanges = allItems.some(item => {
+          const competencyName = item.querySelector('label').textContent.split('. ')[1];
+          const checkedInput = item.querySelector('input[type="radio"]:checked');
+          return checkedInput && 
+                 originalRatings[competencyName] && 
+                 checkedInput.value !== originalRatings[competencyName];
+        });
+        
+        elements.submitRatings.disabled = !(allRated && hasChanges);
       }
-    });
+  
+      // Add change listeners to track modifications
+      Array.from(competencyItems).forEach(item => {
+        const inputs = item.querySelectorAll('input[type="radio"]');
+        inputs.forEach(input => {
+          input.addEventListener('change', checkAllRatingsSelected);
+        });
+      });
+  
+      checkAllRatingsSelected();
   }
   
   // Make sure to call the fetchSubmittedRatings function at appropriate times, for example:
@@ -772,42 +1008,6 @@ async function fetchCompetenciesFromSheet() {
   elements.nameDropdown.addEventListener('change', fetchSubmittedRatings);
   elements.itemDropdown.addEventListener('change', fetchSubmittedRatings);
   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // Function to reset all dropdowns to their default state
 function resetDropdowns(vacancies) {
@@ -848,27 +1048,6 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
   });
   console.log(`Dropdown ${dropdown.id} updated with options:`, options);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//SUBMIT RATINGS START
-
 
 
 // Modify your existing submitRatings function to include evaluator check
@@ -957,10 +1136,14 @@ async function checkExistingRatings(item, candidateName, evaluator) {
       const existingData = response.result.values || [];
       const candidateInitials = getInitials(candidateName);
       
-      return existingData.filter(row => 
-          row[0].startsWith(`${item}-${candidateInitials}`) && 
-          row[5] === evaluator
-      );
+      return existingData.filter(row => {
+        console.log('Checking row:', row);
+        console.log('Item-Initials:', row[0]);
+        console.log('Evaluator in row:', row[5]);
+        console.log('Current evaluator:', evaluator);
+        return row[0].startsWith(`${item}-${candidateInitials}`) && 
+               row[5] === evaluator;
+      });
   } catch (error) {
       console.error('Error checking existing ratings:', error);
       return [];
@@ -1293,19 +1476,6 @@ function getInitials(name) {
 function getCompetencyCode(competencyName) {
   return competencyName.split(' ').map(word => word.charAt(0).replace(/[^A-Za-z]/g, '')).join('');
 }
-
-
-
-//SUBMIT RATINGS END
-
-
-
-
-
-
-
-
-
 
 
 
