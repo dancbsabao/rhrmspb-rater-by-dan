@@ -948,82 +948,74 @@ function clearRatings() {
 let originalRatings = {};
 
 function prefillRatings(competencyRatings) {
-  // Store original ratings before modification
-  originalRatings = {};
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+    // Store original ratings before modification
+    originalRatings = {};
+    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
 
-  // If no ratings exist, just unlock the submit button
-  if (Object.keys(competencyRatings).length === 0) {
-    elements.submitRatings.disabled = false;
-    return; // Skip the pre-fill process if no ratings exist
-  }
-
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const rating = competencyRatings[competencyName] ? competencyRatings[competencyName][currentEvaluator] : null;
-
-    if (rating) {
-      const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
-      if (radio) {
-        // Store original rating
-        originalRatings[competencyName] = rating;
-
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+    // If no ratings exist, just unlock the submit button
+    if (Object.keys(competencyRatings).length === 0) {
+        elements.submitRatings.disabled = false;
+        return; // Skip the pre-fill process if no ratings exist
     }
-  });
 
-  // Function to check if all ratings are selected and changes are detected
-  function checkAllRatingsSelected() {
-    const allItems = Array.from(elements.competencyContainer.getElementsByClassName('competency-item'));
-
-    // Check if all ratings are selected
-    const allRated = allItems.every(item => {
-      const inputs = Array.from(item.getElementsByTagName('input'));
-      return inputs.some(input => input.checked);
-    });
-
-    // Check if any rating has changed from the original or if it's a new rating
-    const hasChanges = allItems.some(item => {
-      const competencyName = item.querySelector('label').textContent.split('. ')[1];
-      const checkedInput = item.querySelector('input[type="radio"]:checked');
-
-      // If no original rating exists for a competency, any selection is considered a change
-      if (!originalRatings[competencyName]) {
-        return !!checkedInput;
-      }
-
-      // Otherwise, check if the selected value differs from the original
-      return checkedInput && checkedInput.value !== originalRatings[competencyName];
-    });
-
-    // Enable the submit button if all items are rated and there are changes
-    elements.submitRatings.disabled = !(allRated && hasChanges);
-  }
-
-  // Add change listeners to track modifications
-  Array.from(competencyItems).forEach(item => {
-    const inputs = item.querySelectorAll('input[type="radio"]');
-    inputs.forEach(input => {
-      input.addEventListener('change', function() {
-        // Ensure original ratings are updated on any change
+    Array.from(competencyItems).forEach(item => {
         const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        originalRatings[competencyName] = input.value;
+        const rating = competencyRatings[competencyName] ? competencyRatings[competencyName][currentEvaluator] : null;
 
-        // Re-check ratings status
-        checkAllRatingsSelected();
-      });
+        if (rating) {
+            const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
+            if (radio) {
+                // Store original rating
+                originalRatings[competencyName] = rating;
+
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
     });
-  });
 
-  // Initial check to update the submit button state
-  checkAllRatingsSelected();
+    // Enable the submit button if there is data, regardless of any changes
+    elements.submitRatings.disabled = false;
+
+    // Function to check if all ratings are selected and changes are detected
+    function checkAllRatingsSelected() {
+        const allItems = Array.from(elements.competencyContainer.getElementsByClassName('competency-item'));
+
+        // Check if all ratings are selected
+        const allRated = allItems.every(item => {
+            const inputs = Array.from(item.getElementsByTagName('input'));
+            return inputs.some(input => input.checked);
+        });
+
+        // Enable the submit button if all items are rated, regardless of changes
+        elements.submitRatings.disabled = !allRated;
+    }
+
+    // Add change listeners to track modifications
+    Array.from(competencyItems).forEach(item => {
+        const inputs = item.querySelectorAll('input[type="radio"]');
+        inputs.forEach(input => {
+            input.addEventListener('change', function() {
+                // Ensure original ratings are updated on any change
+                const competencyName = item.querySelector('label').textContent.split('. ')[1];
+                originalRatings[competencyName] = input.value;
+
+                // Re-check ratings status
+                checkAllRatingsSelected();
+            });
+        });
+    });
+
+    // Initial check to update the submit button state
+    checkAllRatingsSelected();
 }
 
 // Add this function to the name dropdown's change event listener
 elements.nameDropdown.addEventListener('change', fetchSubmittedRatings);
 elements.itemDropdown.addEventListener('change', fetchSubmittedRatings);
+
+
+
 
 
 // Function to reset all dropdowns to their default state
