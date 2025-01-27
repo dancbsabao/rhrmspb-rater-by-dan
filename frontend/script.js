@@ -708,21 +708,20 @@ style.innerHTML = `
     }
     .result-tile {
         background-color: #eaeaea;
-        padding: 20px;
+        padding: 25px;  /* Increased padding */
         border-radius: 12px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         color: #333;
         text-transform: uppercase;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 12px;  /* Increased gap */
         justify-content: center;
         align-items: center;
         text-align: center;
-        min-height: 100px;
+        min-height: 120px;  /* Increased minimum height */
         font-weight: bold;
-        line-height: 1.2;
-        /* Updated word breaking properties */
+        line-height: 1.3;  /* Increased line height */
         overflow-wrap: break-word;
         word-wrap: break-word;
         word-break: normal;
@@ -730,32 +729,31 @@ style.innerHTML = `
         white-space: normal;
     }
     .tile-label {
-        font-size: clamp(0.5rem, 1.2vw, 0.8rem);
-        /* Ensure labels break at words */
+        font-size: clamp(0.9rem, 2vw, 1.3rem);  /* Increased font sizes */
         width: 100%;
         overflow-wrap: break-word;
         word-wrap: break-word;
     }
     .tile-value {
-        font-size: clamp(0.7rem, 1.5vw, 1rem);
+        font-size: clamp(1.1rem, 2.2vw, 1.5rem);  /* Increased font sizes */
     }
     .small-tile {
-        flex: 1 1 150px;
+        flex: 1 1 200px;  /* Increased minimum width */
     }
     .large-tile {
-        flex: 1 1 300px;
+        flex: 1 1 350px;  /* Increased minimum width */
         color: #2c3e50;
     }
     .large-tile .tile-label {
-        font-size: clamp(0.6rem, 1.5vw, 1rem);
+        font-size: clamp(1rem, 2.2vw, 1.4rem);  /* Increased font sizes */
     }
     .large-tile .tile-value {
-        font-size: clamp(0.8rem, 1.8vw, 1.2rem);
+        font-size: clamp(1.2rem, 2.4vw, 1.6rem);  /* Increased font sizes */
     }
     .btn-reset {
-        margin-top: 20px;
-        padding: 10px 20px;
-        font-size: 1rem;
+        margin-top: 25px;
+        padding: 12px 24px;
+        font-size: 1.2rem;  /* Increased font size */
         color: #fff;
         background-color: #333;
         border: none;
@@ -764,6 +762,26 @@ style.innerHTML = `
     }
     .btn-reset:hover {
         background-color: #444;
+    }
+
+    /* Media query for tablets */
+    @media (min-width: 768px) and (max-width: 1024px) {
+        .result-tile {
+            padding: 30px;
+            min-height: 140px;
+        }
+        .tile-label {
+            font-size: clamp(1rem, 2.2vw, 1.4rem);
+        }
+        .tile-value {
+            font-size: clamp(1.2rem, 2.4vw, 1.6rem);
+        }
+        .large-tile .tile-label {
+            font-size: clamp(1.1rem, 2.4vw, 1.5rem);
+        }
+        .large-tile .tile-value {
+            font-size: clamp(1.3rem, 2.6vw, 1.7rem);
+        }
     }
 `;
     document.head.appendChild(style);
