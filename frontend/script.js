@@ -863,151 +863,168 @@ async function fetchCompetenciesFromSheet() {
 }
 
 
-  let fetchTimeout;
+let fetchTimeout;
 
-  async function fetchSubmittedRatings() {
-    // Clear any ongoing fetches if the user rapidly switches names
-    if (fetchTimeout) clearTimeout(fetchTimeout);
-  
-    // Delay fetching to ensure stable selection
-    fetchTimeout = setTimeout(async () => {
-      const name = elements.nameDropdown.value; // Selected candidate name
-      const item = elements.itemDropdown.value; // Selected item
-  
-      // Check if an evaluator is selected and authenticated
-      if (!currentEvaluator) {
-        console.warn('No evaluator selected or authenticated.');
+async function fetchSubmittedRatings() {
+  // Clear any ongoing fetches if the user rapidly switches names
+  if (fetchTimeout) clearTimeout(fetchTimeout);
+
+  // Delay fetching to ensure stable selection
+  fetchTimeout = setTimeout(async () => {
+    const name = elements.nameDropdown.value; // Selected candidate name
+    const item = elements.itemDropdown.value; // Selected item
+
+    // Check if an evaluator is selected and authenticated
+    if (!currentEvaluator) {
+      console.warn('No evaluator selected or authenticated.');
+      return;
+    }
+
+    // Clear existing ratings
+    clearRatings();
+
+    if (!name || !item) {
+      console.warn('Name or item not selected.');
+      return;
+    }
+
+    try {
+      // Fetch data from the RATELOG sheet
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG, // Use RATELOG range from constants
+      });
+
+      const data = response.result.values || [];
+      const headers = data[0]; // Header row
+      const rows = data.slice(1); // Actual data rows
+
+      // Filter rows matching the selected name, item, and authenticated evaluator (column 6 - index 5)
+      const filteredRows = rows.filter(row =>
+        row[2] === name && row[1] === item && row[5] === currentEvaluator
+      );
+
+      if (filteredRows.length === 0) {
+        console.warn('No ratings found for the selected name, item, and evaluator.');
+        elements.submitRatings.disabled = false; // No data found, enable submit button
         return;
       }
-  
-      // Clear existing ratings
-      clearRatings();
-  
-      if (!name || !item) {
-        console.warn('Name or item not selected.');
-        return;
-      }
-  
-      try {
-        // Fetch data from the RATELOG sheet
-        const response = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: SHEET_RANGES.RATELOG, // Use RATELOG range from constants
-        });
-  
-        const data = response.result.values || [];
-        const headers = data[0]; // Header row
-        const rows = data.slice(1); // Actual data rows
-  
-        // Filter rows matching the selected name, item, and authenticated evaluator (column 6 - index 5)
-        const filteredRows = rows.filter(row =>
-          row[2] === name && row[1] === item && row[5] === currentEvaluator
-        );
-  
-        if (filteredRows.length === 0) {
-          console.warn('No ratings found for the selected name, item, and evaluator.');
-          return;
+
+      // Create a mapping of competency names to ratings, now including evaluator
+      const competencyRatings = {};
+      filteredRows.forEach(row => {
+        const competencyName = row[3]; // Column 4 (index 3) for competency name
+        const rating = row[4]; // Column 5 (index 4) for rating
+        
+        // Ensure the competency name exists in the map, and include evaluator-based rating
+        if (!competencyRatings[competencyName]) {
+          competencyRatings[competencyName] = {};
         }
-  
-        // Create a mapping of competency names to ratings, now including evaluator
-        const competencyRatings = {};
-        filteredRows.forEach(row => {
-          const competencyName = row[3]; // Column 4 (index 3) for competency name
-          const rating = row[4]; // Column 5 (index 4) for rating
-          
-          // Ensure the competency name exists in the map, and include evaluator-based rating
-          if (!competencyRatings[competencyName]) {
-            competencyRatings[competencyName] = {};
-          }
-          competencyRatings[competencyName][currentEvaluator] = rating;
-        });
-  
-        console.log('Competency Ratings:', competencyRatings); // Debugging line
-  
-        // Pre-fill the competency ratings in the DOM
-        prefillRatings(competencyRatings);
-  
-      } catch (error) {
-        console.error('Error fetching submitted ratings:', error);
-        alert('Error fetching submitted ratings. Please try again.');
-      }
-    }, 300); // Debounce delay (300ms)
+        competencyRatings[competencyName][currentEvaluator] = rating;
+      });
+
+      console.log('Competency Ratings:', competencyRatings); // Debugging line
+
+      // Pre-fill the competency ratings in the DOM
+      prefillRatings(competencyRatings);
+
+    } catch (error) {
+      console.error('Error fetching submitted ratings:', error);
+      alert('Error fetching submitted ratings. Please try again.');
+    }
+  }, 300); // Debounce delay (300ms)
+}
+
+// Clear all ratings in the DOM
+function clearRatings() {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const radios = item.querySelectorAll('input[type="radio"]');
+    radios.forEach(radio => (radio.checked = false)); // Uncheck all radio buttons
+  });
+}
+
+// Pre-fill the competency ratings
+let originalRatings = {};
+
+function prefillRatings(competencyRatings) {
+  // Store original ratings before modification
+  originalRatings = {};
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+
+  // If no ratings exist, just unlock the submit button
+  if (Object.keys(competencyRatings).length === 0) {
+    elements.submitRatings.disabled = false;
+    return; // Skip the pre-fill process if no ratings exist
   }
-  
-  // Clear all ratings in the DOM
-  function clearRatings() {
-    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-    Array.from(competencyItems).forEach(item => {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => (radio.checked = false)); // Uncheck all radio buttons
+
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const rating = competencyRatings[competencyName] ? competencyRatings[competencyName][currentEvaluator] : null;
+
+    if (rating) {
+      const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
+      if (radio) {
+        // Store original rating
+        originalRatings[competencyName] = rating;
+
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+  });
+
+  // Function to check if all ratings are selected and changes are detected
+  function checkAllRatingsSelected() {
+    const allItems = Array.from(elements.competencyContainer.getElementsByClassName('competency-item'));
+
+    // Check if all ratings are selected
+    const allRated = allItems.every(item => {
+      const inputs = Array.from(item.getElementsByTagName('input'));
+      return inputs.some(input => input.checked);
     });
-  }
-  
-  // Pre-fill the competency ratings
-  let originalRatings = {};
 
-  function prefillRatings(competencyRatings) {
-      // Store original ratings before modification
-      originalRatings = {};
-      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-    
-      Array.from(competencyItems).forEach(item => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        const rating = competencyRatings[competencyName] ? competencyRatings[competencyName][currentEvaluator] : null;
-    
-        if (rating) {
-          const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
-          if (radio) {
-            // Store original rating
-            originalRatings[competencyName] = rating;
-            
-            radio.checked = true;
-            radio.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        }
-      });
-  
-      function checkAllRatingsSelected() {
-        const allItems = Array.from(elements.competencyContainer.getElementsByClassName('competency-item'));
-        
-        // Check if all ratings are selected
-        const allRated = allItems.every(item => {
-          const inputs = Array.from(item.getElementsByTagName('input'));
-          return inputs.some(input => input.checked);
-        });
-        
-        // Check if any rating has changed from original
-        const hasChanges = allItems.some(item => {
-          const competencyName = item.querySelector('label').textContent.split('. ')[1];
-          const checkedInput = item.querySelector('input[type="radio"]:checked');
-          return checkedInput && 
-                 originalRatings[competencyName] && 
-                 checkedInput.value !== originalRatings[competencyName];
-        });
-        
-        elements.submitRatings.disabled = !(allRated && hasChanges);
+    // Check if any rating has changed from the original or if it's a new rating
+    const hasChanges = allItems.some(item => {
+      const competencyName = item.querySelector('label').textContent.split('. ')[1];
+      const checkedInput = item.querySelector('input[type="radio"]:checked');
+
+      // If no original rating exists for a competency, any selection is considered a change
+      if (!originalRatings[competencyName]) {
+        return !!checkedInput;
       }
-  
-      // Add change listeners to track modifications
-      Array.from(competencyItems).forEach(item => {
-        const inputs = item.querySelectorAll('input[type="radio"]');
-        inputs.forEach(input => {
-          input.addEventListener('change', checkAllRatingsSelected);
-        });
-      });
-  
-      checkAllRatingsSelected();
-  }
-  
-  // Make sure to call the fetchSubmittedRatings function at appropriate times, for example:
-  // elements.nameDropdown.addEventListener('change', fetchSubmittedRatings);
-  // elements.itemDropdown.addEventListener('change', fetchSubmittedRatings);
-  
 
-  // Add this function to the name dropdown's change event listener
-  elements.nameDropdown.addEventListener('change', fetchSubmittedRatings);
-  elements.itemDropdown.addEventListener('change', fetchSubmittedRatings);
-  
+      // Otherwise, check if the selected value differs from the original
+      return checkedInput && checkedInput.value !== originalRatings[competencyName];
+    });
+
+    // Enable the submit button if all items are rated and there are changes
+    elements.submitRatings.disabled = !(allRated && hasChanges);
+  }
+
+  // Add change listeners to track modifications
+  Array.from(competencyItems).forEach(item => {
+    const inputs = item.querySelectorAll('input[type="radio"]');
+    inputs.forEach(input => {
+      input.addEventListener('change', function() {
+        // Ensure original ratings are updated on any change
+        const competencyName = item.querySelector('label').textContent.split('. ')[1];
+        originalRatings[competencyName] = input.value;
+
+        // Re-check ratings status
+        checkAllRatingsSelected();
+      });
+    });
+  });
+
+  // Initial check to update the submit button state
+  checkAllRatingsSelected();
+}
+
+// Add this function to the name dropdown's change event listener
+elements.nameDropdown.addEventListener('change', fetchSubmittedRatings);
+elements.itemDropdown.addEventListener('change', fetchSubmittedRatings);
+
 
 // Function to reset all dropdowns to their default state
 function resetDropdowns(vacancies) {
