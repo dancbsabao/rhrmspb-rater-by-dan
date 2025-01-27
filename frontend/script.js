@@ -644,90 +644,128 @@ async function fetchCompetenciesFromSheet() {
 
     // Clear the container and set the structure
     elements.competencyContainer.innerHTML = `
-
-        <div class="competency-section" id="basic-competencies">
-            <h3 style="font-size: 32px;">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
-            <h3>BASIC COMPETENCIES</h3>
-            <div class="competency-grid"></div>
-        </div>
-        <div class="competency-section" id="organizational-competencies">
-            <h3 style="font-size: 32px;">POTENTIAL</h3>
-            <h3>ORGANIZATIONAL COMPETENCIES</h3>
-            <div class="competency-grid"></div>
-        </div>
-        <div class="competency-section" id="minimum-competencies">
-            <h3>MINIMUM COMPETENCIES</h3>
-            <div class="competency-grid"></div>
-        </div>
-        <!-- Updated Results Area -->
-        <div class="results-area">
-            <h3 style="font-size: 32px;">RATING RESULTS</h3>
-            <div class="row">
-                <div class="result-tile small-tile" id="basic-rating-tile">BASIC COMPETENCIES: 0.00</div>
-                <div class="result-tile small-tile" id="organizational-rating-tile">ORGANIZATIONAL COMPETENCIES: 0.00</div>
-                <div class="result-tile small-tile" id="minimum-rating-tile">MINIMUM COMPETENCIES: 0.00</div>
+    <div class="competency-section" id="basic-competencies">
+        <h3 style="font-size: 32px;">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
+        <h3>BASIC COMPETENCIES</h3>
+        <div class="competency-grid"></div>
+    </div>
+    <div class="competency-section" id="organizational-competencies">
+        <h3 style="font-size: 32px;">POTENTIAL</h3>
+        <h3>ORGANIZATIONAL COMPETENCIES</h3>
+        <div class="competency-grid"></div>
+    </div>
+    <div class="competency-section" id="minimum-competencies">
+        <h3>MINIMUM COMPETENCIES</h3>
+        <div class="competency-grid"></div>
+    </div>
+    <!-- Updated Results Area -->
+    <div class="results-area">
+        <h3 style="font-size: 32px;">RATING RESULTS</h3>
+        <div class="row">
+            <div class="result-tile small-tile" id="basic-rating-tile">
+                <span class="tile-label">BASIC COMPETENCIES:</span>
+                <span class="tile-value">0.00</span>
             </div>
-            <div class="row">
-                <div class="result-tile large-tile" id="psychosocial-tile">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS: 0.00</div>
-                <div class="result-tile large-tile" id="potential-tile">POTENTIAL: 0.00</div>
+            <div class="result-tile small-tile" id="organizational-rating-tile">
+                <span class="tile-label">ORGANIZATIONAL COMPETENCIES:</span>
+                <span class="tile-value">0.00</span>
+            </div>
+            <div class="result-tile small-tile" id="minimum-rating-tile">
+                <span class="tile-label">MINIMUM COMPETENCIES:</span>
+                <span class="tile-value">0.00</span>
             </div>
         </div>
-        <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
-    `;
+        <div class="row">
+            <div class="result-tile large-tile" id="psychosocial-tile">
+                <span class="tile-label">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS:</span>
+                <span class="tile-value">0.00</span>
+            </div>
+            <div class="result-tile large-tile" id="potential-tile">
+                <span class="tile-label">POTENTIAL:</span>
+                <span class="tile-value">0.00</span>
+            </div>
+        </div>
+    </div>
+    <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
+`;
 
-    // Add styles for the updated results area
-    const style = document.createElement("style");
-    style.innerHTML = `
-        .results-area {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-            margin: 30px 0;
-            text-align: center;
-        }
-        .row {
-            display: flex;
-            gap: 20px;
-            justify-content: center;
-            width: 100%;
-        }
-        .result-tile {
-            background-color: #eaeaea;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #333;
-            text-transform: uppercase;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            white-space: nowrap;
-        }
-        .small-tile {
-            flex: 1 1 150px;
-        }
-        .large-tile {
-            flex: 1 1 300px;
-            font-size: 1.5rem;
-            color: #2c3e50;
-        }
-        .btn-reset {
-            margin-top: 20px;
-            padding: 10px 20px;
-            font-size: 1rem;
-            color: #fff;
-            background-color: #333;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .btn-reset:hover {
-            background-color: #444;
-        }
-    `;
+// Updated styles
+const style = document.createElement("style");
+style.innerHTML = `
+    .results-area {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        margin: 30px 0;
+        text-align: center;
+    }
+    .row {
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+        width: 100%;
+    }
+    .result-tile {
+        background-color: #eaeaea;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        color: #333;
+        text-transform: uppercase;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        min-height: 100px;
+        font-weight: bold;
+        line-height: 1.2;
+        /* Updated word breaking properties */
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+        word-break: normal;
+        hyphens: none;
+        white-space: normal;
+    }
+    .tile-label {
+        font-size: clamp(0.5rem, 1.2vw, 0.8rem);
+        /* Ensure labels break at words */
+        width: 100%;
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+    }
+    .tile-value {
+        font-size: clamp(0.7rem, 1.5vw, 1rem);
+    }
+    .small-tile {
+        flex: 1 1 150px;
+    }
+    .large-tile {
+        flex: 1 1 300px;
+        color: #2c3e50;
+    }
+    .large-tile .tile-label {
+        font-size: clamp(0.6rem, 1.5vw, 1rem);
+    }
+    .large-tile .tile-value {
+        font-size: clamp(0.8rem, 1.8vw, 1.2rem);
+    }
+    .btn-reset {
+        margin-top: 20px;
+        padding: 10px 20px;
+        font-size: 1rem;
+        color: #fff;
+        background-color: #333;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .btn-reset:hover {
+        background-color: #444;
+    }
+`;
     document.head.appendChild(style);
 
     // Prepare rating trackers
