@@ -1262,19 +1262,19 @@ async function verifyEvaluatorPassword() {
               }
               .confirm-button {
                   padding: 8px 15px;
-                  background-color: #4CAF50;
+                  background-color:rgb(0, 0, 0);
                   color: white;
                   border: none;
                   border-radius: 4px;
                   cursor: pointer;
               }
               .confirm-button:hover {
-                  background-color: #45a049;
+                  background-color:rgb(255, 255, 255);
               }
               .password-input:focus {
                   outline: none;
-                  border-color: #4CAF50;
-                  box-shadow: 0 0 5px rgba(76, 175, 80, 0.2);
+                  border-color:rgb(0, 0, 0);
+                  box-shadow: 0 0 5px rgba(46, 53, 46, 0.2);
               }
           `;
           document.head.appendChild(style);
