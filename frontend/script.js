@@ -710,81 +710,92 @@ style.innerHTML = `
     }
 
     .result-tile {
-        padding: 25px;
+        padding: 30px;
         border-radius: 12px;
-        border: 1px solid black;
-        outline: 1px solid black;
-        color: #333;
+        border: 1px solid #666;
+        outline: 1px solid #aaa;
+        background-color: #f9f9f9;
+        color: #222;
         text-transform: uppercase;
         display: flex;
-        flex-direction: column;
-        gap: 12px;
+        flex-direction: column;  /* Ensure content stacks vertically */
+        gap: 20px;  /* Add space between the label and value */
         justify-content: center;
         align-items: center;
         text-align: center;
-        min-height: 120px;
+        min-height: 140px;
         font-weight: bold;
-        line-height: 1.3;
+        line-height: 1.4;
         overflow-wrap: break-word;
         word-wrap: break-word;
-        word-break: normal;
-        hyphens: none;
         white-space: normal;
-        flex: 1 1 150px;
+        flex: 1 1 200px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .result-tile:hover {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     .tile-label {
-        font-size: clamp(0.9rem, 2vw, 1.3rem);
+        font-size: clamp(1rem, 2.5vw, 1.5rem);
         width: 100%;
-        overflow-wrap: break-word;
-        word-wrap: break-word;
+        color: #555;
+        margin-bottom: 10px; /* Ensure some space below the label */
     }
 
     .tile-value {
-        font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+        font-size: clamp(2.2rem, 5vw, 3.2rem);
+        color: #111;
+        font-weight: 900;
+        margin-top: 10px; /* Added space between title and value */
     }
 
     .small-tile {
         flex: 1 1 200px;
-        background-color: white; /* Plain white background */
+        background-color: #ffffff;
     }
 
     .large-tile {
         flex: 1 1 350px;
-        background-color: rgb(255, 255, 255); /* Dark green background for prominence */
-        color: black; /* White text for better contrast */
+        background-color: #eaf4f4;
+        color: #222;
     }
 
     .large-tile .tile-label {
-        font-size: clamp(1.2rem, 2.4vw, 1.5rem);
+        font-size: clamp(1.3rem, 2.8vw, 1.8rem);
     }
 
     .large-tile .tile-value {
-        font-size: clamp(1.3rem, 2.6vw, 1.7rem);
+        font-size: clamp(2.8rem, 5.5vw, 3.8rem);
     }
 
     /* Make Psycho-Social and Potential more prominent */
     #psychosocial-tile .tile-label,
     #potential-tile .tile-label {
-        font-size: 1.5rem;
+        font-size: 1.6rem;
         font-weight: bold;
     }
 
     /* Reset Button */
     .btn-reset {
         margin-top: 25px;
-        padding: 8px 16px;
+        padding: 10px 20px;
         font-size: 1rem;
         color: #333;
-        background-color: #f0f0f0;
-        border: 1px solid #333; /* Add a border */
-        outline: 1px solid #333; /* Add an outline */
-        border-radius: 5px;
+        background-color: #fff;
+        border: 1px solid #666;
+        outline: 1px solid #888;
+        border-radius: 6px;
         cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
 
     .btn-reset:hover {
-        background-color: #e0e0e0;
+        background-color: #d9534f;
+        color: white;
     }
 
     /* Media query for portrait mode (narrow screens) */
@@ -800,13 +811,10 @@ style.innerHTML = `
             flex: 1 1 90%;
         }
         .tile-label {
-            font-size: clamp(0.8rem, 1.8vw, 1.2rem);
+            font-size: clamp(0.9rem, 2vw, 1.3rem);
         }
         .tile-value {
-            font-size: clamp(1rem, 2vw, 1.4rem);
-        }
-        .large-tile {
-            flex: 1 1 100%;
+            font-size: clamp(2rem, 4.5vw, 2.8rem);
         }
     }
 
@@ -820,13 +828,7 @@ style.innerHTML = `
             font-size: clamp(1rem, 2.2vw, 1.4rem);
         }
         .tile-value {
-            font-size: clamp(1.2rem, 2.4vw, 1.6rem);
-        }
-        .large-tile .tile-label {
-            font-size: clamp(1.1rem, 2.4vw, 1.5rem);
-        }
-        .large-tile .tile-value {
-            font-size: clamp(1.3rem, 2.6vw, 1.7rem);
+            font-size: clamp(2.4rem, 5vw, 3rem);
         }
     }
 `;
