@@ -3,161 +3,537 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modern ID Card Generator</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
-    <link rel="stylesheet" href="styles.css">
+    <title>DENR CALABARZON COMPETENCY RATING SYSTEM</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f0f0f0;
+            padding: 20px;
+            min-height: 100vh;
+            color: black;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            border: 1px solid #333;
+        }
+
+        .auth-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .auth-section button {
+            padding: 12px 24px;
+            border: 2px solid #333;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background-color: white;
+            color: black;
+        }
+
+        #signInBtn {
+            display: none;
+        }
+
+        #signOutBtn {
+            display: none;
+        }
+
+        .auth-section button:hover {
+            background-color: #333;
+            color: white;
+        }
+
+        #authStatus {
+            margin: 10px 0;
+            color: #666;
+        }
+
+        .rating-form {
+            display: none;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #333;
+            border-radius: 5px;
+            font-size: 16px;
+            margin-bottom: 15px;
+            background-color: white;
+            color: black;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: black;
+        }
+
+        #competencyContainer {
+            margin-top: 30px;
+        }
+
+        .competency-item {
+            background-color: #f0f0f0;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            border: 1px solid #333;
+        }
+
+        .competency-item label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .rating-container {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .rating-container input[type="radio"] {
+            display: none;
+        }
+
+        .rating-container label {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            text-align: center;
+            line-height: 40px;
+            border: 2px solid #333;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background-color: white;
+        }
+
+        .rating-container input[type="radio"]:checked + label {
+            background-color: black;
+            color: white;
+            border-color: black;
+        }
+
+        h3 {
+            margin: 30px 0 20px;
+            color: #333;
+            border-bottom: 2px solid black;
+            padding-bottom: 10px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: 2px solid #333;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            margin: 5px;
+            background-color: white;
+            color: black;
+        }
+
+        #submitRatings {
+            background-color: black;
+            color: white;
+            margin-top: 20px;
+        }
+
+        #submitRatings:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+
+        button[type="reset"] {
+            background-color: #333;
+            color: white;
+        }
+
+        .actions {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        /* Toast Notification Styles */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            background: white;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideIn 0.3s ease-out;
+            max-width: 400px;
+            border: 2px solid #333;
+        }
+
+        .toast.success {
+            border-left: 4px solid black;
+        }
+
+        .toast.error {
+            border-left: 4px solid #333;
+        }
+
+        .toast.info {
+            border-left: 4px solid #666;
+        }
+
+        .toast.warning {
+            border-left: 4px solid #999;
+        }
+
+        .toast-icon {
+            font-size: 20px;
+        }
+
+        .toast.success .toast-icon,
+        .toast.error .toast-icon,
+        .toast.info .toast-icon,
+        .toast.warning .toast-icon {
+            color: black;
+        }
+
+        .toast-content {
+            flex-grow: 1;
+        }
+
+        .toast-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #333;
+        }
+
+        .toast-message {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .toast-close {
+            color: #333;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 4px;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal {
+            background-color: white;
+            border-radius: 10px;
+            padding: 24px;
+            max-width: 400px;
+            width: 90%;
+            transform: scale(0.9);
+            transition: all 0.3s ease;
+            border: 2px solid #333;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .modal-content {
+            margin-bottom: 24px;
+            color: #666;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <!-- ID Card Preview -->
-        <div class="card-preview">
-            <div class="id-card" id="id-card">
-                <div class="photo-container">
-                    <div class="photo-placeholder" id="photo-placeholder">
-                        <img id="photo" alt="ID Photo">
-                        <div class="photo-overlay">
-                            <span class="camera-icon">📸</span>
-                            <span class="upload-text">Upload Photo</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="name-section">
-                    <div class="first-name" id="first-name-text">FIRST NAME</div>
-                    <div class="last-name" id="last-name-text">M. LASTNAME</div>
-                </div>
-                <div class="details-section">
-                    <div class="position" id="position-text">POSITION</div>
-                    <div class="assignment" id="assignment-text">ASSIGNMENT</div>
-                </div>
-            </div>
+        <div class="auth-section">
+            <h1>DENR CALABARZON COMPETENCY RATING SYSTEM</h1>
+            <p id="authStatus">Initializing...</p>
+            <button id="signInBtn">
+                Sign in with Google
+            </button>
+            <button id="signOutBtn">Sign Out</button>
         </div>
 
-        <!-- Cropper Modal -->
-        <div id="cropperModal" class="modal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Crop Image</h2>
-                    <span class="close">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <div class="cropper-container">
-                        <img id="cropperImage" src="" alt="Image to crop">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button id="cropButton" class="primary-button">Apply Crop</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Form Section -->
-
-        <form id="id-form" class="id-form">
-            <div class="form-header">
-                <h2>ANTI-RED TAPE ACT (ARTA) IDENTIFICATION CARD</h2>
-                <p class="subtitle">Fill in the details below to generate your ID card</p>
-            </div>
-
-
-
-            <!-- Employee Selection Dropdown -->
-            <div class="form-group modern-dropdown">
-                <label for="employee-select">👤 Select Employee</label>
-                <div class="dropdown-container">
-                    <select id="employee-select" class="text-input">
-                    </select>
-                </div>
-                <span id="employee-select-error" class="error"></span>
-            </div>
-            
-            
-
-        
-            <!-- Photo Folder Button -->
+        <div class="rating-form">
             <div class="form-group">
-                <button type="button" id="photo-folder-btn" class="secondary-button">
-                    Open Photo Folder
-                </button>
+                <label for="assignmentDropdown">Assignment:</label>
+                <select id="assignmentDropdown" required>
+                    <option value="">Select Assignment</option>
+                </select>
             </div>
-        
-            <!-- Existing photo upload -->
+
             <div class="form-group">
-                <label for="upload-photo" class="upload-label">
-                    <span class="label-text">Upload Photo</span>
-                    <div class="upload-button">
-                        <span class="upload-icon">📎</span>
-                        Choose Photo
-                    </div>
-                    <input type="file" id="upload-photo" accept="image/*" class="file-input">
-                </label>
-                <span id="photo-error" class="error"></span>
+                <label for="positionDropdown">Position:</label>
+                <select id="positionDropdown" required>
+                    <option value="">Select Position</option>
+                </select>
             </div>
 
-            <!-- Existing form fields (Hidden but Functional) -->
-            <div class="hidden-fields">
-                <div class="form-group">
-                    <label for="first-name-input">First Name</label>
-                    <input type="text" id="first-name-input" maxlength="50" class="text-input" readonly>
-                    <span id="first-name-error" class="error"></span>
-                </div>
-
-                <div class="form-group">
-                    <label for="middle-initial-input">Middle Initial</label>
-                    <input type="text" id="middle-initial-input" maxlength="1" class="text-input" readonly>
-                    <span id="middle-initial-error" class="error"></span>
-                </div>
-
-                <div class="form-group">
-                    <label for="last-name-input">Last Name</label>
-                    <input type="text" id="last-name-input" maxlength="50" class="text-input" readonly>
-                    <span id="last-name-error" class="error"></span>
-                </div>
-
-                <div class="form-group">
-                    <label for="position-input">Position</label>
-                    <input type="text" id="position-input" maxlength="50" class="text-input" readonly>
-                    <span id="position-error" class="error"></span>
-                </div>
-
-                <div class="form-group">
-                    <label for="assignment-input">Assignment</label>
-                    <input type="text" id="assignment-input" maxlength="50" class="text-input" readonly>
-                    <span id="assignment-error" class="error"></span>
-                </div>
-            </div>
-
-            <!-- New TIN Input -->
             <div class="form-group">
-                <label for="tin-input">TIN Number (Required for download)</label>
-                <input type="password" id="tin-input" class="text-input" placeholder="Enter TIN Number">
-                <span id="tin-error" class="error"></span>
-            </div>
-        
-            <!-- Download Button Wrapper -->
-            <div class="download-btn-container">
-                <button type="button" id="download-btn" class="custom-download-btn">Download ID</button>
+                <label for="itemDropdown">Item:</label>
+                <select id="itemDropdown" required>
+                    <option value="">Select Item</option>
+                </select>
             </div>
 
-        </form>
+            <div class="form-group">
+                <label for="nameDropdown">Name:</label>
+                <select id="nameDropdown" required>
+                    <option value="">Select Name</option>
+                </select>
+            </div>
+
+            <div id="candidates-table"></div>
+            <div id="competencyContainer"></div>
+
+            <div class="actions">
+                <button id="submitRatings" onclick="submitRatings()" disabled>SUBMIT RATINGS</button>
+            </div>
         </div>
     </div>
 
-    <!-- Include jQuery FIRST -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <!-- Include Select2 Library -->
-    <link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" />
-    <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <!-- Include jsPDF (Latest Version) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="script.js"></script>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal Container -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle">Confirm Action</h3>
+                <span class="modal-close" onclick="closeModal()">×</span>
+            </div>
+            <div class="modal-content" id="modalContent">
+                <!-- Modal content will be inserted here -->
+            </div>
+            <div class="modal-actions">
+                <button onclick="closeModal()" style="background-color: white; color: black; border: 2px solid #333;">Cancel</button>
+                <button id="modalConfirm" style="background-color: black; color: white; border: 2px solid #333;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+    <script src="frontend/script.js"></script>
 
-        <!-- Footer Copyright -->
-    <footer class="site-footer">
-        <p>© 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.</p>
-    </footer>
+    <script>
+        // Show/hide rating form based on auth status
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'childList' || mutation.type === 'characterData') {
+                    const authStatus = document.getElementById('authStatus').textContent;
+                    const ratingForm = document.querySelector('.rating-form');
+                    if (authStatus === 'Signed in') {
+                        ratingForm.style.display = 'block';
+                        showToast('success', 'Welcome!', 'Successfully signed in to the system.');
+                    } else {
+                        ratingForm.style.display = 'none';
+                    }
+                }
+            });
+        });
 
+        observer.observe(document.getElementById('authStatus'), {
+            childList: true,
+            characterData: true,
+            subtree: true
+        });
+
+        // Toast Notification System
+        function showToast(type, title, message, duration = 5000) {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+
+            let icon;
+            switch(type) {
+                case 'success':
+                    icon = 'fa-check-circle';
+                    break;
+                case 'error':
+                    icon = 'fa-exclamation-circle';
+                    break;
+                case 'info':
+                    icon = 'fa-info-circle';
+                    break;
+                case 'warning':
+                    icon = 'fa-exclamation-triangle';
+                    break;
+            }
+
+            toast.innerHTML = `
+                <i class="fas ${icon} toast-icon"></i>
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+                <div class="toast-close" onclick="this.parentElement.remove()">×</div>
+            `;
+
+            document.getElementById('toastContainer').appendChild(toast);
+
+            // Trigger animation
+            requestAnimationFrame(() => {
+                toast.style.transform = 'translateX(0)';
+                toast.style.opacity = '1';
+            });
+
+            // Auto remove after duration
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s ease-out forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // Modal System
+    function showModal(title, contentHTML, onConfirm) {
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalContent = document.getElementById('modalContent');
+    const modalConfirm = document.getElementById('modalConfirm');
+
+    modalTitle.textContent = title;
+    modalContent.innerHTML = contentHTML;
+
+    // Store the current handler
+    const oldClickHandler = modalOverlay.onclick;
+
+    // Handle clicks on the modal overlay (outside modal content)
+    modalOverlay.onclick = (event) => {
+        if (event.target === modalOverlay) {
+            if (modalContent.querySelector('#evaluatorPassword')) {
+                // This is an evaluator modal, reset the dropdown
+                const evaluatorSelect = document.querySelector('select[onchange*="handleEvaluatorSelection"]');
+                if (evaluatorSelect) {
+                    evaluatorSelect.value = currentEvaluator || '';
+                }
+            }
+            closeModal();
+            // Restore original click handler
+            modalOverlay.onclick = oldClickHandler;
+        }
+    };
+
+    modalConfirm.onclick = () => {
+        onConfirm();
+        closeModal();
+        // Restore original click handler
+        modalOverlay.onclick = oldClickHandler;
+    };
+
+    modalOverlay.classList.add('active');
+}
+
+
+        function closeModal() {
+            const modalOverlay = document.getElementById('modalOverlay');
+            modalOverlay.classList.remove('active');
+        }
+
+        // Override alert and confirm
+        window.alert = function(message) {
+            showToast('info', 'Notice', message);
+        };
+
+        window.confirm = function(message) {
+            return new Promise((resolve) => {
+                showModal('Confirm Action', message, () => resolve(true));
+            });
+        };
+    </script>
 </body>
 </html>
