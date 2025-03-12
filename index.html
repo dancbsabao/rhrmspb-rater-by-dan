@@ -7,6 +7,7 @@
     <title>DENR CALABARZON COMPETENCY RATING SYSTEM</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
     <style>
+        /* [All existing styles unchanged] */
         * {
             margin: 0;
             padding: 0;
@@ -184,12 +185,18 @@
             text-align: center;
         }
 
-        /* Toast Notification Styles */
         .toast-container {
             position: fixed;
             top: 20px;
             right: 20px;
             z-index: 1000;
+        }
+
+        .toast-container.center {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            right: auto;
         }
 
         .toast {
@@ -201,34 +208,60 @@
             display: flex;
             align-items: center;
             gap: 12px;
-            animation: slideIn 0.3s ease-out;
             max-width: 400px;
             border: 2px solid #333;
         }
 
-        .toast.success {
+        .toast-container:not(.center) .toast {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .toast-container:not(.center) .toast.success {
             border-left: 4px solid black;
         }
 
-        .toast.error {
-            border-left: 4px solid #333;
+        .toast-container:not(.center) .toast.error {
+            border-left: 4px solid #d32f2f;
         }
 
-        .toast.info {
+        .toast-container:not(.center) .toast.info {
             border-left: 4px solid #666;
         }
 
-        .toast.warning {
+        .toast-container:not(.center) .toast.warning {
             border-left: 4px solid #999;
+        }
+
+        .toast-container.center .toast {
+            animation: fadeScaleIn 0.3s ease-out;
+            border: 1px solid #333;
+            background-color: rgba(240, 240, 240, 0.95);
+        }
+
+        .toast-container.center .toast.success {
+            background-color: rgba(200, 255, 200, 0.95);
+        }
+
+        .toast-container.center .toast.error {
+            background-color: rgba(255, 200, 200, 0.95);
         }
 
         .toast-icon {
             font-size: 20px;
         }
 
-        .toast.success .toast-icon,
-        .toast.error .toast-icon,
-        .toast.info .toast-icon,
+        .toast.success .toast-icon {
+            color: black;
+        }
+
+        .toast.error .toast-icon {
+            color: #d32f2f;
+        }
+
+        .toast.info .toast-icon {
+            color: black;
+        }
+
         .toast.warning .toast-icon {
             color: black;
         }
@@ -277,7 +310,28 @@
             }
         }
 
-        /* Modal Styles */
+        @keyframes fadeScaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes fadeScaleOut {
+            from {
+                opacity: 1;
+                transform: scale(1);
+            }
+            to {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+        }
+
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -337,6 +391,41 @@
         .modal-overlay.active .modal {
             transform: scale(1);
         }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease;
+        }
+
+        .loading-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #333;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -347,7 +436,7 @@
             <button id="signInBtn">
                 Sign in with Google
             </button>
-            <button id="signOutBtn">Sign Out</button>
+            <button id="signOutBtn" onclick="confirmSignOut(event)">Sign Out</button>
         </div>
 
         <div class="rating-form">
@@ -388,10 +477,8 @@
         </div>
     </div>
 
-    <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <!-- Modal Container -->
     <div class="modal-overlay" id="modalOverlay">
         <div class="modal">
             <div class="modal-header">
@@ -399,7 +486,6 @@
                 <span class="modal-close" onclick="closeModal()">×</span>
             </div>
             <div class="modal-content" id="modalContent">
-                <!-- Modal content will be inserted here -->
             </div>
             <div class="modal-actions">
                 <button onclick="closeModal()" style="background-color: white; color: black; border: 2px solid #333;">Cancel</button>
@@ -408,12 +494,15 @@
         </div>
     </div>
 
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
     <script src="frontend/script.js"></script>
 
     <script>
-        // Show/hide rating form based on auth status
         const observer = new MutationObserver((mutations) => {
             mutations.forEach((mutation) => {
                 if (mutation.type === 'childList' || mutation.type === 'characterData') {
@@ -421,7 +510,6 @@
                     const ratingForm = document.querySelector('.rating-form');
                     if (authStatus === 'Signed in') {
                         ratingForm.style.display = 'block';
-                        showToast('success', 'Welcome!', 'Successfully signed in to the system.');
                     } else {
                         ratingForm.style.display = 'none';
                     }
@@ -435,25 +523,19 @@
             subtree: true
         });
 
-        // Toast Notification System
-        function showToast(type, title, message, duration = 5000) {
+        function showToast(type, title, message, duration = 5000, position = 'top-right') {
+            const toastContainer = document.getElementById('toastContainer');
+            toastContainer.className = `toast-container ${position}`;
+
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
 
             let icon;
             switch(type) {
-                case 'success':
-                    icon = 'fa-check-circle';
-                    break;
-                case 'error':
-                    icon = 'fa-exclamation-circle';
-                    break;
-                case 'info':
-                    icon = 'fa-info-circle';
-                    break;
-                case 'warning':
-                    icon = 'fa-exclamation-triangle';
-                    break;
+                case 'success': icon = 'fa-check-circle'; break;
+                case 'error': icon = 'fa-exclamation-circle'; break;
+                case 'info': icon = 'fa-info-circle'; break;
+                case 'warning': icon = 'fa-exclamation-triangle'; break;
             }
 
             toast.innerHTML = `
@@ -465,67 +547,64 @@
                 <div class="toast-close" onclick="this.parentElement.remove()">×</div>
             `;
 
-            document.getElementById('toastContainer').appendChild(toast);
+            toastContainer.appendChild(toast);
 
-            // Trigger animation
             requestAnimationFrame(() => {
-                toast.style.transform = 'translateX(0)';
                 toast.style.opacity = '1';
             });
 
-            // Auto remove after duration
             setTimeout(() => {
-                toast.style.animation = 'slideOut 0.3s ease-out forwards';
+                if (position === 'center') {
+                    toast.style.animation = 'fadeScaleOut 0.3s ease-out forwards';
+                } else {
+                    toast.style.animation = 'slideOut 0.3s ease-out forwards';
+                }
                 setTimeout(() => toast.remove(), 300);
             }, duration);
         }
 
-        // Modal System
-    function showModal(title, contentHTML, onConfirm) {
-    const modalOverlay = document.getElementById('modalOverlay');
-    const modalTitle = document.getElementById('modalTitle');
-    const modalContent = document.getElementById('modalContent');
-    const modalConfirm = document.getElementById('modalConfirm');
+        function showModal(title, contentHTML, onConfirm = null) {
+            return new Promise((resolve) => {
+                const modalOverlay = document.getElementById('modalOverlay');
+                const modalTitle = document.getElementById('modalTitle');
+                const modalContent = document.getElementById('modalContent');
+                const modalConfirm = document.getElementById('modalConfirm');
 
-    modalTitle.textContent = title;
-    modalContent.innerHTML = contentHTML;
+                modalTitle.textContent = title;
+                modalContent.innerHTML = contentHTML;
 
-    // Store the current handler
-    const oldClickHandler = modalOverlay.onclick;
+                const oldClickHandler = modalOverlay.onclick;
 
-    // Handle clicks on the modal overlay (outside modal content)
-    modalOverlay.onclick = (event) => {
-        if (event.target === modalOverlay) {
-            if (modalContent.querySelector('#evaluatorPassword')) {
-                // This is an evaluator modal, reset the dropdown
-                const evaluatorSelect = document.querySelector('select[onchange*="handleEvaluatorSelection"]');
-                if (evaluatorSelect) {
-                    evaluatorSelect.value = currentEvaluator || '';
-                }
-            }
-            closeModal();
-            // Restore original click handler
-            modalOverlay.onclick = oldClickHandler;
+                modalOverlay.onclick = (event) => {
+                    if (event.target === modalOverlay) {
+                        if (modalContent.querySelector('#evaluatorPassword') || modalContent.querySelector('#verificationPassword')) {
+                            const evaluatorSelect = document.querySelector('select#evaluatorSelect');
+                            if (evaluatorSelect) {
+                                evaluatorSelect.value = currentEvaluator || '';
+                            }
+                        }
+                        closeModal();
+                        resolve(false);
+                        modalOverlay.onclick = oldClickHandler;
+                    }
+                };
+
+                modalConfirm.onclick = () => {
+                    closeModal();
+                    if (onConfirm) onConfirm();
+                    resolve(true);
+                    modalOverlay.onclick = oldClickHandler;
+                };
+
+                modalOverlay.classList.add('active');
+            });
         }
-    };
-
-    modalConfirm.onclick = () => {
-        onConfirm();
-        closeModal();
-        // Restore original click handler
-        modalOverlay.onclick = oldClickHandler;
-    };
-
-    modalOverlay.classList.add('active');
-}
-
 
         function closeModal() {
             const modalOverlay = document.getElementById('modalOverlay');
             modalOverlay.classList.remove('active');
         }
 
-        // Override alert and confirm
         window.alert = function(message) {
             showToast('info', 'Notice', message);
         };
@@ -535,11 +614,21 @@
                 showModal('Confirm Action', message, () => resolve(true));
             });
         };
+
+        async function confirmSignOut(event) {
+            event.preventDefault(); // Prevent any default behavior
+            const confirmed = await showModal(
+                'Confirm Sign Out',
+                '<p>Are you sure you want to sign out?</p>'
+            );
+            if (confirmed) {
+                handleSignOutClick();
+            }
+        }
     </script>
 
-            <!-- Footer Copyright -->
-            <footer class="site-footer">
-                <p>© 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.</p>
-            </footer>
+    <footer class="site-footer">
+        <p>© 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.</p>
+    </footer>
 </body>
 </html>
