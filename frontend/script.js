@@ -555,6 +555,7 @@ function prefillRatings(competencyRatings) {
   checkAllRatingsSelected();
 }
 
+// Update submitRatings to use the new lock mechanism
 async function submitRatings() {
   if (isSubmitting) {
     console.log('Submission already in progress, ignoring duplicate call');
@@ -610,7 +611,7 @@ async function submitRatings() {
     }
   } catch (error) {
     console.error('Submission failed:', error);
-    showToast('error', 'Error', 'Failed to submit ratings');
+    showToast('error', 'Error', 'Failed to submit ratings: ' + error.message);
   } finally {
     isSubmitting = false;
     loadingOverlay.classList.remove('active');
@@ -705,77 +706,131 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
   return { ratings };
 }
 
-async function submitRatingsWithLock(ratings) {
+// Add a utility function for delay
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Enhanced submitRatingsWithLock with retry logic
+async function submitRatingsWithLock(ratings, maxRetries = 3) {
   const lockRange = "RATELOG!G1:H1";
-  const LOCK_TIMEOUT = 30000;
+  const LOCK_TIMEOUT = 30000; // 30 seconds
+  let retryCount = 0;
 
-  const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: lockRange,
-  });
+  while (retryCount < maxRetries) {
+    try {
+      // Fetch current lock status
+      const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: lockRange,
+      });
 
-  const lockData = lockStatusResponse.result.values?.[0] || ['', ''];
-  const [lockStatus, lockTimestamp] = lockData;
+      const lockData = lockStatusResponse.result.values?.[0] || ['', ''];
+      const [lockStatus, lockTimestamp] = lockData;
 
-  if (lockStatus === 'locked') {
-    const lockTime = new Date(lockTimestamp).getTime();
-    const now = new Date().getTime();
-    if (now - lockTime < LOCK_TIMEOUT) {
-      return { success: false, message: 'Another submission in progress' };
+      // Check if locked and still valid
+      if (lockStatus === 'locked') {
+        const lockTime = new Date(lockTimestamp).getTime();
+        const now = new Date().getTime();
+        if (now - lockTime < LOCK_TIMEOUT) {
+          // Lock is active, wait and retry
+          const backoffTime = Math.pow(2, retryCount) * 1000 + Math.random() * 500; // Exponential backoff + jitter
+          console.log(`Lock detected, retrying in ${backoffTime}ms (attempt ${retryCount + 1}/${maxRetries})`);
+          await delay(backoffTime);
+          retryCount++;
+          continue;
+        }
+      }
+
+      // Attempt to acquire lock
+      const timestamp = new Date().toISOString();
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: lockRange,
+        valueInputOption: 'RAW',
+        resource: { values: [['locked', timestamp]] },
+      });
+
+      // Verify we acquired the lock (re-fetch to confirm)
+      const verifyLock = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: lockRange,
+      });
+      const [newLockStatus, newTimestamp] = verifyLock.result.values?.[0] || ['', ''];
+      if (newLockStatus !== 'locked' || newTimestamp !== timestamp) {
+        console.log('Failed to acquire lock, retrying');
+        await delay(1000); // Short delay before retry
+        retryCount++;
+        continue;
+      }
+
+      // Process ratings (with conflict resolution)
+      const result = await processRatings(ratings);
+
+      // Release lock
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: lockRange,
+        valueInputOption: 'RAW',
+        resource: { values: [['', '']] },
+      });
+
+      return result; // Success
+    } catch (error) {
+      console.error('Error in submitRatingsWithLock:', error);
+      retryCount++;
+      if (retryCount >= maxRetries) {
+        // Release lock on final failure
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: lockRange,
+          valueInputOption: 'RAW',
+          resource: { values: [['', '']] },
+        });
+        throw new Error('Max retries reached, submission failed');
+      }
+      await delay(Math.pow(2, retryCount) * 1000); // Exponential backoff
     }
   }
 
-  const timestamp = new Date().toISOString();
-  await gapi.client.sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: lockRange,
-    valueInputOption: 'RAW',
-    resource: { values: [['locked', timestamp]] },
-  });
-
-  try {
-    const result = await processRatings(ratings);
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-      valueInputOption: 'RAW',
-      resource: { values: [['', '']] },
-    });
-    return result;
-  } catch (error) {
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-      valueInputOption: 'RAW',
-      resource: { values: [['', '']] },
-    });
-    throw error;
-  }
+  throw new Error('Unexpected failure in submitRatingsWithLock');
 }
 
+// Updated processRatings with conflict resolution
 async function processRatings(ratings) {
+  // Fetch the latest data
   const response = await gapi.client.sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range: SHEET_RANGES.RATELOG,
   });
 
-  const existingData = response.result.values || [];
-  const updatedRatings = [];
+  let existingData = response.result.values || [];
   const newRatings = [];
   let isUpdated = false;
 
+  // Create a map of existing ratings by ratingCode (column A)
+  const existingRatingsMap = new Map();
+  existingData.forEach((row, index) => {
+    if (row[0]) existingRatingsMap.set(row[0], { row, index });
+  });
+
+  // Process each new rating
   ratings.forEach(newRating => {
-    const existingRowIndex = existingData.findIndex(row => row[0] === newRating[0]);
-    if (existingRowIndex !== -1) {
-      existingData[existingRowIndex] = newRating;
+    const ratingCode = newRating[0];
+    if (existingRatingsMap.has(ratingCode)) {
+      // Update existing rating
+      const { index } = existingRatingsMap.get(ratingCode);
+      existingData[index] = newRating;
       isUpdated = true;
     } else {
+      // Add new rating
       newRatings.push(newRating);
     }
   });
 
   const batchUpdates = [];
   if (isUpdated) {
+    // Write back updated existing data
     batchUpdates.push(
       gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -786,6 +841,7 @@ async function processRatings(ratings) {
     );
   }
   if (newRatings.length > 0) {
+    // Append new ratings
     batchUpdates.push(
       gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
@@ -797,6 +853,7 @@ async function processRatings(ratings) {
   }
 
   await Promise.all(batchUpdates);
+
   return {
     success: true,
     message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
