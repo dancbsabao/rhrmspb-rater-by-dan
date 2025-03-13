@@ -60,12 +60,8 @@ function loadAuthState() {
     console.log('No auth state found');
     return null;
   }
-  if (Date.now() >= authState.expires_at) {
-    console.log('Token expired, clearing state');
-    localStorage.removeItem('authState');
-    return null;
-  }
-  console.log('Loaded auth state:', authState);
+  // Removed expiration check to allow persistent tokens across devices
+  console.log('Loaded auth state (no expiration check):', authState);
   return authState;
 }
 
@@ -303,27 +299,26 @@ function handleAuthClick() {
 function handleSignOutClick() {
   const token = gapi.client.getToken();
   if (token) {
-    google.accounts.oauth2.revoke(token.access_token, () => {
-      gapi.client.setToken(null);
-      localStorage.removeItem('authState');
-      localStorage.removeItem('dropdownState');
-      localStorage.removeItem('hasWelcomed');
-      // Clear the current assignment authorization
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('currentAssignmentAuth_')) {
-          localStorage.removeItem(key);
-        }
-      });
-      elements.authStatus.textContent = 'Signed out';
-      elements.signInBtn.style.display = 'block';
-      elements.signOutBtn.style.display = 'none';
-      currentEvaluator = null;
-      vacancies = [];
-      candidates = [];
-      compeCodes = [];
-      competencies = [];
-      resetDropdowns(vacancies);
+    // Do not revoke the token to allow other devices to stay logged in
+    gapi.client.setToken(null); // Clear token only for this device
+    localStorage.removeItem('authState');
+    localStorage.removeItem('dropdownState');
+    localStorage.removeItem('hasWelcomed');
+    // Clear assignment authorization
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('currentAssignmentAuth_')) {
+        localStorage.removeItem(key);
+      }
     });
+    elements.authStatus.textContent = 'Signed out';
+    elements.signInBtn.style.display = 'block';
+    elements.signOutBtn.style.display = 'none';
+    currentEvaluator = null;
+    vacancies = [];
+    candidates = [];
+    compeCodes = [];
+    competencies = [];
+    resetDropdowns(vacancies);
   }
 }
 
@@ -348,7 +343,30 @@ async function loadSheetData() {
     initializeDropdowns(vacancies);
   } catch (error) {
     console.error('Error loading sheet data:', error);
-    elements.authStatus.textContent = 'Error loading sheet data';
+    elements.authStatus.textContent = 'Error loading sheet data. Retrying...';
+    // Retry once after a delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      const data = await Promise.all(
+        Object.values(SHEET_RANGES).map((range) =>
+          gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range,
+          })
+        )
+      );
+      vacancies = data[0]?.result?.values || [];
+      candidates = data[1]?.result?.values || [];
+      compeCodes = data[2]?.result?.values || [];
+      competencies = data[3]?.result?.values || [];
+      console.log('Sheet data loaded on retry:', { vacancies, candidates, compeCodes, competencies });
+      initializeDropdowns(vacancies);
+      elements.authStatus.textContent = 'Signed in';
+    } catch (retryError) {
+      console.error('Retry failed:', retryError);
+      elements.authStatus.textContent = 'Error loading sheet data. Please sign out and sign in again.';
+      showToast('error', 'Error', 'Failed to load sheet data after retry. Please re-authenticate.');
+    }
   }
 }
 
@@ -622,8 +640,8 @@ async function submitRatings() {
 
   try {
     const token = gapi.client.getToken();
-    if (!token) {
-      showToast('error', 'Error', 'Please sign in to submit ratings');
+    if (!token || !token.access_token) {
+      showToast('error', 'Error', 'Authentication token missing. Please sign in again.');
       handleAuthClick();
       return;
     }
@@ -663,10 +681,13 @@ async function submitRatings() {
     const result = await submitRatingsWithLock(ratings);
     if (result.success) {
       showToast('success', 'Success', result.message, 5000, 'center');
+    } else {
+      console.error('Submission failed with result:', result);
+      showToast('error', 'Error', 'Submission failed unexpectedly');
     }
   } catch (error) {
-    console.error('Submission failed:', error);
-    showToast('error', 'Error', 'Failed to submit ratings: ' + error.message);
+    console.error('Submission error:', error);
+    showToast('error', 'Error', `Failed to submit ratings: ${error.message || 'Unknown error'}`);
   } finally {
     isSubmitting = false;
     loadingOverlay.classList.remove('active');
