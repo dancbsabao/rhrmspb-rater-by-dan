@@ -5,6 +5,7 @@ let tokenClient = null;
 let currentEvaluator = null;
 let fetchTimeout;
 let isSubmitting = false;
+let refreshTimer = null; // Timer for proactive token refresh
 
 let CLIENT_ID;
 let API_KEY;
@@ -36,11 +37,12 @@ function saveAuthState(tokenResponse, evaluator) {
   const authState = {
     access_token: tokenResponse.access_token,
     refresh_token: tokenResponse.refresh_token || JSON.parse(localStorage.getItem('authState'))?.refresh_token,
-    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
+    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000), // Default to 3600s if not provided
     evaluator: evaluator || null,
   };
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
+  scheduleTokenRefresh(); // Schedule refresh on auth state save
 }
 
 function saveDropdownState() {
@@ -196,20 +198,32 @@ async function initializeGapiClient() {
 }
 
 async function isTokenValid() {
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.access_token) return false;
+
+  const timeLeft = authState.expires_at - Date.now();
+  if (timeLeft < 300000) { // Less than 5 minutes remaining
+    console.log('Token nearing expiry, refreshing proactively');
+    return await refreshAccessToken();
+  }
+
   try {
     await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
     return true;
   } catch (error) {
-    return false;
+    console.log('Token validation failed, attempting refresh:', error);
+    return await refreshAccessToken();
   }
 }
 
 async function refreshAccessToken() {
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.refresh_token) {
+    console.warn('No refresh token available, requiring re-authentication');
     handleAuthClick();
-    return;
+    return false;
   }
+
   try {
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -220,19 +234,51 @@ async function refreshAccessToken() {
         grant_type: 'refresh_token',
       }),
     });
+
     const newToken = await response.json();
+    if (!response.ok || newToken.error) {
+      throw new Error(newToken.error_description || 'Token refresh failed');
+    }
+
     if (newToken.access_token) {
       authState.access_token = newToken.access_token;
       authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
       localStorage.setItem('authState', JSON.stringify(authState));
       gapi.client.setToken({ access_token: authState.access_token });
+      console.log('Access token refreshed successfully');
+      scheduleTokenRefresh(); // Reschedule after success
+      return true;
     } else {
-      handleAuthClick();
+      throw new Error('No access token in refresh response');
     }
   } catch (error) {
     console.error('Token refresh failed:', error);
-    handleAuthClick();
+    showToast('warning', 'Session Issue', 'Unable to refresh session, retrying soon...');
+    return false; // Retry later instead of forcing sign-in
   }
+}
+
+function scheduleTokenRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer); // Clear existing timer
+
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.expires_at || !authState.refresh_token) {
+    console.log('No valid auth state for scheduling refresh');
+    return;
+  }
+
+  const timeToExpiry = authState.expires_at - Date.now();
+  const refreshInterval = Math.max(3000000, timeToExpiry - 600000); // 50 min or 10 min before expiry
+
+  refreshTimer = setTimeout(async () => {
+    console.log('Scheduled token refresh triggered');
+    const success = await refreshAccessToken();
+    if (!success) {
+      refreshTimer = setTimeout(scheduleTokenRefresh, 300000); // Retry in 5 min if failed
+    }
+  }, refreshInterval);
+
+  console.log(`Token refresh scheduled in ${refreshInterval / 60000} minutes`);
 }
 
 function handleTokenCallback(tokenResponse) {
@@ -342,49 +388,37 @@ function handleSignOutClick() {
     <p>Are you sure you want to sign out?</p>
   `;
   showModal('Confirm Sign Out', modalContent, () => {
-    // Clear Google API token
     gapi.client.setToken(null);
-
-    // Clear all localStorage data (authState, dropdownState, radioState_*, hasWelcomed)
     localStorage.clear();
     console.log('All localStorage cleared');
-
-    // Reset global variables
     currentEvaluator = null;
     vacancies = [];
     candidates = [];
     compeCodes = [];
     competencies = [];
     console.log('Global variables reset');
-
-    // Update UI immediately
     elements.authStatus.textContent = 'Signed out';
     elements.signInBtn.style.display = 'block';
     elements.signOutBtn.style.display = 'none';
-
-    // Reset dropdowns and competency container
     resetDropdowns([]);
     elements.competencyContainer.innerHTML = '';
     clearRatings();
-
-    // Reset evaluator selector if it exists
     const evaluatorSelect = document.getElementById('evaluatorSelect');
     if (evaluatorSelect) {
       evaluatorSelect.value = '';
-      evaluatorSelect.parentElement.remove(); // Remove the evaluator selector entirely
+      evaluatorSelect.parentElement.remove();
     }
-
-    // Disable submit button if it exists
     if (elements.submitRatings) {
       elements.submitRatings.disabled = true;
     }
-
-    // Clear any active fetch timeouts
     if (fetchTimeout) {
       clearTimeout(fetchTimeout);
       fetchTimeout = null;
     }
-
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
     showToast('success', 'Signed Out', 'You have been successfully signed out.');
   }, () => {
     console.log('Sign out canceled');
@@ -394,7 +428,9 @@ function handleSignOutClick() {
 async function loadSheetData(maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      if (!await isTokenValid()) await refreshAccessToken();
+      if (!await isTokenValid()) {
+        console.log('Token invalid, refreshed in attempt', attempt);
+      }
       const ranges = Object.values(SHEET_RANGES);
       const data = await Promise.all(
         ranges.map((range) =>
@@ -415,12 +451,18 @@ async function loadSheetData(maxRetries = 3) {
     } catch (error) {
       console.error(`Attempt ${attempt} failed:`, error);
       if (attempt === maxRetries) {
-        elements.authStatus.textContent = 'Error loading sheet data. Please sign out and sign in again.';
-        showToast('error', 'Error', 'Failed to load sheet data after retries.');
+        elements.authStatus.textContent = 'Error loading sheet data. Retrying soon...';
+        showToast('error', 'Error', 'Failed to load sheet data, retrying in the background.');
+        setTimeout(() => loadSheetData(), 300000); // Retry after 5 minutes
+      } else {
+        await delay(Math.pow(2, attempt) * 1000); // Exponential backoff
       }
-      await delay(Math.pow(2, attempt) * 1000);
     }
   }
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
@@ -827,10 +869,6 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
   }
   console.log('Ratings to submit:', ratings);
   return { ratings };
-}
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function submitRatingsWithLock(ratings, maxRetries = 5) {
