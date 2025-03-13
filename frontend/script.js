@@ -308,6 +308,12 @@ function handleSignOutClick() {
       localStorage.removeItem('authState');
       localStorage.removeItem('dropdownState');
       localStorage.removeItem('hasWelcomed');
+      // Clear the current assignment authorization
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('currentAssignmentAuth_')) {
+          localStorage.removeItem(key);
+        }
+      });
       elements.authStatus.textContent = 'Signed out';
       elements.signInBtn.style.display = 'block';
       elements.signOutBtn.style.display = 'none';
@@ -346,6 +352,18 @@ async function loadSheetData() {
   }
 }
 
+// Define updateDropdown first
+function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
+  dropdown.innerHTML = `<option value="">${defaultOptionText}</option>`;
+  options.forEach((opt) => {
+    const option = document.createElement('option');
+    option.value = opt;
+    option.textContent = opt;
+    dropdown.appendChild(option);
+  });
+}
+
+// Then define initializeDropdowns
 function initializeDropdowns(vacancies) {
   function setDropdownState(dropdown, enabled) {
     dropdown.disabled = !enabled;
@@ -367,9 +385,56 @@ function initializeDropdowns(vacancies) {
   setDropdownState(elements.itemDropdown, false);
   setDropdownState(elements.nameDropdown, false);
 
-  elements.assignmentDropdown.addEventListener('change', () => {
+  elements.assignmentDropdown.addEventListener('change', async () => {
     const assignment = elements.assignmentDropdown.value;
-    if (assignment) {
+
+    // Check if the current evaluator requires a password prompt
+    const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
+    let isAuthorized = true;
+
+    if (assignment && requiresPassword) {
+      // Key to track the currently authorized assignment for this evaluator
+      const authKey = `currentAssignmentAuth_${currentEvaluator}`;
+      const storedAssignment = localStorage.getItem(authKey);
+
+      // Only skip the prompt if the selected assignment matches the currently authorized one
+      if (storedAssignment !== assignment) {
+        const modalContent = `
+          <p>Please enter the password to access assignment "${assignment}":</p>
+          <input type="password" id="assignmentPassword" class="modal-input" 
+                 style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+        `;
+        
+        isAuthorized = await new Promise((resolve) => {
+          showModal('Assignment Authentication', modalContent, () => {
+            const passwordInput = document.getElementById('assignmentPassword');
+            const password = passwordInput.value.trim();
+            const isValid = password === "admindan";
+            if (isValid) {
+              localStorage.setItem(authKey, assignment); // Save only if password is correct
+              // Show success modal after authorization
+              showModal('Authorization Successful', `<p>Assignment "${assignment}" has been successfully authorized.</p>`);
+            }
+            resolve(isValid); // Resolve with true only if password matches
+          });
+        });
+
+        if (!isAuthorized) {
+          showToast('error', 'Error', 'Incorrect password for assignment');
+          elements.assignmentDropdown.value = storedAssignment || ''; // Revert to the last authorized assignment or clear
+          setDropdownState(elements.positionDropdown, false);
+          setDropdownState(elements.itemDropdown, false);
+          setDropdownState(elements.nameDropdown, false);
+          saveDropdownState();
+          return;
+        }
+      } else {
+        // If the assignment is the same as the stored one, no prompt needed
+        isAuthorized = true;
+      }
+    }
+
+    if (assignment && isAuthorized) {
       const positions = vacancies
         .filter((row) => row[2] === assignment)
         .map((row) => row[1]);
@@ -430,16 +495,6 @@ function initializeDropdowns(vacancies) {
       }
     }
     saveDropdownState();
-  });
-}
-
-function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
-  dropdown.innerHTML = `<option value="">${defaultOptionText}</option>`;
-  options.forEach((opt) => {
-    const option = document.createElement('option');
-    option.value = opt;
-    option.textContent = opt;
-    dropdown.appendChild(option);
   });
 }
 
