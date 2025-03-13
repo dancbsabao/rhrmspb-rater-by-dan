@@ -646,6 +646,18 @@ async function submitRatings() {
       return;
     }
 
+    // Validate token usability with a lightweight API call
+    try {
+      await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: SHEET_ID,
+      });
+    } catch (tokenError) {
+      console.error('Token validation failed:', tokenError);
+      showToast('error', 'Error', 'Session expired or invalid. Please re-authenticate.');
+      handleAuthClick();
+      return;
+    }
+
     if (!currentEvaluator) {
       showToast('warning', 'Warning', 'Please select an evaluator');
       return;
@@ -678,16 +690,34 @@ async function submitRatings() {
     }
 
     loadingOverlay.classList.add('active');
-    const result = await submitRatingsWithLock(ratings);
-    if (result.success) {
-      showToast('success', 'Success', result.message, 5000, 'center');
-    } else {
-      console.error('Submission failed with result:', result);
-      showToast('error', 'Error', 'Submission failed unexpectedly');
+
+    // Retry submission up to 3 times
+    let result;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        result = await submitRatingsWithLock(ratings);
+        if (result.success) {
+          showToast('success', 'Success', result.message, 5000, 'center');
+          break;
+        } else {
+          throw new Error('Submission returned unsuccessful');
+        }
+      } catch (retryError) {
+        console.warn(`Submission attempt ${attempt} failed:`, retryError);
+        if (attempt === 3) {
+          throw retryError; // Final attempt failed, propagate error
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+      }
     }
   } catch (error) {
     console.error('Submission error:', error);
-    showToast('error', 'Error', `Failed to submit ratings: ${error.message || 'Unknown error'}`);
+    const errorMessage = error.message || 'Unknown error occurred during submission';
+    showToast('error', 'Error', `Failed to submit ratings: ${errorMessage}`);
+    if (error.status === 401 || error.status === 403) {
+      showToast('info', 'Session Issue', 'Please re-authenticate to continue.');
+      handleAuthClick();
+    }
   } finally {
     isSubmitting = false;
     loadingOverlay.classList.remove('active');
@@ -804,13 +834,11 @@ async function submitRatingsWithLock(ratings, maxRetries = 3) {
       const lockData = lockStatusResponse.result.values?.[0] || ['', ''];
       const [lockStatus, lockTimestamp] = lockData;
 
-      // Check if locked and still valid
       if (lockStatus === 'locked') {
         const lockTime = new Date(lockTimestamp).getTime();
         const now = new Date().getTime();
         if (now - lockTime < LOCK_TIMEOUT) {
-          // Lock is active, wait and retry
-          const backoffTime = Math.pow(2, retryCount) * 1000 + Math.random() * 500; // Exponential backoff + jitter
+          const backoffTime = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
           console.log(`Lock detected, retrying in ${backoffTime}ms (attempt ${retryCount + 1}/${maxRetries})`);
           await delay(backoffTime);
           retryCount++;
@@ -827,7 +855,7 @@ async function submitRatingsWithLock(ratings, maxRetries = 3) {
         resource: { values: [['locked', timestamp]] },
       });
 
-      // Verify we acquired the lock (re-fetch to confirm)
+      // Verify lock acquisition
       const verifyLock = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: lockRange,
@@ -835,12 +863,12 @@ async function submitRatingsWithLock(ratings, maxRetries = 3) {
       const [newLockStatus, newTimestamp] = verifyLock.result.values?.[0] || ['', ''];
       if (newLockStatus !== 'locked' || newTimestamp !== timestamp) {
         console.log('Failed to acquire lock, retrying');
-        await delay(1000); // Short delay before retry
+        await delay(1000);
         retryCount++;
         continue;
       }
 
-      // Process ratings (with conflict resolution)
+      // Process ratings
       const result = await processRatings(ratings);
 
       // Release lock
@@ -857,13 +885,17 @@ async function submitRatingsWithLock(ratings, maxRetries = 3) {
       retryCount++;
       if (retryCount >= maxRetries) {
         // Release lock on final failure
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: lockRange,
-          valueInputOption: 'RAW',
-          resource: { values: [['', '']] },
-        });
-        throw new Error('Max retries reached, submission failed');
+        try {
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: lockRange,
+            valueInputOption: 'RAW',
+            resource: { values: [['', '']] },
+          });
+        } catch (releaseError) {
+          console.error('Failed to release lock:', releaseError);
+        }
+        throw new Error(error.result?.error?.message || error.message || 'Failed to submit ratings after retries');
       }
       await delay(Math.pow(2, retryCount) * 1000); // Exponential backoff
     }
