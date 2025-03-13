@@ -35,6 +35,7 @@ const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 function saveAuthState(tokenResponse, evaluator) {
   const authState = {
     access_token: tokenResponse.access_token,
+    refresh_token: tokenResponse.refresh_token || JSON.parse(localStorage.getItem('authState'))?.refresh_token,
     expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
   };
@@ -60,8 +61,7 @@ function loadAuthState() {
     console.log('No auth state found');
     return null;
   }
-  // Removed expiration check to allow persistent tokens across devices
-  console.log('Loaded auth state (no expiration check):', authState);
+  console.log('Loaded auth state:', authState);
   return authState;
 }
 
@@ -71,24 +71,18 @@ function loadDropdownState() {
   return dropdownState || {};
 }
 
-function restoreState() {
+async function restoreState() {
   const authState = loadAuthState();
   const dropdownState = loadDropdownState();
 
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
+    if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
     elements.authStatus.textContent = 'Signed in';
     elements.signInBtn.style.display = 'none';
     elements.signOutBtn.style.display = 'block';
-  } else {
-    elements.authStatus.textContent = 'Ready to sign in';
-    elements.signInBtn.style.display = 'block';
-    elements.signOutBtn.style.display = 'none';
-    currentEvaluator = null;
-  }
-
-  loadSheetData().then(() => {
+    await loadSheetData();
     const evaluatorSelect = document.getElementById('evaluatorSelect');
     if (evaluatorSelect && dropdownState.evaluator) {
       evaluatorSelect.value = dropdownState.evaluator;
@@ -125,12 +119,21 @@ function restoreState() {
       }));
     }
 
-    Promise.all(changePromises).then(() => {
-      if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
-        fetchSubmittedRatings();
-      }
-    });
-  });
+    await Promise.all(changePromises);
+    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
+      fetchSubmittedRatings();
+    }
+  } else {
+    elements.authStatus.textContent = 'Ready to sign in';
+    elements.signInBtn.style.display = 'block';
+    elements.signOutBtn.style.display = 'none';
+    currentEvaluator = null;
+    vacancies = [];
+    candidates = [];
+    compeCodes = [];
+    competencies = [];
+    resetDropdowns([]);
+  }
 }
 
 fetch(`${API_BASE_URL}/config`)
@@ -145,7 +148,6 @@ fetch(`${API_BASE_URL}/config`)
     SCOPES = config.SCOPES;
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
     SHEET_RANGES = config.SHEET_RANGES;
-
     initializeApp();
   })
   .catch((error) => {
@@ -183,6 +185,8 @@ async function initializeGapiClient() {
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
+    const token = gapi.client.getToken();
+    if (token && !await isTokenValid()) await refreshAccessToken();
     gapiInitialized = true;
     console.log('GAPI client initialized');
     maybeEnableButtons();
@@ -191,13 +195,53 @@ async function initializeGapiClient() {
   }
 }
 
+async function isTokenValid() {
+  try {
+    await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function refreshAccessToken() {
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.refresh_token) {
+    handleAuthClick();
+    return;
+  }
+  try {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: CLIENT_ID,
+        refresh_token: authState.refresh_token,
+        grant_type: 'refresh_token',
+      }),
+    });
+    const newToken = await response.json();
+    if (newToken.access_token) {
+      authState.access_token = newToken.access_token;
+      authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
+      localStorage.setItem('authState', JSON.stringify(authState));
+      gapi.client.setToken({ access_token: authState.access_token });
+    } else {
+      handleAuthClick();
+    }
+  } catch (error) {
+    console.error('Token refresh failed:', error);
+    handleAuthClick();
+  }
+}
+
 function handleTokenCallback(tokenResponse) {
   if (tokenResponse.error) {
     console.error('Token error:', tokenResponse.error);
     elements.authStatus.textContent = 'Error during sign-in';
   } else {
-    gapi.client.setToken({ access_token: tokenResponse.access_token });
     saveAuthState(tokenResponse, currentEvaluator);
+    gapi.client.setToken({ access_token: tokenResponse.access_token });
     elements.authStatus.textContent = 'Signed in';
     elements.signInBtn.style.display = 'none';
     elements.signOutBtn.style.display = 'block';
@@ -245,14 +289,11 @@ function createEvaluatorSelector() {
   });
 
   select.addEventListener('change', handleEvaluatorSelection);
-
   formGroup.appendChild(label);
   formGroup.appendChild(select);
 
   const ratingForm = document.querySelector('.rating-form');
-  if (ratingForm) {
-    ratingForm.insertBefore(formGroup, ratingForm.firstChild);
-  }
+  if (ratingForm) ratingForm.insertBefore(formGroup, ratingForm.firstChild);
 }
 
 async function handleEvaluatorSelection(event) {
@@ -297,58 +338,66 @@ function handleAuthClick() {
 }
 
 function handleSignOutClick() {
-  const token = gapi.client.getToken();
-  if (token) {
-    // Do not revoke the token to allow other devices to stay logged in
-    gapi.client.setToken(null); // Clear token only for this device
-    localStorage.removeItem('authState');
-    localStorage.removeItem('dropdownState');
-    localStorage.removeItem('hasWelcomed');
-    // Clear assignment authorization
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('currentAssignmentAuth_')) {
-        localStorage.removeItem(key);
-      }
-    });
-    elements.authStatus.textContent = 'Signed out';
-    elements.signInBtn.style.display = 'block';
-    elements.signOutBtn.style.display = 'none';
+  const modalContent = `
+    <p>Are you sure you want to sign out?</p>
+  `;
+  showModal('Confirm Sign Out', modalContent, () => {
+    // Clear Google API token
+    gapi.client.setToken(null);
+
+    // Clear all localStorage data (authState, dropdownState, radioState_*, hasWelcomed)
+    localStorage.clear();
+    console.log('All localStorage cleared');
+
+    // Reset global variables
     currentEvaluator = null;
     vacancies = [];
     candidates = [];
     compeCodes = [];
     competencies = [];
-    resetDropdowns(vacancies);
-  }
+    console.log('Global variables reset');
+
+    // Update UI immediately
+    elements.authStatus.textContent = 'Signed out';
+    elements.signInBtn.style.display = 'block';
+    elements.signOutBtn.style.display = 'none';
+
+    // Reset dropdowns and competency container
+    resetDropdowns([]);
+    elements.competencyContainer.innerHTML = '';
+    clearRatings();
+
+    // Reset evaluator selector if it exists
+    const evaluatorSelect = document.getElementById('evaluatorSelect');
+    if (evaluatorSelect) {
+      evaluatorSelect.value = '';
+      evaluatorSelect.parentElement.remove(); // Remove the evaluator selector entirely
+    }
+
+    // Disable submit button if it exists
+    if (elements.submitRatings) {
+      elements.submitRatings.disabled = true;
+    }
+
+    // Clear any active fetch timeouts
+    if (fetchTimeout) {
+      clearTimeout(fetchTimeout);
+      fetchTimeout = null;
+    }
+
+    showToast('success', 'Signed Out', 'You have been successfully signed out.');
+  }, () => {
+    console.log('Sign out canceled');
+  });
 }
 
-async function loadSheetData() {
-  try {
-    const ranges = Object.values(SHEET_RANGES);
-    const data = await Promise.all(
-      ranges.map((range) =>
-        gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range,
-        })
-      )
-    );
-
-    vacancies = data[0]?.result?.values || [];
-    candidates = data[1]?.result?.values || [];
-    compeCodes = data[2]?.result?.values || [];
-    competencies = data[3]?.result?.values || [];
-
-    console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
-    initializeDropdowns(vacancies);
-  } catch (error) {
-    console.error('Error loading sheet data:', error);
-    elements.authStatus.textContent = 'Error loading sheet data. Retrying...';
-    // Retry once after a delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+async function loadSheetData(maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      const ranges = Object.values(SHEET_RANGES);
       const data = await Promise.all(
-        Object.values(SHEET_RANGES).map((range) =>
+        ranges.map((range) =>
           gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range,
@@ -359,18 +408,21 @@ async function loadSheetData() {
       candidates = data[1]?.result?.values || [];
       compeCodes = data[2]?.result?.values || [];
       competencies = data[3]?.result?.values || [];
-      console.log('Sheet data loaded on retry:', { vacancies, candidates, compeCodes, competencies });
+      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
       initializeDropdowns(vacancies);
       elements.authStatus.textContent = 'Signed in';
-    } catch (retryError) {
-      console.error('Retry failed:', retryError);
-      elements.authStatus.textContent = 'Error loading sheet data. Please sign out and sign in again.';
-      showToast('error', 'Error', 'Failed to load sheet data after retry. Please re-authenticate.');
+      return;
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed:`, error);
+      if (attempt === maxRetries) {
+        elements.authStatus.textContent = 'Error loading sheet data. Please sign out and sign in again.';
+        showToast('error', 'Error', 'Failed to load sheet data after retries.');
+      }
+      await delay(Math.pow(2, attempt) * 1000);
     }
   }
 }
 
-// Define updateDropdown first
 function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
   dropdown.innerHTML = `<option value="">${defaultOptionText}</option>`;
   options.forEach((opt) => {
@@ -381,7 +433,6 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
   });
 }
 
-// Then define initializeDropdowns
 function initializeDropdowns(vacancies) {
   function setDropdownState(dropdown, enabled) {
     dropdown.disabled = !enabled;
@@ -405,50 +456,38 @@ function initializeDropdowns(vacancies) {
 
   elements.assignmentDropdown.addEventListener('change', async () => {
     const assignment = elements.assignmentDropdown.value;
-
-    // Check if the current evaluator requires a password prompt
     const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
     let isAuthorized = true;
 
     if (assignment && requiresPassword) {
-      // Key to track the currently authorized assignment for this evaluator
       const authKey = `currentAssignmentAuth_${currentEvaluator}`;
       const storedAssignment = localStorage.getItem(authKey);
 
-      // Only skip the prompt if the selected assignment matches the currently authorized one
       if (storedAssignment !== assignment) {
         const modalContent = `
           <p>Please enter the password to access assignment "${assignment}":</p>
           <input type="password" id="assignmentPassword" class="modal-input" 
                  style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
         `;
-        
         isAuthorized = await new Promise((resolve) => {
           showModal('Assignment Authentication', modalContent, () => {
             const passwordInput = document.getElementById('assignmentPassword');
             const password = passwordInput.value.trim();
             const isValid = password === "admindan";
-            if (isValid) {
-              localStorage.setItem(authKey, assignment); // Save only if password is correct
-              // Show success modal after authorization
-              showModal('Authorization Successful', `<p>Assignment "${assignment}" has been successfully authorized.</p>`);
-            }
-            resolve(isValid); // Resolve with true only if password matches
+            if (isValid) localStorage.setItem(authKey, assignment);
+            resolve(isValid);
           });
         });
 
         if (!isAuthorized) {
           showToast('error', 'Error', 'Incorrect password for assignment');
-          elements.assignmentDropdown.value = storedAssignment || ''; // Revert to the last authorized assignment or clear
+          elements.assignmentDropdown.value = storedAssignment || '';
           setDropdownState(elements.positionDropdown, false);
           setDropdownState(elements.itemDropdown, false);
           setDropdownState(elements.nameDropdown, false);
           saveDropdownState();
           return;
         }
-      } else {
-        // If the assignment is the same as the stored one, no prompt needed
-        isAuthorized = true;
       }
     }
 
@@ -509,15 +548,18 @@ function initializeDropdowns(vacancies) {
         .map((row) => row[1]);
       await displayCompetencies(name, relatedCompetencies);
       if (currentEvaluator && name && item) {
+        clearRatings();
         fetchSubmittedRatings();
       }
+    } else {
+      clearRatings();
     }
     saveDropdownState();
   });
 }
 
 function resetDropdowns(vacancies) {
-  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+  const uniqueAssignments = vacancies.length ? [...new Set(vacancies.slice(1).map((row) => row[2]))] : [];
   updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
   updateDropdown(elements.positionDropdown, [], 'Select Position');
   updateDropdown(elements.itemDropdown, [], 'Select Item');
@@ -526,6 +568,10 @@ function resetDropdowns(vacancies) {
   elements.positionDropdown.value = '';
   elements.itemDropdown.value = '';
   elements.nameDropdown.value = '';
+  elements.assignmentDropdown.disabled = !vacancies.length;
+  elements.positionDropdown.disabled = true;
+  elements.itemDropdown.disabled = true;
+  elements.nameDropdown.disabled = true;
 }
 
 async function fetchSubmittedRatings() {
@@ -538,10 +584,12 @@ async function fetchSubmittedRatings() {
     if (!currentEvaluator || !name || !item) {
       console.warn('Missing evaluator, name, or item');
       elements.submitRatings.disabled = true;
+      clearRatings();
       return;
     }
 
     try {
+      if (!await isTokenValid()) await refreshAccessToken();
       const response = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: SHEET_RANGES.RATELOG,
@@ -552,24 +600,20 @@ async function fetchSubmittedRatings() {
         row[2] === name && row[1] === item && row[5] === currentEvaluator
       );
 
-      if (filteredRows.length === 0) {
-        elements.submitRatings.disabled = false;
-        return;
-      }
-
       const competencyRatings = {};
       filteredRows.forEach(row => {
         const competencyName = row[3];
-        if (!competencyRatings[competencyName]) {
-          competencyRatings[competencyName] = {};
-        }
+        if (!competencyRatings[competencyName]) competencyRatings[competencyName] = {};
         competencyRatings[competencyName][currentEvaluator] = row[4];
       });
 
-      prefillRatings(competencyRatings);
+      console.log(`Fetched ratings for ${name} (${item}):`, competencyRatings);
+      prefillRatings(competencyRatings, filteredRows.length === 0, name, item);
     } catch (error) {
       console.error('Error fetching ratings:', error);
       showToast('error', 'Error', 'Failed to fetch ratings');
+      clearRatings();
+      prefillRatings({}, true, name, item);
     }
   }, 300);
 }
@@ -580,31 +624,34 @@ function clearRatings() {
     const radios = item.querySelectorAll('input[type="radio"]');
     radios.forEach(radio => (radio.checked = false));
   });
+  console.log('Radio buttons cleared');
 }
 
 let originalRatings = {};
-function prefillRatings(competencyRatings) {
+function prefillRatings(competencyRatings, noFetchedData, name, item) {
   originalRatings = {};
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
 
-  if (Object.keys(competencyRatings).length === 0) {
-    elements.submitRatings.disabled = false;
-    return;
-  }
+  clearRatings();
 
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const rating = competencyRatings[competencyName]?.[currentEvaluator];
+  if (Object.keys(competencyRatings).length > 0) {
+    Array.from(competencyItems).forEach(item => {
+      const competencyName = item.querySelector('label').textContent.split('. ')[1];
+      const rating = competencyRatings[competencyName]?.[currentEvaluator];
 
-    if (rating) {
-      originalRatings[competencyName] = rating;
-      const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
+      if (rating) {
+        originalRatings[competencyName] = rating;
+        const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change'));
+          console.log(`Prefilled ${competencyName} with rating ${rating} for ${name} (${item})`);
+        }
       }
-    }
-  });
+    });
+  } else if (noFetchedData) {
+    loadRadioState(name, item);
+  }
 
   function checkAllRatingsSelected() {
     const allItems = Array.from(competencyItems);
@@ -617,21 +664,23 @@ function prefillRatings(competencyRatings) {
   Array.from(competencyItems).forEach(item => {
     const inputs = item.querySelectorAll('input[type="radio"]');
     inputs.forEach(input => {
-      input.addEventListener('change', () => {
+      input.removeEventListener('change', input.onchange);
+      input.onchange = () => {
         const competencyName = item.querySelector('label').textContent.split('. ')[1];
         originalRatings[competencyName] = input.value;
         checkAllRatingsSelected();
-      });
+        saveRadioState(competencyName, input.value, name, item);
+      };
+      input.addEventListener('change', input.onchange);
     });
   });
 
   checkAllRatingsSelected();
 }
 
-// Update submitRatings to use the new lock mechanism
 async function submitRatings() {
   if (isSubmitting) {
-    console.log('Submission already in progress, ignoring duplicate call');
+    console.log('Submission already in progress');
     return;
   }
 
@@ -640,22 +689,13 @@ async function submitRatings() {
 
   try {
     const token = gapi.client.getToken();
-    if (!token || !token.access_token) {
-      showToast('error', 'Error', 'Authentication token missing. Please sign in again.');
-      handleAuthClick();
-      return;
-    }
-
-    // Validate token usability with a lightweight API call
-    try {
-      await gapi.client.sheets.spreadsheets.get({
-        spreadsheetId: SHEET_ID,
-      });
-    } catch (tokenError) {
-      console.error('Token validation failed:', tokenError);
-      showToast('error', 'Error', 'Session expired or invalid. Please re-authenticate.');
-      handleAuthClick();
-      return;
+    if (!token || !await isTokenValid()) {
+      await refreshAccessToken();
+      if (!gapi.client.getToken()) {
+        showToast('error', 'Error', 'Authentication failed. Please sign in again.');
+        handleAuthClick();
+        return;
+      }
     }
 
     if (!currentEvaluator) {
@@ -690,33 +730,21 @@ async function submitRatings() {
     }
 
     loadingOverlay.classList.add('active');
-
-    // Retry submission up to 3 times
-    let result;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        result = await submitRatingsWithLock(ratings);
-        if (result.success) {
-          showToast('success', 'Success', result.message, 5000, 'center');
-          break;
-        } else {
-          throw new Error('Submission returned unsuccessful');
-        }
-      } catch (retryError) {
-        console.warn(`Submission attempt ${attempt} failed:`, retryError);
-        if (attempt === 3) {
-          throw retryError; // Final attempt failed, propagate error
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
-      }
+    const result = await submitRatingsWithLock(ratings);
+    if (result.success) {
+      const radioStateKey = `radioState_${candidateName}_${item}`;
+      localStorage.removeItem(radioStateKey);
+      showToast('success', 'Success', result.message, 5000, 'center');
+      fetchSubmittedRatings();
     }
   } catch (error) {
     console.error('Submission error:', error);
-    const errorMessage = error.message || 'Unknown error occurred during submission';
+    const errorMessage = error.message || 'Unknown error';
     showToast('error', 'Error', `Failed to submit ratings: ${errorMessage}`);
     if (error.status === 401 || error.status === 403) {
-      showToast('info', 'Session Issue', 'Please re-authenticate to continue.');
       handleAuthClick();
+    } else if (!navigator.onLine) {
+      showToast('error', 'Network Error', 'Please check your internet connection.');
     }
   } finally {
     isSubmitting = false;
@@ -726,6 +754,7 @@ async function submitRatings() {
 
 async function checkExistingRatings(item, candidateName, evaluator) {
   try {
+    if (!await isTokenValid()) await refreshAccessToken();
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: SHEET_RANGES.RATELOG,
@@ -740,18 +769,6 @@ async function checkExistingRatings(item, candidateName, evaluator) {
     console.error('Error checking ratings:', error);
     return [];
   }
-}
-
-function storeCurrentSelections() {
-  const selections = [];
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const selectedRating = Array.from(item.querySelectorAll('input[type="radio"]'))
-      .find(radio => radio.checked)?.value;
-    selections.push({ competencyName, rating: selectedRating });
-  });
-  return selections;
 }
 
 function revertToExistingRatings(existingRatings) {
@@ -812,20 +829,19 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
   return { ratings };
 }
 
-// Add a utility function for delay
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Enhanced submitRatingsWithLock with retry logic
-async function submitRatingsWithLock(ratings, maxRetries = 3) {
+async function submitRatingsWithLock(ratings, maxRetries = 5) {
   const lockRange = "RATELOG!G1:H1";
-  const LOCK_TIMEOUT = 30000; // 30 seconds
+  const LOCK_TIMEOUT = 60000; // 60 seconds
   let retryCount = 0;
+  let lockAcquired = false;
 
   while (retryCount < maxRetries) {
     try {
-      // Fetch current lock status
+      if (!await isTokenValid()) await refreshAccessToken();
       const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: lockRange,
@@ -834,19 +850,12 @@ async function submitRatingsWithLock(ratings, maxRetries = 3) {
       const lockData = lockStatusResponse.result.values?.[0] || ['', ''];
       const [lockStatus, lockTimestamp] = lockData;
 
-      if (lockStatus === 'locked') {
-        const lockTime = new Date(lockTimestamp).getTime();
-        const now = new Date().getTime();
-        if (now - lockTime < LOCK_TIMEOUT) {
-          const backoffTime = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
-          console.log(`Lock detected, retrying in ${backoffTime}ms (attempt ${retryCount + 1}/${maxRetries})`);
-          await delay(backoffTime);
-          retryCount++;
-          continue;
-        }
+      if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < LOCK_TIMEOUT) {
+        await delay(Math.pow(2, retryCount) * 1000);
+        retryCount++;
+        continue;
       }
 
-      // Attempt to acquire lock
       const timestamp = new Date().toISOString();
       await gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -854,59 +863,39 @@ async function submitRatingsWithLock(ratings, maxRetries = 3) {
         valueInputOption: 'RAW',
         resource: { values: [['locked', timestamp]] },
       });
+      lockAcquired = true;
 
-      // Verify lock acquisition
-      const verifyLock = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: lockRange,
-      });
-      const [newLockStatus, newTimestamp] = verifyLock.result.values?.[0] || ['', ''];
-      if (newLockStatus !== 'locked' || newTimestamp !== timestamp) {
-        console.log('Failed to acquire lock, retrying');
-        await delay(1000);
-        retryCount++;
-        continue;
-      }
-
-      // Process ratings
       const result = await processRatings(ratings);
-
-      // Release lock
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: lockRange,
-        valueInputOption: 'RAW',
-        resource: { values: [['', '']] },
-      });
-
-      return result; // Success
+      await releaseLock(lockRange);
+      return result;
     } catch (error) {
       console.error('Error in submitRatingsWithLock:', error);
       retryCount++;
-      if (retryCount >= maxRetries) {
-        // Release lock on final failure
-        try {
-          await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID,
-            range: lockRange,
-            valueInputOption: 'RAW',
-            resource: { values: [['', '']] },
-          });
-        } catch (releaseError) {
-          console.error('Failed to release lock:', releaseError);
-        }
-        throw new Error(error.result?.error?.message || error.message || 'Failed to submit ratings after retries');
+      if (lockAcquired) await releaseLock(lockRange);
+      if (retryCount === maxRetries) {
+        throw new Error(error.result?.error?.message || error.message || 'Failed to submit ratings');
       }
-      await delay(Math.pow(2, retryCount) * 1000); // Exponential backoff
+      await delay(Math.pow(2, retryCount) * 1000);
     }
   }
-
-  throw new Error('Unexpected failure in submitRatingsWithLock');
 }
 
-// Updated processRatings with conflict resolution
+async function releaseLock(lockRange) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: lockRange,
+      valueInputOption: 'RAW',
+      resource: { values: [['', '']] },
+    });
+  } catch (error) {
+    console.error('Failed to release lock:', error);
+  }
+}
+
 async function processRatings(ratings) {
-  // Fetch the latest data
+  if (!await isTokenValid()) await refreshAccessToken();
   const response = await gapi.client.sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range: SHEET_RANGES.RATELOG,
@@ -916,29 +905,24 @@ async function processRatings(ratings) {
   const newRatings = [];
   let isUpdated = false;
 
-  // Create a map of existing ratings by ratingCode (column A)
   const existingRatingsMap = new Map();
   existingData.forEach((row, index) => {
     if (row[0]) existingRatingsMap.set(row[0], { row, index });
   });
 
-  // Process each new rating
   ratings.forEach(newRating => {
     const ratingCode = newRating[0];
     if (existingRatingsMap.has(ratingCode)) {
-      // Update existing rating
       const { index } = existingRatingsMap.get(ratingCode);
       existingData[index] = newRating;
       isUpdated = true;
     } else {
-      // Add new rating
       newRatings.push(newRating);
     }
   });
 
   const batchUpdates = [];
   if (isUpdated) {
-    // Write back updated existing data
     batchUpdates.push(
       gapi.client.sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
@@ -949,7 +933,6 @@ async function processRatings(ratings) {
     );
   }
   if (newRatings.length > 0) {
-    // Append new ratings
     batchUpdates.push(
       gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
@@ -961,7 +944,6 @@ async function processRatings(ratings) {
   }
 
   await Promise.all(batchUpdates);
-
   return {
     success: true,
     message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
@@ -1040,63 +1022,14 @@ async function displayCandidatesTable(name, itemNumber) {
       const style = document.createElement('style');
       style.id = 'candidates-table-styles';
       style.innerHTML = `
-        .tiles-container {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 15px;
-          justify-items: center;
-          padding: 20px;
-        }
-        .tile {
-          border: 1px solid #ccc;
-          border-radius: 8px;
-          padding: 10px;
-          background-color: #f9f9f9;
-          width: 100%;
-          text-align: center;
-          word-wrap: break-word;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          max-height: 200px;
-        }
-        .tile h4 {
-          font-size: 14px;
-          font-weight: bold;
-          margin-bottom: 10px;
-          text-align: center;
-        }
-        .tile-content p {
-          font-size: 12px;
-          font-weight: bold;
-          color: #333;
-          word-wrap: break-word;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: normal;
-          margin: 5px 0;
-        }
-        .tile-content p.no-data {
-          color: #888;
-          font-style: italic;
-        }
-        .open-link-button {
-          background-color: rgb(65, 65, 65);
-          color: white;
-          border: none;
-          padding: 5px 10px;
-          font-size: 12px;
-          cursor: pointer;
-          margin-top: 10px;
-        }
-        .open-link-button:hover {
-          background-color: rgb(0, 0, 0);
-        }
-        .open-link-button:disabled {
-          background-color: #ccc;
-          cursor: not-allowed;
-        }
+        .tiles-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; justify-items: center; padding: 20px; }
+        .tile { border: 1px solid #ccc; border-radius: 8px; padding: 10px; background-color: #f9f9f9; width: 100%; text-align: center; word-wrap: break-word; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; max-height: 200px; }
+        .tile h4 { font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+        .tile-content p { font-size: 12px; font-weight: bold; color: #333; word-wrap: break-word; overflow: hidden; text-overflow: ellipsis; white-space: normal; margin: 5px 0; }
+        .tile-content p.no-data { color: #888; font-style: italic; }
+        .open-link-button { background-color: rgb(65, 65, 65); color: white; border: none; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 10px; }
+        .open-link-button:hover { background-color: rgb(0, 0, 0); }
+        .open-link-button:disabled { background-color: #ccc; cursor: not-allowed; }
       `;
       document.head.appendChild(style);
     }
@@ -1107,6 +1040,7 @@ async function displayCandidatesTable(name, itemNumber) {
 
 async function fetchCompetenciesFromSheet() {
   try {
+    if (!await isTokenValid()) await refreshAccessToken();
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: 'ALLCOMPE!A:B',
@@ -1214,6 +1148,7 @@ async function displayCompetencies(name, competencies) {
         updateFunction();
         computePsychosocial();
         computePotential();
+        saveRadioState(comp, radio.value, name, elements.itemDropdown.value);
       });
     });
     return div;
@@ -1274,6 +1209,8 @@ async function displayCompetencies(name, competencies) {
     basicCompetencyRatings.fill(0);
     organizationalCompetencyRatings.fill(0);
     minimumCompetencyRatings.fill(0);
+    const radioStateKey = `radioState_${name}_${elements.itemDropdown.value}`;
+    localStorage.removeItem(radioStateKey);
     computeTotalBasicRating();
     computeOrganizationalRating();
     computeMinimumRating();
@@ -1282,9 +1219,35 @@ async function displayCompetencies(name, competencies) {
   });
 }
 
+function saveRadioState(competency, value, name, item) {
+  const radioStateKey = `radioState_${name}_${item}`;
+  const radioState = JSON.parse(localStorage.getItem(radioStateKey) || '{}');
+  radioState[competency] = value;
+  localStorage.setItem(radioStateKey, JSON.stringify(radioState));
+  console.log(`Saved radio state for ${name} (${item}):`, radioState);
+}
+
+function loadRadioState(name, item) {
+  const radioStateKey = `radioState_${name}_${item}`;
+  const radioState = JSON.parse(localStorage.getItem(radioStateKey) || '{}');
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const savedValue = radioState[competencyName];
+    if (savedValue) {
+      const radio = item.querySelector(`input[value="${savedValue}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+        console.log(`Loaded session state for ${competencyName} (${name}, ${item}): ${savedValue}`);
+      }
+    }
+  });
+}
+
 // Event Listeners
 elements.signInBtn.addEventListener('click', handleAuthClick);
-// Removed: elements.signOutBtn.addEventListener('click', handleSignOutClick);
+elements.signOutBtn.addEventListener('click', handleSignOutClick);
 if (elements.submitRatings) {
   elements.submitRatings.removeEventListener('click', submitRatings);
   elements.submitRatings.addEventListener('click', submitRatings);
