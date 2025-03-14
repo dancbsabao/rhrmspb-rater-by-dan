@@ -137,7 +137,7 @@ async function restoreState() {
         expires_in: parseInt(expiresIn, 10),
         session_id: sessionId,
       });
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
     } else {
       elements.authStatus.textContent = 'Ready to sign in';
       elements.signInBtn.style.display = 'block';
