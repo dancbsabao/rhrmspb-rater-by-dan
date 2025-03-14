@@ -4,6 +4,7 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
+app.set('trust proxy', true); // Add this line to trust Render/Cloudflare proxy headers
 
 // Configure CORS
 const allowedOrigins = [
@@ -51,7 +52,10 @@ app.get('/config', (req, res) => {
 
 // OAuth2 authorization endpoint
 app.get('/auth/google', (req, res) => {
+  // Trust proxy to get correct protocol (https) from Render/Cloudflare
+  app.set('trust proxy', true);
   const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
+  console.log('Generated redirect_uri:', redirectUri); // Debug
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${process.env.CLIENT_ID}&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
