@@ -6,17 +6,16 @@ const fetch = require('node-fetch');
 const app = express();
 app.set('trust proxy', true);
 
-// Configure CORS
 const allowedOrigins = [
-  'https://dancbsabao.github.io/rhrmspb-rater-by-dan', // Your app’s URL
-  'https://dancbsabao.github.io',                      // Root origin (just in case)
-  'http://127.0.0.1:5500',                            // Local dev
-  'http://localhost:3000',                            // Local dev
+  'https://dancbsabao.github.io/rhrmspb-rater-by-dan',
+  'https://dancbsabao.github.io',
+  'http://127.0.0.1:5500', // Local testing
+  'http://localhost:3000', // Local testing
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    console.log('Request Origin:', origin); // Debug
+    console.log('Request Origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -30,10 +29,9 @@ app.use(express.json());
 
 const refreshTokens = new Map();
 
-// Config endpoint
 app.get('/config', (req, res) => {
   try {
-    console.log('Config endpoint hit'); // Debug
+    console.log('Config endpoint hit');
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -45,7 +43,7 @@ app.get('/config', (req, res) => {
       SHEET_RANGES: process.env.SHEET_RANGES
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
-      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Optional
+      CLIENT_SECRET: process.env.CLIENT_SECRET || '',
     });
   } catch (error) {
     console.error('Error in /config:', error);
@@ -53,7 +51,6 @@ app.get('/config', (req, res) => {
   }
 });
 
-// OAuth2 authorization endpoint
 app.get('/auth/google', (req, res) => {
   const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
   console.log('Generated redirect_uri:', redirectUri);
@@ -67,7 +64,6 @@ app.get('/auth/google', (req, res) => {
   res.redirect(authUrl);
 });
 
-// OAuth2 callback endpoint
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) {
@@ -97,7 +93,11 @@ app.get('/auth/google/callback', async (req, res) => {
     const sessionId = Date.now().toString();
     refreshTokens.set(sessionId, tokenData.refresh_token);
 
-    const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
+    // Dynamic redirect based on environment or origin
+    const clientBaseUrl = process.env.NODE_ENV === 'development'
+      ? 'http://127.0.0.1:5500' // Adjust to your local port
+      : 'https://dancbsabao.github.io/rhrmspb-rater-by-dan';
+    const clientRedirect = `${clientBaseUrl}/?` +
       `access_token=${tokenData.access_token}&` +
       `expires_in=${tokenData.expires_in}&` +
       `session_id=${sessionId}`;
@@ -109,7 +109,6 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// Token refresh endpoint
 app.post('/refresh-token', async (req, res) => {
   const { session_id } = req.body;
   const refreshToken = refreshTokens.get(session_id);
@@ -145,7 +144,6 @@ app.post('/refresh-token', async (req, res) => {
   }
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
