@@ -220,11 +220,13 @@ async function refreshAccessToken() {
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.session_id) {
     console.warn('No session ID available, requiring re-authentication');
+    localStorage.clear(); // Clear stale state
     handleAuthClick();
     return false;
   }
 
   try {
+    console.log('Attempting token refresh with session_id:', authState.session_id);
     const response = await fetch(`${API_BASE_URL}/refresh-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -233,7 +235,7 @@ async function refreshAccessToken() {
 
     const newToken = await response.json();
     if (!response.ok || newToken.error) {
-      throw new Error(newToken.error || 'Token refresh failed');
+      throw new Error(newToken.error || `Token refresh failed with status ${response.status}`);
     }
 
     authState.access_token = newToken.access_token;
@@ -244,8 +246,9 @@ async function refreshAccessToken() {
     scheduleTokenRefresh();
     return true;
   } catch (error) {
-    console.error('Token refresh failed:', error);
+    console.error('Token refresh failed:', error.message);
     showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
+    localStorage.clear(); // Prevent loop by clearing state
     handleAuthClick();
     return false;
   }
