@@ -4,20 +4,23 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
-app.set('trust proxy', true); // Trust proxy headers to ensure HTTPS is detected
+app.set('trust proxy', true);
 
 // Configure CORS
 const allowedOrigins = [
-  'https://dancbsabao.github.io/rhrmspb-rater-by-dan', // Your GitHub Pages app
-  'http://127.0.0.1:5500',        // Local development
-  'http://localhost:3000',        // Localhost (adjust if needed)
+  'https://dancbsabao.github.io/rhrmspb-rater-by-dan', // Your app’s URL
+  'https://dancbsabao.github.io',                      // Root origin (just in case)
+  'http://127.0.0.1:5500',                            // Local dev
+  'http://localhost:3000',                            // Local dev
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
+    console.log('Request Origin:', origin); // Debug
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.error('CORS rejected origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -25,12 +28,12 @@ app.use(cors({
 
 app.use(express.json());
 
-// In-memory storage for refresh tokens (use a database in production)
 const refreshTokens = new Map();
 
 // Config endpoint
 app.get('/config', (req, res) => {
   try {
+    console.log('Config endpoint hit'); // Debug
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -42,10 +45,10 @@ app.get('/config', (req, res) => {
       SHEET_RANGES: process.env.SHEET_RANGES
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
-      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Included for client-side fallback (optional)
+      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Optional
     });
   } catch (error) {
-    console.error('Error parsing environment variables:', error);
+    console.error('Error in /config:', error);
     res.status(500).json({ error: 'Failed to load configuration' });
   }
 });
@@ -53,7 +56,7 @@ app.get('/config', (req, res) => {
 // OAuth2 authorization endpoint
 app.get('/auth/google', (req, res) => {
   const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
-  console.log('Generated redirect_uri:', redirectUri); // Debug
+  console.log('Generated redirect_uri:', redirectUri);
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${process.env.CLIENT_ID}&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
@@ -73,7 +76,7 @@ app.get('/auth/google/callback', async (req, res) => {
 
   try {
     const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
-    console.log('Callback redirect_uri:', redirectUri); // Debug
+    console.log('Callback redirect_uri:', redirectUri);
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -91,15 +94,14 @@ app.get('/auth/google/callback', async (req, res) => {
       throw new Error(tokenData.error_description || 'Token exchange failed');
     }
 
-    const sessionId = Date.now().toString(); // Simple session ID (use UUID in production)
+    const sessionId = Date.now().toString();
     refreshTokens.set(sessionId, tokenData.refresh_token);
 
-    // Redirect to the correct GitHub Pages path
     const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
       `access_token=${tokenData.access_token}&` +
       `expires_in=${tokenData.expires_in}&` +
       `session_id=${sessionId}`;
-    console.log('Redirecting to:', clientRedirect); // Debug
+    console.log('Redirecting to:', clientRedirect);
     res.redirect(clientRedirect);
   } catch (error) {
     console.error('Error in OAuth callback:', error);
