@@ -6,16 +6,17 @@ const fetch = require('node-fetch');
 const app = express();
 app.set('trust proxy', true);
 
+// Configure CORS
 const allowedOrigins = [
-  'https://dancbsabao.github.io/rhrmspb-rater-by-dan',
-  'https://dancbsabao.github.io',
-  'http://127.0.0.1:5500', // Local testing
-  'http://localhost:3000', // Local testing
+  'https://dancbsabao.github.io/rhrmspb-rater-by-dan', // Your app’s URL
+  'https://dancbsabao.github.io',                      // Root origin (just in case)
+  'http://127.0.0.1:5500',                            // Local dev
+  'http://localhost:3000',                            // Local dev
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    console.log('Request Origin:', origin);
+    console.log('Request Origin:', origin); // Debug
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -29,9 +30,10 @@ app.use(express.json());
 
 const refreshTokens = new Map();
 
+// Config endpoint
 app.get('/config', (req, res) => {
   try {
-    console.log('Config endpoint hit');
+    console.log('Config endpoint hit'); // Debug
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -43,7 +45,7 @@ app.get('/config', (req, res) => {
       SHEET_RANGES: process.env.SHEET_RANGES
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
-      CLIENT_SECRET: process.env.CLIENT_SECRET || '',
+      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Optional
     });
   } catch (error) {
     console.error('Error in /config:', error);
@@ -51,6 +53,7 @@ app.get('/config', (req, res) => {
   }
 });
 
+// OAuth2 authorization endpoint
 app.get('/auth/google', (req, res) => {
   const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
   console.log('Generated redirect_uri:', redirectUri);
@@ -64,6 +67,7 @@ app.get('/auth/google', (req, res) => {
   res.redirect(authUrl);
 });
 
+// OAuth2 callback endpoint
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) {
@@ -93,11 +97,7 @@ app.get('/auth/google/callback', async (req, res) => {
     const sessionId = Date.now().toString();
     refreshTokens.set(sessionId, tokenData.refresh_token);
 
-    // Dynamic redirect based on environment or origin
-    const clientBaseUrl = process.env.NODE_ENV === 'development'
-      ? 'http://127.0.0.1:5500' // Adjust to your local port
-      : 'https://dancbsabao.github.io/rhrmspb-rater-by-dan';
-    const clientRedirect = `${clientBaseUrl}/?` +
+    const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
       `access_token=${tokenData.access_token}&` +
       `expires_in=${tokenData.expires_in}&` +
       `session_id=${sessionId}`;
@@ -109,12 +109,17 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
+// Token refresh endpoint
 app.post('/refresh-token', async (req, res) => {
   const { session_id } = req.body;
-  const refreshToken = refreshTokens.get(session_id);
-
+  let refreshToken = refreshTokens.get(session_id);
   if (!refreshToken) {
-    return res.status(401).json({ error: 'Invalid or missing session ID' });
+    console.warn('Session ID not found, falling back to env refresh token');
+    refreshToken = process.env.FALLBACK_REFRESH_TOKEN; // Add this in Render env
+    if (!refreshToken) {
+      console.error('No refresh token available');
+      return res.status(401).json({ error: 'Invalid or missing session ID' });
+    }
   }
 
   try {
@@ -130,13 +135,11 @@ app.post('/refresh-token', async (req, res) => {
     });
 
     const newToken = await response.json();
-    if (newToken.error) {
-      throw new Error(newToken.error_description || 'Token refresh failed');
-    }
-
+    if (newToken.error) throw new Error(newToken.error_description || 'Token refresh failed');
+    console.log('Token refreshed:', newToken);
     res.json({
       access_token: newToken.access_token,
-      expires_in: newToken.expires_in,
+      expires_in: newToken.expires_in || 3600,
     });
   } catch (error) {
     console.error('Error refreshing token:', error);
@@ -144,6 +147,7 @@ app.post('/refresh-token', async (req, res) => {
   }
 });
 
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
