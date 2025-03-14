@@ -18,11 +18,11 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: 20 # Match the version specified in your package.json
+        node-version: 20 # Matches package.json engines
 
     # Step 3: Install dependencies
     - name: Install dependencies
-      run: yarn install
+      run: npm install # Changed from yarn install
 
     # Step 4: Deploy to Render
     - name: Deploy to Render
