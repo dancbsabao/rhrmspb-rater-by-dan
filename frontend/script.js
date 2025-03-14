@@ -1,11 +1,11 @@
-// Global variables for GIS and API functionality
-let gisInitialized = false;
+// Global variables
 let gapiInitialized = false;
 let tokenClient = null;
 let currentEvaluator = null;
 let fetchTimeout;
 let isSubmitting = false;
-let refreshTimer = null; // Timer for proactive token refresh
+let refreshTimer = null;
+let sessionId = null; // To track server session
 
 let CLIENT_ID;
 let API_KEY;
@@ -36,13 +36,13 @@ const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 function saveAuthState(tokenResponse, evaluator) {
   const authState = {
     access_token: tokenResponse.access_token,
-    refresh_token: tokenResponse.refresh_token || JSON.parse(localStorage.getItem('authState'))?.refresh_token,
-    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000), // Default to 3600s if not provided
+    session_id: tokenResponse.session_id || sessionId,
+    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
   };
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
-  scheduleTokenRefresh(); // Schedule refresh on auth state save
+  scheduleTokenRefresh();
 }
 
 function saveDropdownState() {
@@ -79,6 +79,7 @@ async function restoreState() {
 
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
+    sessionId = authState.session_id;
     if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
     elements.authStatus.textContent = 'Signed in';
@@ -126,15 +127,28 @@ async function restoreState() {
       fetchSubmittedRatings();
     }
   } else {
-    elements.authStatus.textContent = 'Ready to sign in';
-    elements.signInBtn.style.display = 'block';
-    elements.signOutBtn.style.display = 'none';
-    currentEvaluator = null;
-    vacancies = [];
-    candidates = [];
-    compeCodes = [];
-    competencies = [];
-    resetDropdowns([]);
+    const urlParams = new URLSearchParams(window.location.search);
+    const accessToken = urlParams.get('access_token');
+    const expiresIn = urlParams.get('expires_in');
+    sessionId = urlParams.get('session_id');
+    if (accessToken && sessionId) {
+      handleTokenCallback({
+        access_token: accessToken,
+        expires_in: parseInt(expiresIn, 10),
+        session_id: sessionId,
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
+      elements.authStatus.textContent = 'Ready to sign in';
+      elements.signInBtn.style.display = 'block';
+      elements.signOutBtn.style.display = 'none';
+      currentEvaluator = null;
+      vacancies = [];
+      candidates = [];
+      compeCodes = [];
+      competencies = [];
+      resetDropdowns([]);
+    }
   }
 }
 
@@ -160,25 +174,12 @@ fetch(`${API_BASE_URL}/config`)
 function initializeApp() {
   gapi.load('client', async () => {
     await initializeGapiClient();
-    gisLoaded();
-    if (gisInitialized && gapiInitialized) {
-      createEvaluatorSelector();
-      restoreState();
-    }
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
+    maybeEnableButtons();
+    createEvaluatorSelector();
+    restoreState();
   });
-}
-
-function gisLoaded() {
-  if (!CLIENT_ID || !SCOPES) return;
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    callback: handleTokenCallback,
-    prompt: 'select_account',
-  });
-  gisInitialized = true;
-  console.log('GIS initialized');
-  maybeEnableButtons();
 }
 
 async function initializeGapiClient() {
@@ -191,7 +192,6 @@ async function initializeGapiClient() {
     if (token && !await isTokenValid()) await refreshAccessToken();
     gapiInitialized = true;
     console.log('GAPI client initialized');
-    maybeEnableButtons();
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
   }
@@ -218,63 +218,57 @@ async function isTokenValid() {
 
 async function refreshAccessToken() {
   const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.refresh_token) {
-    console.warn('No refresh token available, requiring re-authentication');
+  if (!authState?.session_id) {
+    console.warn('No session ID available, requiring re-authentication');
     handleAuthClick();
     return false;
   }
 
   try {
-    const response = await fetch('https://oauth2.googleapis.com/token', {
+    const response = await fetch(`${API_BASE_URL}/refresh-token`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        refresh_token: authState.refresh_token,
-        grant_type: 'refresh_token',
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: authState.session_id }),
     });
 
     const newToken = await response.json();
     if (!response.ok || newToken.error) {
-      throw new Error(newToken.error_description || 'Token refresh failed');
+      throw new Error(newToken.error || 'Token refresh failed');
     }
 
-    if (newToken.access_token) {
-      authState.access_token = newToken.access_token;
-      authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
-      localStorage.setItem('authState', JSON.stringify(authState));
-      gapi.client.setToken({ access_token: authState.access_token });
-      console.log('Access token refreshed successfully');
-      scheduleTokenRefresh(); // Reschedule after success
-      return true;
-    } else {
-      throw new Error('No access token in refresh response');
-    }
+    authState.access_token = newToken.access_token;
+    authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
+    localStorage.setItem('authState', JSON.stringify(authState));
+    gapi.client.setToken({ access_token: authState.access_token });
+    console.log('Access token refreshed successfully');
+    scheduleTokenRefresh();
+    return true;
   } catch (error) {
     console.error('Token refresh failed:', error);
-    showToast('warning', 'Session Issue', 'Unable to refresh session, retrying soon...');
-    return false; // Retry later instead of forcing sign-in
+    showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
+    handleAuthClick();
+    return false;
   }
 }
 
 function scheduleTokenRefresh() {
-  if (refreshTimer) clearTimeout(refreshTimer); // Clear existing timer
+  if (refreshTimer) clearTimeout(refreshTimer);
 
   const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.expires_at || !authState.refresh_token) {
+  if (!authState?.expires_at || !authState.session_id) {
     console.log('No valid auth state for scheduling refresh');
     return;
   }
 
   const timeToExpiry = authState.expires_at - Date.now();
-  const refreshInterval = Math.max(3000000, timeToExpiry - 600000); // 50 min or 10 min before expiry
+  const refreshInterval = Math.max(300000, timeToExpiry - 900000); // 15 min before expiry
 
   refreshTimer = setTimeout(async () => {
     console.log('Scheduled token refresh triggered');
     const success = await refreshAccessToken();
     if (!success) {
-      refreshTimer = setTimeout(scheduleTokenRefresh, 300000); // Retry in 5 min if failed
+      console.warn('Refresh failed, retrying in 1 minute');
+      refreshTimer = setTimeout(scheduleTokenRefresh, 60000);
     }
   }, refreshInterval);
 
@@ -301,7 +295,7 @@ function handleTokenCallback(tokenResponse) {
 }
 
 function maybeEnableButtons() {
-  if (gisInitialized && gapiInitialized) {
+  if (gapiInitialized) {
     elements.signInBtn.style.display = 'inline-block';
     elements.signOutBtn.style.display = 'inline-block';
   }
@@ -380,7 +374,7 @@ async function handleEvaluatorSelection(event) {
 }
 
 function handleAuthClick() {
-  tokenClient.requestAccessToken({ prompt: 'consent' });
+  window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
 function handleSignOutClick() {
@@ -392,6 +386,7 @@ function handleSignOutClick() {
     localStorage.clear();
     console.log('All localStorage cleared');
     currentEvaluator = null;
+    sessionId = null;
     vacancies = [];
     candidates = [];
     compeCodes = [];
@@ -453,9 +448,9 @@ async function loadSheetData(maxRetries = 3) {
       if (attempt === maxRetries) {
         elements.authStatus.textContent = 'Error loading sheet data. Retrying soon...';
         showToast('error', 'Error', 'Failed to load sheet data, retrying in the background.');
-        setTimeout(() => loadSheetData(), 300000); // Retry after 5 minutes
+        setTimeout(() => loadSheetData(), 300000);
       } else {
-        await delay(Math.pow(2, attempt) * 1000); // Exponential backoff
+        await delay(Math.pow(2, attempt) * 1000);
       }
     }
   }
@@ -873,7 +868,7 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
 
 async function submitRatingsWithLock(ratings, maxRetries = 5) {
   const lockRange = "RATELOG!G1:H1";
-  const LOCK_TIMEOUT = 60000; // 60 seconds
+  const LOCK_TIMEOUT = 60000;
   let retryCount = 0;
   let lockAcquired = false;
 
@@ -1290,4 +1285,19 @@ if (elements.submitRatings) {
   elements.submitRatings.removeEventListener('click', submitRatings);
   elements.submitRatings.addEventListener('click', submitRatings);
   console.log('Submit ratings listener attached');
+}
+
+// Placeholder for showModal and showToast (implement these in your HTML/JS)
+function showModal(title, content, onConfirm, onCancel) {
+  // Implement modal logic here (e.g., using a library or custom code)
+  console.log(`Modal: ${title}, ${content}`);
+  const modal = document.createElement('div');
+  modal.innerHTML = `<div>${title}<br>${content}<button onclick="onConfirm()">Confirm</button><button onclick="onCancel?.()">Cancel</button></div>`;
+  document.body.appendChild(modal);
+  // Add proper styling and removal logic
+}
+
+function showToast(type, title, message, duration = 3000, position = 'top-right') {
+  console.log(`${type}: ${title} - ${message}`);
+  // Implement toast notification (e.g., using a library like Toastify)
 }
