@@ -204,7 +204,7 @@ async function isTokenValid() {
   if (!authState?.access_token) return false;
 
   const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft <= 0) { // Only refresh if fully expired
+  if (timeLeft <= 0) {
     console.log('Token expired, refreshing');
     return await refreshAccessToken();
   }
@@ -214,10 +214,10 @@ async function isTokenValid() {
     return true;
   } catch (error) {
     console.log('Token validation failed:', error);
-    if (timeLeft < 300000) { // Less than 5 minutes
+    if (timeLeft < 300000) {
       return await refreshAccessToken();
     }
-    return false; // Don’t refresh if still valid
+    return false;
   }
 }
 
@@ -730,8 +730,6 @@ async function submitRatings() {
     return;
   }
 
-  const loadingOverlay = document.getElementById('loadingOverlay');
-
   try {
     const token = gapi.client.getToken();
     if (!token || !await isTokenValid()) {
@@ -774,21 +772,96 @@ async function submitRatings() {
       return;
     }
 
-    submissionQueue.push(ratings);
-    loadingOverlay.classList.add('active');
-    processSubmissionQueue();
+    // Build modal content with dropdowns and ratings
+    const modalContent = `
+      <p><strong>Evaluator:</strong> ${currentEvaluator}</p>
+      <p><strong>Assignment:</strong> ${elements.assignmentDropdown.value}</p>
+      <p><strong>Position:</strong> ${elements.positionDropdown.value}</p>
+      <p><strong>Item:</strong> ${item}</p>
+      <p><strong>Name:</strong> ${candidateName}</p>
+      <h4>Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+        <thead>
+          <tr>
+            <th style="border: 1px solid #ddd; padding: 8px;">Competency</th>
+            <th style="border: 1px solid #ddd; padding: 8px;">Rating</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ratings.map(row => `
+            <tr>
+              <td style="border: 1px solid #ddd; padding: 8px;">${row[3]}</td>
+              <td style="border: 1px solid #ddd; padding: 8px;">${row[4]}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    showModal(
+      `Confirm ${isUpdate ? 'Update' : 'Submission'}`,
+      modalContent,
+      () => {
+        // On confirm, queue the submission
+        submissionQueue.push(ratings);
+        showSubmittingIndicator();
+        processSubmissionQueue();
+      },
+      () => {
+        console.log('Submission canceled');
+        showToast('info', 'Canceled', 'Ratings submission aborted');
+      }
+    );
   } catch (error) {
     console.error('Submission error:', error);
     showToast('error', 'Error', `Failed to submit: ${error.message}`);
     if (error.status === 401 || error.status === 403) handleAuthClick();
-  } finally {
-    loadingOverlay.classList.remove('active');
   }
+}
+
+function showSubmittingIndicator() {
+  let indicator = document.getElementById('submittingIndicator');
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.id = 'submittingIndicator';
+    indicator.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 10px; color: #555;">
+        <span class="spinner"></span>
+        <span>Submitting...</span>
+      </div>
+    `;
+    indicator.style.cssText = 'position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background: #f0f0f0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);';
+    document.body.appendChild(indicator);
+
+    // Add spinner CSS
+    const style = document.createElement('style');
+    style.innerHTML = `
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 3px solid #ccc;
+        border-top: 3px solid #333;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
+function hideSubmittingIndicator() {
+  const indicator = document.getElementById('submittingIndicator');
+  if (indicator) indicator.remove();
 }
 
 async function processSubmissionQueue() {
   if (isSubmitting || !submissionQueue.length) return;
   isSubmitting = true;
+
   const ratings = submissionQueue.shift();
 
   try {
@@ -807,6 +880,7 @@ async function processSubmissionQueue() {
     setTimeout(processSubmissionQueue, 5000); // Retry after 5s
   } finally {
     isSubmitting = false;
+    hideSubmittingIndicator();
     processSubmissionQueue(); // Next in line
   }
 }
@@ -1323,16 +1397,41 @@ if (elements.submitRatings) {
   console.log('Submit ratings listener attached');
 }
 
-// Placeholder for showModal and showToast (implement these in your HTML/JS)
+// Enhanced Modal and Toast (basic implementations)
 function showModal(title, content, onConfirm, onCancel) {
-  console.log(`Modal: ${title}, ${content}`);
   const modal = document.createElement('div');
-  modal.innerHTML = `<div>${title}<br>${content}<button onclick="onConfirm()">Confirm</button><button onclick="onCancel?.()">Cancel</button></div>`;
+  modal.className = 'custom-modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); max-width: 600px; max-height: 80vh; overflow-y: auto;">
+      <h3>${title}</h3>
+      <div>${content}</div>
+      <div style="margin-top: 20px; text-align: right;">
+        <button id="modalConfirm" style="padding: 8px 16px; margin-right: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Confirm</button>
+        <button id="modalCancel" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+      </div>
+    </div>
+  `;
+  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;';
   document.body.appendChild(modal);
-  // Add proper styling and removal logic
+
+  document.getElementById('modalConfirm').onclick = () => {
+    document.body.removeChild(modal);
+    onConfirm();
+  };
+  document.getElementById('modalCancel').onclick = () => {
+    document.body.removeChild(modal);
+    if (onCancel) onCancel();
+  };
 }
 
 function showToast(type, title, message, duration = 3000, position = 'top-right') {
-  console.log(`${type}: ${title} - ${message}`);
-  // Implement toast notification (e.g., using a library like Toastify)
+  const toast = document.createElement('div');
+  toast.innerHTML = `<strong>${title}</strong>: ${message}`;
+  toast.style.cssText = `
+    position: fixed; ${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} ${position.includes('right') ? 'right: 20px;' : 'left: 20px;'}
+    padding: 10px 20px; background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
+    color: white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 1000;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => document.body.removeChild(toast), duration);
 }
