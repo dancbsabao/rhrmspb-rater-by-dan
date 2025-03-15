@@ -6,6 +6,7 @@ let fetchTimeout;
 let isSubmitting = false;
 let refreshTimer = null;
 let sessionId = null; // To track server session
+let submissionQueue = []; // Queue for pending submissions
 
 let CLIENT_ID;
 let API_KEY;
@@ -291,7 +292,7 @@ function handleTokenCallback(tokenResponse) {
     elements.authStatus.textContent = 'Signed in';
     elements.signInBtn.style.display = 'none';
     elements.signOutBtn.style.display = 'block';
-    fetch(`${API_BASE_URL}/config`, { credentials: 'include' }) // Add this
+    fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
       .then(() => {
         createEvaluatorSelector();
         loadSheetData();
@@ -398,6 +399,7 @@ function handleSignOutClick() {
     candidates = [];
     compeCodes = [];
     competencies = [];
+    submissionQueue = [];
     console.log('Global variables reset');
     elements.authStatus.textContent = 'Signed out';
     elements.signInBtn.style.display = 'block';
@@ -728,7 +730,6 @@ async function submitRatings() {
     return;
   }
 
-  isSubmitting = true;
   const loadingOverlay = document.getElementById('loadingOverlay');
 
   try {
@@ -773,26 +774,40 @@ async function submitRatings() {
       return;
     }
 
+    submissionQueue.push(ratings);
     loadingOverlay.classList.add('active');
+    processSubmissionQueue();
+  } catch (error) {
+    console.error('Submission error:', error);
+    showToast('error', 'Error', `Failed to submit: ${error.message}`);
+    if (error.status === 401 || error.status === 403) handleAuthClick();
+  } finally {
+    loadingOverlay.classList.remove('active');
+  }
+}
+
+async function processSubmissionQueue() {
+  if (isSubmitting || !submissionQueue.length) return;
+  isSubmitting = true;
+  const ratings = submissionQueue.shift();
+
+  try {
     const result = await submitRatingsWithLock(ratings);
     if (result.success) {
-      const radioStateKey = `radioState_${candidateName}_${item}`;
-      localStorage.removeItem(radioStateKey);
+      const candidateName = ratings[0][2];
+      const item = ratings[0][1];
+      localStorage.removeItem(`radioState_${candidateName}_${item}`);
       showToast('success', 'Success', result.message, 5000, 'center');
       fetchSubmittedRatings();
     }
   } catch (error) {
-    console.error('Submission error:', error);
-    const errorMessage = error.message || 'Unknown error';
-    showToast('error', 'Error', `Failed to submit ratings: ${errorMessage}`);
-    if (error.status === 401 || error.status === 403) {
-      handleAuthClick();
-    } else if (!navigator.onLine) {
-      showToast('error', 'Network Error', 'Please check your internet connection.');
-    }
+    console.error('Queue submission failed:', error);
+    showToast('error', 'Error', error.message);
+    submissionQueue.unshift(ratings); // Re-queue on failure
+    setTimeout(processSubmissionQueue, 5000); // Retry after 5s
   } finally {
     isSubmitting = false;
-    loadingOverlay.classList.remove('active');
+    processSubmissionQueue(); // Next in line
   }
 }
 
@@ -874,63 +889,77 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
 }
 
 async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:H1";
-  const LOCK_TIMEOUT = 60000;
+  const lockRange = "RATELOG!G1:I1"; // Extended for owner
+  const LOCK_TIMEOUT = 15000; // 15s
   let retryCount = 0;
   let lockAcquired = false;
 
   while (retryCount < maxRetries) {
     try {
       if (!await isTokenValid()) await refreshAccessToken();
-      const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: lockRange,
-      });
-
-      const lockData = lockStatusResponse.result.values?.[0] || ['', ''];
-      const [lockStatus, lockTimestamp] = lockData;
-
-      if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < LOCK_TIMEOUT) {
+      const { acquired, owner } = await acquireLock(sessionId);
+      if (!acquired) {
+        showToast('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
         await delay(Math.pow(2, retryCount) * 1000);
         retryCount++;
         continue;
       }
-
-      const timestamp = new Date().toISOString();
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: lockRange,
-        valueInputOption: 'RAW',
-        resource: { values: [['locked', timestamp]] },
-      });
       lockAcquired = true;
 
       const result = await processRatings(ratings);
-      await releaseLock(lockRange);
+      await releaseLock(sessionId);
       return result;
     } catch (error) {
       console.error('Error in submitRatingsWithLock:', error);
       retryCount++;
-      if (lockAcquired) await releaseLock(lockRange);
+      if (lockAcquired) await releaseLock(sessionId);
       if (retryCount === maxRetries) {
-        throw new Error(error.result?.error?.message || error.message || 'Failed to submit ratings');
+        throw new Error('Submission failed after retries—queued for later');
       }
       await delay(Math.pow(2, retryCount) * 1000);
     }
   }
 }
 
-async function releaseLock(lockRange) {
+async function acquireLock(sessionId) {
+  const lockRange = "RATELOG!G1:I1";
   try {
-    if (!await isTokenValid()) await refreshAccessToken();
+    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: lockRange,
+    });
+    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
+    
+    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < 15000) {
+      return { acquired: false, owner: lockOwner || 'unknown' };
+    }
+
+    const timestamp = new Date().toISOString();
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: lockRange,
       valueInputOption: 'RAW',
-      resource: { values: [['', '']] },
+      resource: { values: [['locked', timestamp, sessionId]] },
+    });
+    return { acquired: true };
+  } catch (error) {
+    console.error('Lock acquisition failed:', error);
+    return { acquired: false, owner: 'error' };
+  }
+}
+
+async function releaseLock(sessionId) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: "RATELOG!G1:I1",
+      valueInputOption: 'RAW',
+      resource: { values: [['', '', '']] },
     });
   } catch (error) {
     console.error('Failed to release lock:', error);
+    showToast('error', 'Lock Error', 'Lock release failed—may resolve in 15s');
   }
 }
 
@@ -1296,7 +1325,6 @@ if (elements.submitRatings) {
 
 // Placeholder for showModal and showToast (implement these in your HTML/JS)
 function showModal(title, content, onConfirm, onCancel) {
-  // Implement modal logic here (e.g., using a library or custom code)
   console.log(`Modal: ${title}, ${content}`);
   const modal = document.createElement('div');
   modal.innerHTML = `<div>${title}<br>${content}<button onclick="onConfirm()">Confirm</button><button onclick="onCancel?.()">Cancel</button></div>`;
