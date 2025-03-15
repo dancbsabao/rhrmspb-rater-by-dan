@@ -772,30 +772,28 @@ async function submitRatings() {
       return;
     }
 
-    // Build modal content with dropdowns and ratings
+    // Fetch summary ratings from the results tiles
+    const basicRating = document.getElementById('basic-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const orgRating = document.getElementById('organizational-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const minRating = document.getElementById('minimum-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const psychoSocialRating = document.getElementById('psychosocial-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const potentialRating = document.getElementById('potential-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+
+    // Build modal content with dropdowns and summary ratings
     const modalContent = `
       <p><strong>Evaluator:</strong> ${currentEvaluator}</p>
       <p><strong>Assignment:</strong> ${elements.assignmentDropdown.value}</p>
       <p><strong>Position:</strong> ${elements.positionDropdown.value}</p>
       <p><strong>Item:</strong> ${item}</p>
       <p><strong>Name:</strong> ${candidateName}</p>
-      <h4>Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
-      <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
-        <thead>
-          <tr>
-            <th style="border: 1px solid #ddd; padding: 8px;">Competency</th>
-            <th style="border: 1px solid #ddd; padding: 8px;">Rating</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${ratings.map(row => `
-            <tr>
-              <td style="border: 1px solid #ddd; padding: 8px;">${row[3]}</td>
-              <td style="border: 1px solid #ddd; padding: 8px;">${row[4]}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+      <h4>Summary Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
+      <ul style="list-style: none; padding: 0;">
+        <li><strong>Basic Competencies:</strong> ${basicRating}</li>
+        <li><strong>Organizational Competencies:</strong> ${orgRating}</li>
+        <li><strong>Minimum Competencies:</strong> ${minRating}</li>
+        <li><strong>Psycho-Social Attributes:</strong> ${psychoSocialRating}</li>
+        <li><strong>Potential:</strong> ${potentialRating}</li>
+      </ul>
     `;
 
     showModal(
@@ -1402,7 +1400,7 @@ function showModal(title, content, onConfirm, onCancel) {
   const modal = document.createElement('div');
   modal.className = 'custom-modal';
   modal.innerHTML = `
-    <div class="modal-content" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); max-width: 600px; max-height: 80vh; overflow-y: auto;">
+    <div class="modal-content" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); max-width: 500px; width: 90%;">
       <h3>${title}</h3>
       <div>${content}</div>
       <div style="margin-top: 20px; text-align: right;">
