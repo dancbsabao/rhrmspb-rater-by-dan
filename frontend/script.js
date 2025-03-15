@@ -80,6 +80,7 @@ async function restoreState() {
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
     sessionId = authState.session_id;
+    await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay
     if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
     elements.authStatus.textContent = 'Signed in';
@@ -290,12 +291,13 @@ function handleTokenCallback(tokenResponse) {
     elements.authStatus.textContent = 'Signed in';
     elements.signInBtn.style.display = 'none';
     elements.signOutBtn.style.display = 'block';
-    createEvaluatorSelector();
-    loadSheetData();
-    if (!localStorage.getItem('hasWelcomed')) {
-      showToast('success', 'Welcome!', 'Successfully signed in to the system.');
-      localStorage.setItem('hasWelcomed', 'true');
-    }
+    fetch(`${API_BASE_URL}/config`, { credentials: 'include' }) // Add this
+      .then(() => {
+        createEvaluatorSelector();
+        loadSheetData();
+        showToast('success', 'Welcome!', 'Successfully signed in.');
+        localStorage.setItem('hasWelcomed', 'true');
+      });
   }
 }
 
