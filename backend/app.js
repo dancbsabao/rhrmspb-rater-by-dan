@@ -2,13 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const cookieParser = require('cookie-parser'); // Add this
+const cookieParser = require('cookie-parser');
 
 const app = express();
 app.set('trust proxy', true);
 
 // Middleware
-app.use(cookieParser()); // Add this
+app.use(cookieParser());
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
@@ -19,15 +19,20 @@ app.use(cors({
     ];
     console.log('Request Origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
+      callback(null, origin || 'https://dancbsabao.github.io'); // Explicit origin
     } else {
       console.error('CORS rejected origin:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true, // Allow cookies
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
 }));
 app.use(express.json());
+
+// Handle OPTIONS preflight for /refresh-token
+app.options('/refresh-token', cors());
 
 // Config endpoint
 app.get('/config', (req, res) => {
@@ -98,7 +103,7 @@ app.get('/auth/google/callback', async (req, res) => {
       res.cookie('refresh_token', tokenData.refresh_token, {
         httpOnly: true,
         secure: true,
-        sameSite: 'None', // Switch to None for cross-site POST
+        sameSite: 'None',
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
       console.log('Refresh token cookie set:', tokenData.refresh_token);
