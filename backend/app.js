@@ -1,30 +1,22 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const cookieParser = require('cookie-parser');
 const fetch = require('node-fetch');
 
 const app = express();
-app.set('trust proxy', true); // Keep this for Render
+app.set('trust proxy', true);
 
-app.use(express.json());
-app.use(cookieParser());
-
+// Configure CORS
 const allowedOrigins = [
-  'https://dancbsabao.github.io/rhrmspb-rater-by-dan',
-  'https://dancbsabao.github.io',
-  'http://127.0.0.1:5500',
-  'http://localhost:3000',
+  'https://dancbsabao.github.io/rhrmspb-rater-by-dan', // Your app’s URL
+  'https://dancbsabao.github.io',                      // Root origin (just in case)
+  'http://127.0.0.1:5500',                            // Local dev
+  'http://localhost:3000',                            // Local dev
 ];
-
-// Log request details before CORS
-app.use((req, res, next) => {
-  console.log('Request Origin:', req.headers.origin, 'Method:', req.method, 'Path:', req.path);
-  next();
-});
 
 app.use(cors({
   origin: function (origin, callback) {
+    console.log('Request Origin:', origin); // Debug
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -32,13 +24,16 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true, // Support cookies
 }));
+
+app.use(express.json());
+
+const refreshTokens = new Map();
 
 // Config endpoint
 app.get('/config', (req, res) => {
   try {
-    console.log('Config endpoint hit');
+    console.log('Config endpoint hit'); // Debug
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -50,7 +45,7 @@ app.get('/config', (req, res) => {
       SHEET_RANGES: process.env.SHEET_RANGES
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
-      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Optional, keep if needed
+      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Optional
     });
   } catch (error) {
     console.error('Error in /config:', error);
@@ -100,19 +95,11 @@ app.get('/auth/google/callback', async (req, res) => {
     }
 
     const sessionId = Date.now().toString();
-    res.cookie('refresh_token', tokenData.refresh_token, {
-      httpOnly: true,
-      secure: true, // Requires HTTPS (Render provides this)
-      sameSite: 'Strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    });
+    refreshTokens.set(sessionId, tokenData.refresh_token);
 
-    const clientBaseUrl = process.env.NODE_ENV === 'development'
-      ? 'http://127.0.0.1:5500'
-      : 'https://dancbsabao.github.io/rhrmspb-rater-by-dan';
-    const clientRedirect = `${clientBaseUrl}/?` +
+    const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
       `access_token=${tokenData.access_token}&` +
-      `expires_in=${tokenData.expires_in || 3600}&` +
+      `expires_in=${tokenData.expires_in}&` +
       `session_id=${sessionId}`;
     console.log('Redirecting to:', clientRedirect);
     res.redirect(clientRedirect);
@@ -124,6 +111,8 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Token refresh endpoint
 app.post('/refresh-token', async (req, res) => {
+  console.log('Cookies received:', req.cookies);
+  console.log('Request headers:', req.headers);
   const refreshToken = req.cookies.refresh_token;
   console.log('Refresh request, cookie refresh_token:', refreshToken);
   if (!refreshToken) {
@@ -144,17 +133,14 @@ app.post('/refresh-token', async (req, res) => {
     });
 
     const newToken = await response.json();
-    if (newToken.error) {
-      console.error('Google refresh failed:', newToken);
-      throw new Error(newToken.error_description || 'Token refresh failed');
-    }
+    if (newToken.error) throw new Error(newToken.error_description || 'Token refresh failed');
     console.log('Token refreshed:', newToken);
     res.json({
       access_token: newToken.access_token,
       expires_in: newToken.expires_in || 3600,
     });
   } catch (error) {
-    console.error('Refresh error:', error.message);
+    console.error('Error refreshing token:', error);
     res.status(500).json({ error: 'Failed to refresh token' });
   }
 });
