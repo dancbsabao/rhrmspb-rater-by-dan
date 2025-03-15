@@ -224,16 +224,17 @@ async function refreshAccessToken() {
     handleAuthClick();
     return false;
   }
-
   try {
     console.log('Attempting token refresh with session_id:', authState.session_id);
+    console.log('Sending refresh request with credentials');
     const response = await fetch(`${API_BASE_URL}/refresh-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', // Send cookies
+      credentials: 'include',
       body: JSON.stringify({ session_id: authState.session_id }),
     });
     const newToken = await response.json();
+    console.log('Refresh response:', newToken);
     if (!response.ok || newToken.error) {
       throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
     }
@@ -247,7 +248,7 @@ async function refreshAccessToken() {
   } catch (error) {
     console.error('Token refresh failed:', error.message);
     showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
-    localStorage.clear(); // Break the loop
+    localStorage.clear();
     handleAuthClick();
     return false;
   }
