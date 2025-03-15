@@ -229,12 +229,12 @@ async function refreshAccessToken() {
     return false;
   }
   try {
-    console.log('Current cookies:', document.cookie); // Debug client-side cookies
     console.log('Attempting token refresh with session_id:', authState.session_id);
     const response = await fetch(`${API_BASE_URL}/refresh-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      body: JSON.stringify({ session_id: authState.session_id }),
     });
     const newToken = await response.json();
     console.log('Refresh response:', newToken);
