@@ -202,8 +202,8 @@ async function isTokenValid() {
   if (!authState?.access_token) return false;
 
   const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft < 300000) { // Less than 5 minutes remaining
-    console.log('Token nearing expiry, refreshing proactively');
+  if (timeLeft <= 0) { // Only refresh if fully expired
+    console.log('Token expired, refreshing');
     return await refreshAccessToken();
   }
 
@@ -211,8 +211,11 @@ async function isTokenValid() {
     await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
     return true;
   } catch (error) {
-    console.log('Token validation failed, attempting refresh:', error);
-    return await refreshAccessToken();
+    console.log('Token validation failed:', error);
+    if (timeLeft < 300000) { // Less than 5 minutes
+      return await refreshAccessToken();
+    }
+    return false; // Don’t refresh if still valid
   }
 }
 
@@ -225,13 +228,12 @@ async function refreshAccessToken() {
     return false;
   }
   try {
+    console.log('Current cookies:', document.cookie); // Debug client-side cookies
     console.log('Attempting token refresh with session_id:', authState.session_id);
-    console.log('Sending refresh request with credentials');
     const response = await fetch(`${API_BASE_URL}/refresh-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ session_id: authState.session_id }),
     });
     const newToken = await response.json();
     console.log('Refresh response:', newToken);
