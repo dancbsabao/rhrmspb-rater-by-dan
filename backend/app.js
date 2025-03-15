@@ -2,21 +2,22 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
+const cookieParser = require('cookie-parser'); // Add this
 
 const app = express();
 app.set('trust proxy', true);
 
-// Configure CORS
-const allowedOrigins = [
-  'https://dancbsabao.github.io/rhrmspb-rater-by-dan', // Your app’s URL
-  'https://dancbsabao.github.io',                      // Root origin (just in case)
-  'http://127.0.0.1:5500',                            // Local dev
-  'http://localhost:3000',                            // Local dev
-];
-
+// Middleware
+app.use(cookieParser()); // Add this to parse cookies
 app.use(cors({
   origin: function (origin, callback) {
-    console.log('Request Origin:', origin); // Debug
+    const allowedOrigins = [
+      'https://dancbsabao.github.io/rhrmspb-rater-by-dan',
+      'https://dancbsabao.github.io',
+      'http://127.0.0.1:5500',
+      'http://localhost:3000',
+    ];
+    console.log('Request Origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -24,16 +25,14 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
+  credentials: true, // Allow cookies
 }));
-
 app.use(express.json());
-
-const refreshTokens = new Map();
 
 // Config endpoint
 app.get('/config', (req, res) => {
   try {
-    console.log('Config endpoint hit'); // Debug
+    console.log('Config endpoint hit');
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -45,7 +44,7 @@ app.get('/config', (req, res) => {
       SHEET_RANGES: process.env.SHEET_RANGES
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
-      CLIENT_SECRET: process.env.CLIENT_SECRET || '', // Optional
+      CLIENT_SECRET: process.env.CLIENT_SECRET || '',
     });
   } catch (error) {
     console.error('Error in /config:', error);
@@ -95,11 +94,21 @@ app.get('/auth/google/callback', async (req, res) => {
     }
 
     const sessionId = Date.now().toString();
-    refreshTokens.set(sessionId, tokenData.refresh_token);
+    if (tokenData.refresh_token) {
+      res.cookie('refresh_token', tokenData.refresh_token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax', // Use Lax for cross-origin
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+      console.log('Refresh token cookie set:', tokenData.refresh_token);
+    } else {
+      console.warn('No refresh_token in Google response');
+    }
 
     const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
       `access_token=${tokenData.access_token}&` +
-      `expires_in=${tokenData.expires_in}&` +
+      `expires_in=${tokenData.expires_in || 3600}&` +
       `session_id=${sessionId}`;
     console.log('Redirecting to:', clientRedirect);
     res.redirect(clientRedirect);
