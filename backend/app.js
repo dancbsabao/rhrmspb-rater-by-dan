@@ -8,7 +8,7 @@ const app = express();
 app.set('trust proxy', true);
 
 // Middleware
-app.use(cookieParser()); // Add this to parse cookies
+app.use(cookieParser()); // Add this
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
@@ -98,7 +98,7 @@ app.get('/auth/google/callback', async (req, res) => {
       res.cookie('refresh_token', tokenData.refresh_token, {
         httpOnly: true,
         secure: true,
-        sameSite: 'Lax', // Use Lax for cross-origin
+        sameSite: 'None', // Switch to None for cross-site POST
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
       console.log('Refresh token cookie set:', tokenData.refresh_token);
