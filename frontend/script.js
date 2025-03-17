@@ -1235,23 +1235,23 @@ async function displayCompetencies(name, competencies) {
         </div>
         <h3 class="ratings-title">RATING RESULTS</h3>
         <div class="ratings-row">
-          <div class="result-tile small-tile" id="basic-rating-tile">
+          <div class="result-tile" id="basic-rating-tile">
             <span class="tile-label">BASIC:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile small-tile" id="organizational-rating-tile">
+          <div class="result-tile" id="organizational-rating-tile">
             <span class="tile-label">ORG:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile small-tile" id="minimum-rating-tile">
+          <div class="result-tile" id="minimum-rating-tile">
             <span class="tile-label">MIN:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile large-tile" id="psychosocial-tile">
+          <div class="result-tile prominent-tile" id="psychosocial-tile">
             <span class="tile-label">PSYCHO-SOCIAL:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile large-tile" id="potential-tile">
+          <div class="result-tile prominent-tile" id="potential-tile">
             <span class="tile-label">POTENTIAL:</span>
             <span class="tile-value">0.00</span>
           </div>
@@ -1267,7 +1267,7 @@ async function displayCompetencies(name, competencies) {
       position: fixed; top: 0; left: 0; width: 100%; background: #fff;
       border-bottom: 2px solid #666; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
       z-index: 1000; padding: 10px 0; font-family: Arial, sans-serif;
-      transition: transform 0.3s ease;
+      transition: transform 0.3s ease; height: 140px; overflow: hidden;
     }
     .results-content { 
       max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; 
@@ -1297,16 +1297,17 @@ async function displayCompetencies(name, competencies) {
       padding: 8px; border-radius: 6px; border: 1px solid #666; background-color: #f9f9f9;
       color: #222; text-transform: uppercase; display: flex; flex-direction: column;
       gap: 4px; justify-content: center; align-items: center; text-align: center;
-      font-weight: bold; flex: 1; min-width: 100px; cursor: pointer;
+      font-weight: bold; flex: 0 0 80px; height: 60px; min-width: 80px; cursor: pointer;
       position: relative; transition: background 0.2s, transform 0.2s;
     }
+    .prominent-tile {
+      flex: 0 0 150px; min-width: 150px; background-color: #eaf4f4;
+    }
     .result-tile:hover { background-color: #e9ecef; transform: scale(1.05); }
-    .tile-label { font-size: clamp(0.8rem, 1.2vw, 0.9rem); color: #555; }
-    .tile-value { font-size: clamp(1.2rem, 2vw, 1.4rem); color: #111; font-weight: 900; }
-    .small-tile { background-color: #ffffff; }
-    .large-tile { background-color: #eaf4f4; }
-    .large-tile .tile-label { font-size: clamp(0.9rem, 1.5vw, 1rem); }
-    .large-tile .tile-value { font-size: clamp(1.4rem, 2.5vw, 1.8rem); }
+    .tile-label { font-size: clamp(0.8rem, 1vw, 0.9rem); color: #555; }
+    .tile-value { font-size: clamp(1.2rem, 1.5vw, 1.4rem); color: #111; font-weight: 900; }
+    .prominent-tile .tile-label { font-size: clamp(0.9rem, 1.2vw, 1rem); }
+    .prominent-tile .tile-value { font-size: clamp(1.4rem, 2vw, 1.8rem); }
     .tooltip {
       position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.9); color: #fff; padding: 8px; border-radius: 4px;
@@ -1323,14 +1324,15 @@ async function displayCompetencies(name, competencies) {
       cursor: pointer; display: block; transition: background 0.2s, color 0.2s;
     }
     .btn-reset:hover { background-color: #d9534f; color: white; }
-    #competencyContainer { margin-top: 120px; } /* Adjusted for slimmer header */
+    #competencyContainer { margin-top: 150px; } /* Adjusted for fixed results-modal height */
     @media (max-width: 768px) {
-      .results-modal { padding: 5px 0; }
+      .results-modal { padding: 5px 0; height: 160px; }
       .dropdown-field { flex: 1 1 45%; }
       .ratings-row { flex-wrap: wrap; justify-content: center; }
-      .result-tile { min-width: 80px; padding: 6px; }
+      .result-tile { flex: 0 0 60px; min-width: 60px; height: 50px; padding: 6px; }
+      .prominent-tile { flex: 0 0 120px; min-width: 120px; }
       .tooltip { max-width: 90%; font-size: 10px; }
-      #competencyContainer { margin-top: 140px; }
+      #competencyContainer { margin-top: 170px; }
     }
   `;
   document.head.appendChild(style);
@@ -1453,203 +1455,145 @@ async function displayCompetencies(name, competencies) {
     `;
 
     [basicTile, orgTile, minTile, psychoTile, potentialTile].forEach(tile => {
-      tile.addEventListener('click', () => {
-        tile.classList.toggle('active');
+        tile.addEventListener('click', () => {
+          tile.classList.toggle('active');
+          setTimeout(() => tile.classList.remove('active'), 2000); // Auto-hide tooltip after 2s
+        });
       });
-      tile.addEventListener('mouseleave', () => {
-        tile.classList.remove('active');
-      });
+    }
+  
+    document.getElementById('reset-ratings').addEventListener('click', () => {
+      showModal(
+        'Confirm Reset',
+        '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
+        () => {
+          clearRatings();
+          computeTotalBasicRating();
+          computeOrganizationalRating();
+          computeMinimumRating();
+          computePsychosocial();
+          computePotential();
+          updateTooltips();
+          localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
+          elements.submitRatings.disabled = true;
+          showToast('success', 'Reset Complete', 'All ratings have been cleared.');
+        }
+      );
     });
-  }
-
-  document.getElementById("reset-ratings").addEventListener("click", () => {
-    document.querySelectorAll(".competency-item input[type='radio']").forEach(input => {
-      input.checked = false;
-    });
-    basicCompetencyRatings.fill(0);
-    organizationalCompetencyRatings.fill(0);
-    minimumCompetencyRatings.fill(0);
-    const radioStateKey = `radioState_${name}_${elements.itemDropdown.value}`;
-    localStorage.removeItem(radioStateKey);
-    computeTotalBasicRating();
-    computeOrganizationalRating();
-    computeMinimumRating();
-    computePsychosocial();
-    computePotential();
+  
+    loadRadioState(name, elements.itemDropdown.value);
     updateTooltips();
-  });
-
-  // Initial tooltip setup
-  updateTooltips();
-}
-
-function saveRadioState(competency, value, name, item) {
-  const radioStateKey = `radioState_${name}_${item}`;
-  const radioState = JSON.parse(localStorage.getItem(radioStateKey) || '{}');
-  radioState[competency] = value;
-  localStorage.setItem(radioStateKey, JSON.stringify(radioState));
-  console.log(`Saved radio state for ${name} (${item}):`, radioState);
-}
-
-function loadRadioState(name, item) {
-  const radioStateKey = `radioState_${name}_${item}`;
-  const radioState = JSON.parse(localStorage.getItem(radioStateKey) || '{}');
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const savedValue = radioState[competencyName];
-    if (savedValue) {
-      const radio = item.querySelector(`input[value="${savedValue}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-        console.log(`Loaded session state for ${competencyName} (${name}, ${item}): ${savedValue}`);
+  }
+  
+  function saveRadioState(competencyName, value, candidateName, item) {
+    const key = `radioState_${candidateName}_${item}`;
+    const state = JSON.parse(localStorage.getItem(key)) || {};
+    state[competencyName] = value;
+    localStorage.setItem(key, JSON.stringify(state));
+  }
+  
+  function loadRadioState(candidateName, item) {
+    const key = `radioState_${candidateName}_${item}`;
+    const state = JSON.parse(localStorage.getItem(key)) || {};
+    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  
+    Array.from(competencyItems).forEach(item => {
+      const competencyName = item.querySelector('label').textContent.split('. ')[1];
+      const savedValue = state[competencyName];
+      if (savedValue) {
+        const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change'));
+        }
       }
+    });
+  }
+  
+  function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+    let modalOverlay = document.getElementById('modalOverlay');
+    if (!modalOverlay) {
+      modalOverlay = document.createElement('div');
+      modalOverlay.id = 'modalOverlay';
+      modalOverlay.className = 'modal-overlay';
+      document.body.appendChild(modalOverlay);
+  
+      const style = document.createElement('style');
+      style.innerHTML = `
+        .modal-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5);
+          display: flex; justify-content: center; align-items: center; z-index: 1000;
+          opacity: 0; visibility: hidden; transition: all 0.3s ease;
+        }
+        .modal {
+          background-color: white; border-radius: 10px; padding: 24px; max-width: 400px; width: 90%;
+          transform: scale(0.9); transition: all 0.3s ease; border: 2px solid #333;
+        }
+        .modal-header {
+          display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+        }
+        .modal-title {
+          font-size: 20px; font-weight: 600; color: #333;
+        }
+        .modal-content { margin-bottom: 24px; color: #666; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal-overlay.active .modal { transform: scale(1); }
+        .modal-close {
+          color: #333; cursor: pointer; font-size: 24px; padding: 4px;
+        }
+        .modal-field { display: flex; justify-content: space-between; margin: 8px 0; }
+        .modal-label { font-weight: 600; color: #333; }
+        .modal-value { color: #666; }
+        .rating-value { font-weight: bold; color: #000; }
+        .modal-section { margin-top: 16px; }
+        .modal-section h4 { font-size: 16px; color: #333; margin-bottom: 8px; }
+      `;
+      document.head.appendChild(style);
     }
-  });
-}
-
-// Event Listeners
-elements.signInBtn.addEventListener('click', handleAuthClick);
-elements.signOutBtn.addEventListener('click', handleSignOutClick);
-if (elements.submitRatings) {
-  elements.submitRatings.removeEventListener('click', submitRatings);
-  elements.submitRatings.addEventListener('click', submitRatings);
-  console.log('Submit ratings listener attached');
-}
-
-// Enhanced Modal and Toast
-function showModal(title, content, onConfirm, onCancel, showCancel = true) {
-  const modal = document.createElement('div');
-  modal.className = 'custom-modal';
-  modal.innerHTML = `
-    <div class="modal-content">
-      <h3 class="modal-title">${title}</h3>
-      ${content}
-      <div class="modal-footer">
-        <button id="modalConfirm" class="modal-btn modal-btn-confirm">Confirm</button>
-        ${showCancel ? '<button id="modalCancel" class="modal-btn modal-btn-cancel">Cancel</button>' : ''}
+  
+    modalOverlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title">${title}</h3>
+          <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+        </div>
+        <div class="modal-content">${contentHTML}</div>
+        <div class="modal-actions">
+          ${showCancel ? '<button onclick="this.closest(\'.modal-overlay\').classList.remove(\'active\')" style="background-color: white; color: black; border: 2px solid #333;">Cancel</button>' : ''}
+          <button id="modalConfirm" style="background-color: black; color: white; border: 2px solid #333;">Confirm</button>
+        </div>
       </div>
-    </div>
-  `;
-  modal.style.cssText = `
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-    background: rgba(0,0,0,0.6); display: flex; justify-content: center; 
-    align-items: center; z-index: 1000;
-  `;
-
-  const style = document.createElement('style');
-  style.innerHTML = `
-    .modal-content {
-      background: #fff; padding: 25px; border-radius: 12px; 
-      box-shadow: 0 6px 12px rgba(0,0,0,0.3); max-width: 600px; width: 90%;
-      font-family: Arial, sans-serif;
-    }
-    .modal-title {
-      font-size: 24px; color: #333; margin-bottom: 20px; text-align: center;
-      font-weight: 600;
-    }
-    .modal-body { font-size: 16px; color: #444; }
-    .modal-field {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 8px 0; border-bottom: 1px solid #eee;
-    }
-    .modal-label { font-weight: 500; color: #666; }
-    .modal-value { font-weight: 600; color: #222; }
-    .rating-value { font-size: 18px; color: #007bff; }
-    .modal-section { margin-top: 20px; }
-    .modal-section h4 { font-size: 18px; color: #333; margin-bottom: 10px; }
-    .modal-footer { margin-top: 25px; text-align: right; }
-    .modal-btn {
-      padding: 10px 20px; margin-left: 10px; border: none; border-radius: 6px;
-      font-size: 16px; cursor: pointer; transition: background 0.2s;
-    }
-    .modal-btn-confirm { background: #28a745; color: white; }
-    .modal-btn-confirm:hover { background: #218838; }
-    .modal-btn-cancel { background: #dc3545; color: white; }
-    .modal-btn-cancel:hover { background: #c82333; }
-    @media (max-width: 768px) {
-      .modal-content { padding: 15px; max-width: 95%; }
-      .modal-title { font-size: 20px; }
-      .modal-field { flex-direction: column; align-items: flex-start; }
-      .modal-btn { padding: 8px 16px; font-size: 14px; }
-    }
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(modal);
-
-  document.getElementById('modalConfirm').onclick = () => {
-    document.body.removeChild(modal);
-    document.head.removeChild(style);
-    onConfirm();
-  };
-  if (showCancel && document.getElementById('modalCancel')) {
-    document.getElementById('modalCancel').onclick = () => {
-      document.body.removeChild(modal);
-      document.head.removeChild(style);
-      if (onCancel) onCancel();
-    };
-  }
-}
-
-function showToast(type, title, message, duration = 3000, position = 'top-right') {
-  const existingToasts = document.querySelectorAll('.toast');
-  existingToasts.forEach(toast => toast.remove()); // Clear previous toasts
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type}`;
-  toast.innerHTML = `
-    <div class="toast-content">
-      <strong>${title}</strong>: ${message}
-      ${duration === 0 ? '<span class="toast-close">✖</span>' : ''}
-    </div>
-  `;
-  toast.style.cssText = `
-    position: fixed; 
-    ${position === 'center' ? 'top: 50%; left: 50%; transform: translate(-50%, -50%);' : 
-      `${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} 
-       ${position.includes('right') ? 'right: 20px;' : 'left: 20px;'}`}
-    padding: 12px 20px; 
-    background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
-    color: white; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1000;
-    font-family: Arial, sans-serif; font-size: 16px; max-width: 400px;
-    transition: opacity 0.3s ease;
-  `;
-
-  const style = document.createElement('style');
-  style.innerHTML = `
-    .toast-content { display: flex; justify-content: space-between; align-items: center; }
-    .toast-close {
-      margin-left: 15px; font-size: 18px; cursor: pointer; color: #fff;
-      transition: color 0.2s;
-    }
-    .toast-close:hover { color: #ddd; }
-    .toast { opacity: 1; }
-    @media (max-width: 768px) {
-      .toast { font-size: 14px; padding: 10px 15px; max-width: 90%; }
-    }
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(toast);
-
-  if (duration > 0) {
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      setTimeout(() => {
-        if (document.body.contains(toast)) document.body.removeChild(toast);
-        document.head.removeChild(style);
-      }, 300); // Match transition duration
-    }, duration);
-  } else if (duration === 0) {
-    const closeBtn = toast.querySelector('.toast-close');
-    if (closeBtn) {
-      closeBtn.onclick = () => {
-        toast.style.opacity = '0';
-        setTimeout(() => {
-          if (document.body.contains(toast)) document.body.removeChild(toast);
-          document.head.removeChild(style);
-        }, 300);
+    `;
+  
+    return new Promise((resolve) => {
+      modalOverlay.classList.add('active');
+      const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+      const closeHandler = (result) => {
+        modalOverlay.classList.remove('active');
+        resolve(result);
+        modalOverlay.removeEventListener('click', outsideClickHandler);
       };
-    }
+  
+      confirmBtn.onclick = () => {
+        if (onConfirm) onConfirm();
+        closeHandler(true);
+      };
+  
+      const outsideClickHandler = (event) => {
+        if (event.target === modalOverlay) {
+          if (onCancel) onCancel();
+          closeHandler(false);
+        }
+      };
+      modalOverlay.addEventListener('click', outsideClickHandler);
+    });
   }
-}
+  
+  elements.signInBtn.addEventListener('click', handleAuthClick);
+  elements.signOutBtn.addEventListener('click', handleSignOutClick);
+  elements.submitRatings.addEventListener('click', submitRatings);
+  
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM fully loaded');
+  });
