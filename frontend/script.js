@@ -358,8 +358,7 @@ async function handleEvaluatorSelection(event) {
 
   const modalContent = `
     <p>Please enter the password for ${newSelection}:</p>
-    <input type="password" id="evaluatorPassword" class="modal-input" 
-           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+    <input type="password" id="evaluatorPassword" class="modal-input">
   `;
 
   showModal('Evaluator Authentication', modalContent, () => {
@@ -512,8 +511,7 @@ function initializeDropdowns(vacancies) {
       if (storedAssignment !== assignment) {
         const modalContent = `
           <p>Please enter the password to access assignment "${assignment}":</p>
-          <input type="password" id="assignmentPassword" class="modal-input" 
-                 style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+          <input type="password" id="assignmentPassword" class="modal-input">
         `;
         isAuthorized = await new Promise((resolve) => {
           showModal('Assignment Authentication', modalContent, () => {
@@ -815,35 +813,14 @@ function showSubmittingIndicator() {
   if (!indicator) {
     indicator = document.createElement('div');
     indicator.id = 'submittingIndicator';
+    indicator.className = 'submitting-indicator';
     indicator.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 15px; color: #fff; font-size: 24px; font-weight: bold;">
+      <div class="submitting-content">
         <span class="spinner"></span>
         <span>SUBMITTING...</span>
       </div>
     `;
-    indicator.style.cssText = `
-      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      padding: 20px 40px; background: rgba(0, 0, 0, 0.8); border-radius: 12px;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 2000;
-    `;
     document.body.appendChild(indicator);
-
-    const style = document.createElement('style');
-    style.innerHTML = `
-      .spinner {
-        width: 30px;
-        height: 30px;
-        border: 4px solid #fff;
-        border-top: 4px solid #00cc00;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-      }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-    `;
-    document.head.appendChild(style);
   }
 }
 
@@ -922,8 +899,7 @@ async function verifyEvaluatorPassword() {
   return new Promise((resolve) => {
     const modalContent = `
       <p>Please verify password for ${currentEvaluator}:</p>
-      <input type="password" id="verificationPassword" class="modal-input" 
-             style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+      <input type="password" id="verificationPassword" class="modal-input">
     `;
     showModal('Password Verification', modalContent, () => {
       const password = document.getElementById('verificationPassword').value;
@@ -1109,8 +1085,8 @@ async function displayCandidatesTable(name, itemNumber) {
 
   const headerSection = document.createElement('div');
   headerSection.innerHTML = `
-    <h2 style="font-size: 22px; text-align: center;">YOU ARE RATING</h2>
-    <h2 style="font-size: 36px; text-align: center;">${name}</h2>
+    <h2 class="candidate-header">YOU ARE RATING</h2>
+    <h2 class="candidate-name">${name}</h2>
   `;
   container.appendChild(headerSection);
 
@@ -1161,23 +1137,6 @@ async function displayCandidatesTable(name, itemNumber) {
     });
 
     container.appendChild(tilesContainer);
-
-    const existingStyle = document.getElementById('candidates-table-styles');
-    if (!existingStyle) {
-      const style = document.createElement('style');
-      style.id = 'candidates-table-styles';
-      style.innerHTML = `
-        .tiles-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; justify-items: center; padding: 20px; }
-        .tile { border: 1px solid #ccc; border-radius: 8px; padding: 10px; background-color: #f9f9f9; width: 100%; text-align: center; word-wrap: break-word; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; max-height: 200px; }
-        .tile h4 { font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center; }
-        .tile-content p { font-size: 12px; font-weight: bold; color: #333; word-wrap: break-word; overflow: hidden; text-overflow: ellipsis; white-space: normal; margin: 5px 0; }
-        .tile-content p.no-data { color: #888; font-style: italic; }
-        .open-link-button { background-color: rgb(65, 65, 65); color: white; border: none; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 10px; }
-        .open-link-button:hover { background-color: rgb(0, 0, 0); }
-        .open-link-button:disabled { background-color: #ccc; cursor: not-allowed; }
-      `;
-      document.head.appendChild(style);
-    }
   } else {
     container.innerHTML = '<p>No matching data found.</p>';
   }
@@ -1210,12 +1169,12 @@ async function displayCompetencies(name, competencies) {
 
   elements.competencyContainer.innerHTML = `
     <div class="competency-section" id="basic-competencies">
-      <h3 style="font-size: 32px;">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
+      <h3 class="section-title">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
       <h3>BASIC COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
     <div class="competency-section" id="organizational-competencies">
-      <h3 style="font-size: 32px;">POTENTIAL</h3>
+      <h3 class="section-title">POTENTIAL</h3>
       <h3>ORGANIZATIONAL COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
@@ -1260,82 +1219,6 @@ async function displayCompetencies(name, competencies) {
     </div>
     <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
   `;
-
-  const style = document.createElement("style");
-  style.innerHTML = `
-    .results-modal {
-      position: fixed; top: 0; left: 0; width: 100%; background: #fff;
-      border-bottom: 2px solid #666; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-      z-index: 1000; padding: 10px 0; font-family: Arial, sans-serif;
-      transition: transform 0.3s ease; height: 140px; overflow: hidden;
-    }
-    .results-content { 
-      max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; 
-    }
-    .dropdown-info { 
-      background: #f5f5f5; padding: 5px; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 5px; 
-    }
-    .dropdown-title {
-      font-size: 14px; color: #333; text-align: center; font-weight: 600; 
-      text-transform: uppercase; width: 100%; margin: 0;
-    }
-    .dropdown-field {
-      flex: 1 1 18%; display: flex; justify-content: space-between; align-items: center;
-      font-size: 12px; padding: 2px 4px; border-bottom: 1px solid #ddd;
-    }
-    .dropdown-label { color: #666; font-weight: 500; }
-    .dropdown-value { color: #222; font-weight: 600; }
-    .ratings-title {
-      font-size: 16px; color: #333; text-align: center; font-weight: 600; 
-      text-transform: uppercase; margin: 5px 0;
-    }
-    .ratings-row { 
-      display: flex; justify-content: space-around; align-items: center; gap: 10px; 
-      flex-wrap: nowrap; padding: 0 10px;
-    }
-    .result-tile {
-      padding: 8px; border-radius: 6px; border: 1px solid #666; background-color: #f9f9f9;
-      color: #222; text-transform: uppercase; display: flex; flex-direction: column;
-      gap: 4px; justify-content: center; align-items: center; text-align: center;
-      font-weight: bold; flex: 0 0 80px; height: 60px; min-width: 80px; cursor: pointer;
-      position: relative; transition: background 0.2s, transform 0.2s;
-    }
-    .prominent-tile {
-      flex: 0 0 150px; min-width: 150px; background-color: #eaf4f4;
-    }
-    .result-tile:hover { background-color: #e9ecef; transform: scale(1.05); }
-    .tile-label { font-size: clamp(0.8rem, 1vw, 0.9rem); color: #555; }
-    .tile-value { font-size: clamp(1.2rem, 1.5vw, 1.4rem); color: #111; font-weight: 900; }
-    .prominent-tile .tile-label { font-size: clamp(0.9rem, 1.2vw, 1rem); }
-    .prominent-tile .tile-value { font-size: clamp(1.4rem, 2vw, 1.8rem); }
-    .tooltip {
-      position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.9); color: #fff; padding: 8px; border-radius: 4px;
-      font-size: 12px; max-width: 250px; z-index: 1001; display: none;
-      opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2); white-space: normal; word-wrap: break-word;
-    }
-    .result-tile:hover .tooltip, .result-tile.active .tooltip { 
-      display: block; opacity: 1; 
-    }
-    .btn-reset {
-      margin: 20px auto; padding: 10px 20px; font-size: 1rem; color: #333;
-      background-color: #fff; border: 1px solid #666; border-radius: 6px;
-      cursor: pointer; display: block; transition: background 0.2s, color 0.2s;
-    }
-    .btn-reset:hover { background-color: #d9534f; color: white; }
-    #competencyContainer { margin-top: 150px; } /* Adjusted for fixed results-modal height */
-    @media (max-width: 768px) {
-      .results-modal { padding: 5px 0; height: 160px; }
-      .dropdown-field { flex: 1 1 45%; }
-      .ratings-row { flex-wrap: wrap; justify-content: center; }
-      .result-tile { flex: 0 0 60px; min-width: 60px; height: 50px; padding: 6px; }
-      .prominent-tile { flex: 0 0 120px; min-width: 120px; }
-      .tooltip { max-width: 90%; font-size: 10px; }
-      #competencyContainer { margin-top: 170px; }
-    }
-  `;
-  document.head.appendChild(style);
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
@@ -1455,145 +1338,118 @@ async function displayCompetencies(name, competencies) {
     `;
 
     [basicTile, orgTile, minTile, psychoTile, potentialTile].forEach(tile => {
-        tile.addEventListener('click', () => {
-          tile.classList.toggle('active');
-          setTimeout(() => tile.classList.remove('active'), 2000); // Auto-hide tooltip after 2s
-        });
+      tile.addEventListener('click', () => {
+        tile.classList.toggle('active');
+        setTimeout(() => tile.classList.remove('active'), 2000); // Auto-hide tooltip after 2s
       });
-    }
-  
-    document.getElementById('reset-ratings').addEventListener('click', () => {
-      showModal(
-        'Confirm Reset',
-        '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
-        () => {
-          clearRatings();
-          computeTotalBasicRating();
-          computeOrganizationalRating();
-          computeMinimumRating();
-          computePsychosocial();
-          computePotential();
-          updateTooltips();
-          localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
-          elements.submitRatings.disabled = true;
-          showToast('success', 'Reset Complete', 'All ratings have been cleared.');
-        }
-      );
     });
-  
-    loadRadioState(name, elements.itemDropdown.value);
-    updateTooltips();
   }
-  
-  function saveRadioState(competencyName, value, candidateName, item) {
-    const key = `radioState_${candidateName}_${item}`;
-    const state = JSON.parse(localStorage.getItem(key)) || {};
-    state[competencyName] = value;
-    localStorage.setItem(key, JSON.stringify(state));
-  }
-  
-  function loadRadioState(candidateName, item) {
-    const key = `radioState_${candidateName}_${item}`;
-    const state = JSON.parse(localStorage.getItem(key)) || {};
-    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  
-    Array.from(competencyItems).forEach(item => {
-      const competencyName = item.querySelector('label').textContent.split('. ')[1];
-      const savedValue = state[competencyName];
-      if (savedValue) {
-        const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
-        if (radio) {
-          radio.checked = true;
-          radio.dispatchEvent(new Event('change'));
-        }
+
+  document.getElementById('reset-ratings').addEventListener('click', () => {
+    showModal(
+      'Confirm Reset',
+      '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
+      () => {
+        clearRatings();
+        computeTotalBasicRating();
+        computeOrganizationalRating();
+        computeMinimumRating();
+        computePsychosocial();
+        computePotential();
+        updateTooltips();
+        localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
+        elements.submitRatings.disabled = true;
+        showToast('success', 'Reset Complete', 'All ratings have been cleared.');
       }
-    });
-  }
-  
-  function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
-    let modalOverlay = document.getElementById('modalOverlay');
-    if (!modalOverlay) {
-      modalOverlay = document.createElement('div');
-      modalOverlay.id = 'modalOverlay';
-      modalOverlay.className = 'modal-overlay';
-      document.body.appendChild(modalOverlay);
-  
-      const style = document.createElement('style');
-      style.innerHTML = `
-        .modal-overlay {
-          position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5);
-          display: flex; justify-content: center; align-items: center; z-index: 1000;
-          opacity: 0; visibility: hidden; transition: all 0.3s ease;
-        }
-        .modal {
-          background-color: white; border-radius: 10px; padding: 24px; max-width: 400px; width: 90%;
-          transform: scale(0.9); transition: all 0.3s ease; border: 2px solid #333;
-        }
-        .modal-header {
-          display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
-        }
-        .modal-title {
-          font-size: 20px; font-weight: 600; color: #333;
-        }
-        .modal-content { margin-bottom: 24px; color: #666; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
-        .modal-overlay.active { opacity: 1; visibility: visible; }
-        .modal-overlay.active .modal { transform: scale(1); }
-        .modal-close {
-          color: #333; cursor: pointer; font-size: 24px; padding: 4px;
-        }
-        .modal-field { display: flex; justify-content: space-between; margin: 8px 0; }
-        .modal-label { font-weight: 600; color: #333; }
-        .modal-value { color: #666; }
-        .rating-value { font-weight: bold; color: #000; }
-        .modal-section { margin-top: 16px; }
-        .modal-section h4 { font-size: 16px; color: #333; margin-bottom: 8px; }
-      `;
-      document.head.appendChild(style);
-    }
-  
-    modalOverlay.innerHTML = `
-      <div class="modal">
-        <div class="modal-header">
-          <h3 class="modal-title">${title}</h3>
-          <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
-        </div>
-        <div class="modal-content">${contentHTML}</div>
-        <div class="modal-actions">
-          ${showCancel ? '<button onclick="this.closest(\'.modal-overlay\').classList.remove(\'active\')" style="background-color: white; color: black; border: 2px solid #333;">Cancel</button>' : ''}
-          <button id="modalConfirm" style="background-color: black; color: white; border: 2px solid #333;">Confirm</button>
-        </div>
-      </div>
-    `;
-  
-    return new Promise((resolve) => {
-      modalOverlay.classList.add('active');
-      const confirmBtn = modalOverlay.querySelector('#modalConfirm');
-      const closeHandler = (result) => {
-        modalOverlay.classList.remove('active');
-        resolve(result);
-        modalOverlay.removeEventListener('click', outsideClickHandler);
-      };
-  
-      confirmBtn.onclick = () => {
-        if (onConfirm) onConfirm();
-        closeHandler(true);
-      };
-  
-      const outsideClickHandler = (event) => {
-        if (event.target === modalOverlay) {
-          if (onCancel) onCancel();
-          closeHandler(false);
-        }
-      };
-      modalOverlay.addEventListener('click', outsideClickHandler);
-    });
-  }
-  
-  elements.signInBtn.addEventListener('click', handleAuthClick);
-  elements.signOutBtn.addEventListener('click', handleSignOutClick);
-  elements.submitRatings.addEventListener('click', submitRatings);
-  
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM fully loaded');
+    );
   });
+
+  loadRadioState(name, elements.itemDropdown.value);
+  updateTooltips();
+}
+
+function saveRadioState(competencyName, value, candidateName, item) {
+  const key = `radioState_${candidateName}_${item}`;
+  const state = JSON.parse(localStorage.getItem(key)) || {};
+  state[competencyName] = value;
+  localStorage.setItem(key, JSON.stringify(state));
+}
+
+function loadRadioState(candidateName, item) {
+  const key = `radioState_${candidateName}_${item}`;
+  const state = JSON.parse(localStorage.getItem(key)) || {};
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const savedValue = state[competencyName];
+    if (savedValue) {
+      const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    }
+  });
+}
+
+function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  modalOverlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+      </div>
+      <div class="modal-content">${contentHTML}</div>
+      <div class="modal-actions">
+        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
+        <button id="modalConfirm" class="modal-confirm">Confirm</button>
+      </div>
+    </div>
+  `;
+
+  return new Promise((resolve) => {
+    modalOverlay.classList.add('active');
+    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      resolve(result);
+      modalOverlay.removeEventListener('click', outsideClickHandler);
+    };
+
+    confirmBtn.onclick = () => {
+      if (onConfirm) onConfirm();
+      closeHandler(true);
+    };
+
+    if (cancelBtn) {
+      cancelBtn.onclick = () => closeHandler(false);
+    }
+
+    const outsideClickHandler = (event) => {
+      if (event.target === modalOverlay) {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      }
+    };
+    modalOverlay.addEventListener('click', outsideClickHandler);
+  });
+}
+
+elements.signInBtn.addEventListener('click', handleAuthClick);
+elements.signOutBtn.addEventListener('click', handleSignOutClick);
+elements.submitRatings.addEventListener('click', submitRatings);
+
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM fully loaded');
+});
