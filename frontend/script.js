@@ -25,6 +25,7 @@ const elements = {
   nameDropdown: document.getElementById('nameDropdown'),
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
+  ratingForm: document.querySelector('.rating-form'), // Add this line
 };
 
 let vacancies = [];
@@ -442,7 +443,7 @@ function updateUI(isSignedIn) {
       <button id="signOutBtn">Sign Out</button>
     `;
     document.getElementById('signOutBtn').addEventListener('click', handleSignOutClick);
-    elements.ratingForm.style.display = 'block';
+    if (elements.ratingForm) elements.ratingForm.style.display = 'block'; // Check if exists
   } else {
     authSection.innerHTML = `
       <h1>Rating Tool</h1>
@@ -450,7 +451,7 @@ function updateUI(isSignedIn) {
       <button id="signInBtn">Sign In</button>
     `;
     document.getElementById('signInBtn').addEventListener('click', handleAuthClick);
-    elements.ratingForm.style.display = 'none';
+    if (elements.ratingForm) elements.ratingForm.style.display = 'none'; // Check if exists
     elements.competencyContainer.innerHTML = '';
     const resultsArea = document.querySelector('.results-area');
     if (resultsArea) resultsArea.classList.remove('active');
