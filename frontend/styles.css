@@ -13,20 +13,26 @@ body {
   color: black;
 }
 
+.page-wrapper {
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto; /* Centers within body padding */
+}
+
 /* Results Area (Floating Modal) */
 .results-area {
   position: fixed;
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: calc(100% - 40px); /* Matches body padding */
-  max-width: 1400px; /* Matches .container */
+  width: 100%;
+  max-width: 1400px; /* Matches .page-wrapper */
   background: white;
-  border: 1px solid #333; /* Matches .container border */
+  border: 1px solid #333;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  padding: 20px; /* Consistent with .container */
+  padding: 20px;
   display: none;
 }
 
@@ -78,6 +84,7 @@ body {
 
 /* Container */
 .container {
+  width: 100%;
   max-width: 1400px;
   margin: 20px auto;
   background-color: white;
@@ -88,7 +95,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: calc(100% - 40px); /* Matches body padding */
   transition: margin-top 0.3s ease;
 }
 
@@ -713,10 +719,7 @@ select:disabled {
 
 /* Small Devices (up to 600px) */
 @media (max-width: 600px) {
-  .results-area {
-    padding: 15px;
-  }
-
+  .results-area,
   .container {
     padding: 15px;
   }
@@ -790,10 +793,7 @@ select:disabled {
 
 /* Medium Devices (601px to 850px) */
 @media (min-width: 601px) and (max-width: 850px) {
-  .results-area {
-    padding: 15px;
-  }
-
+  .results-area,
   .container {
     padding: 15px;
   }
@@ -847,10 +847,7 @@ select:disabled {
 
 /* Large Tablets (851px to 1400px) */
 @media (min-width: 851px) and (max-width: 1400px) {
-  .results-area {
-    padding: 20px;
-  }
-
+  .results-area,
   .container {
     padding: 20px;
   }
