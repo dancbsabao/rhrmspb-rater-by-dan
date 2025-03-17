@@ -23,27 +23,28 @@ body {
   border-bottom: 2px solid #666;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
   z-index: 1000;
-  padding: 10px 0;
+  padding: 8px 0; /* Reduced padding */
   text-align: center;
 }
 
 .results-area .ratings-title {
-  font-size: 28px;
-  margin: 10px 0;
+  font-size: 24px; /* Slightly smaller */
+  margin: 8px 0; /* Reduced margin */
   color: #333;
 }
 
 .results-area .dropdown-info {
-  margin-bottom: 15px;
-  font-size: 14px;
+  font-size: 12px; /* Smaller font */
   color: #666;
+  white-space: nowrap; /* Single line */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 10px; /* Minimal padding */
 }
 
 .dropdown-field {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  margin: 5px 0;
+  display: inline; /* Inline to fit in one line */
+  margin: 0 5px;
 }
 
 .dropdown-label {
@@ -58,7 +59,7 @@ body {
 .ratings-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 15px;
+  gap: 10px; /* Reduced gap */
   justify-content: center;
   width: 100%;
   max-width: 1200px;
@@ -66,48 +67,48 @@ body {
 }
 
 .result-tile {
-  padding: 15px;
-  border-radius: 10px;
+  padding: 10px; /* Reduced padding */
+  border-radius: 8px; /* Slightly smaller radius */
   border: 1px solid #666;
   background-color: #f9f9f9;
   color: #222;
   text-transform: uppercase;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px; /* Reduced gap */
   justify-content: center;
   align-items: center;
   text-align: center;
-  min-height: 80px;
+  min-height: 60px; /* Slimmer height */
   font-weight: bold;
-  flex: 1 1 160px;
+  flex: 1 1 140px; /* Slimmer width */
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   position: relative;
 }
 
 .result-tile.prominent-tile {
-  flex: 1 1 280px;
+  flex: 1 1 240px; /* Slimmer prominent width */
   background-color: #eaf4f4;
 }
 
 .tile-label {
-  font-size: clamp(0.8rem, 1.8vw, 1rem);
+  font-size: clamp(0.7rem, 1.6vw, 0.9rem); /* Slimmer font */
   width: 100%;
   color: #555;
 }
 
 .tile-value {
-  font-size: clamp(1.6rem, 3.5vw, 2rem);
+  font-size: clamp(1.4rem, 3vw, 1.8rem); /* Slimmer font */
   color: #111;
   font-weight: 900;
 }
 
 .prominent-tile .tile-label {
-  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-size: clamp(0.9rem, 1.8vw, 1rem);
 }
 
 .prominent-tile .tile-value {
-  font-size: clamp(2rem, 4vw, 2.5rem);
+  font-size: clamp(1.8rem, 3.5vw, 2rem);
 }
 
 .tooltip {
@@ -117,9 +118,9 @@ body {
   transform: translateX(-50%);
   background: #333;
   color: white;
-  padding: 8px;
+  padding: 6px; /* Reduced padding */
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 11px; /* Slimmer font */
   display: none;
   z-index: 10;
   white-space: nowrap;
@@ -133,7 +134,7 @@ body {
 /* Container */
 .container {
   max-width: 1200px;
-  margin: 220px auto 20px; /* Adjusted to start below fixed results area */
+  margin-top: calc(120px + 20px); /* Adjusted dynamically below results-area + buffer */
   background-color: white;
   padding: 30px;
   border-radius: 10px;
@@ -722,7 +723,7 @@ select:disabled {
 @media (max-width: 768px) {
   .container {
     padding: 15px;
-    margin-top: 300px; /* Adjusted for mobile */
+    margin-top: calc(180px + 20px); /* Adjusted for mobile */
   }
 
   .tiles-container {
@@ -738,8 +739,8 @@ select:disabled {
   }
 
   .result-tile {
-    padding: 10px;
-    min-height: 70px;
+    padding: 8px; /* Even slimmer */
+    min-height: 50px; /* Slimmer */
     flex: 1 1 90%;
   }
 
@@ -772,5 +773,9 @@ select:disabled {
   .site-footer {
     font-size: 12px;
     padding: 8px 0;
+  }
+
+  .results-area .dropdown-info {
+    font-size: 10px; /* Smaller on very small screens */
   }
 }
