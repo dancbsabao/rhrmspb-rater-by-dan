@@ -19,15 +19,14 @@ body {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 90%;
-  max-width: 500px;
+  width: 100%;
+  max-width: 1400px; /* Matches .container */
   background: white;
   border: 2px solid #333;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   padding: 10px;
-  text-align: left;
   display: none;
 }
 
@@ -41,13 +40,19 @@ body {
   margin-bottom: 8px;
   color: #333;
   text-align: center;
+  grid-column: 1 / -1; /* Spans full width */
+}
+
+.results-area .grid-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* Two equal columns */
+  gap: 10px;
 }
 
 .results-area .dropdown-info,
 .results-area .ratings-data {
   font-size: 12px;
   color: #666;
-  margin-bottom: 8px;
 }
 
 .results-area .data-row {
@@ -78,6 +83,7 @@ body {
   flex-direction: column;
   align-items: center;
   width: 100%;
+  transition: margin-top 0.3s ease;
 }
 
 /* Auth Section */
@@ -697,12 +703,9 @@ select:disabled {
 @media only screen and (min-width: 768px) and (max-width: 850px) and (orientation: portrait) {
   .container {
     padding: 10px;
-    margin-top: 20px; /* Reset to default, no overlap with modal */
   }
 
   .results-area {
-    width: 95%;
-    max-width: 400px;
     padding: 8px;
   }
 
@@ -776,12 +779,9 @@ select:disabled {
   .container {
     max-width: 1300px;
     padding: 15px;
-    margin-top: 20px; /* Reset to default */
   }
 
   .results-area {
-    width: 90%;
-    max-width: 600px;
     padding: 10px;
   }
 
@@ -848,7 +848,6 @@ select:disabled {
 @media (max-width: 768px) {
   .container {
     padding: 15px;
-    margin-top: 20px;
   }
 
   .tiles-container {
