@@ -15,7 +15,7 @@ let SCOPES;
 let EVALUATOR_PASSWORDS;
 let SHEET_RANGES;
 
-const elements conformational= {
+const elements = {
   authStatus: document.getElementById('authStatus'),
   signInBtn: document.getElementById('signInBtn'),
   signOutBtn: document.getElementById('signOutBtn'),
