@@ -793,6 +793,7 @@ async function submitRatings() {
 
     const modalContent = `
       <div class="modal-body">
+        <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
         <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
         <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
         <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
