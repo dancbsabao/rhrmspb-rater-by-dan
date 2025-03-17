@@ -683,7 +683,7 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
   if (Object.keys(competencyRatings).length > 0) {
     Array.from(competencyItems).forEach(item => {
       const competencyName = item.querySelector('label').textContent.split('. ')[1];
-      const rating = competency Ratings[competencyName]?.[currentEvaluator];
+      const rating = competencyRatings[competencyName]?.[currentEvaluator];
 
       if (rating) {
         originalRatings[competencyName] = rating;
