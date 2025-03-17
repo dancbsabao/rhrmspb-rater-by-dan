@@ -392,8 +392,8 @@ function handleAuthClick() {
 }
 
 function handleSignOutClick() {
-  const modalContent = `
-    <p>Are you sure you want to sign out?</p>
+  const modalContent = `<p>Are you sure you want to sign out?</p>`;
+  showModal('Confirm Sign Out', modalContent, () => {
   `;
   showModal('Confirm Sign Out', modalContent, () => {
     gapi.client.setToken(null);
@@ -430,14 +430,12 @@ function handleSignOutClick() {
       refreshTimer = null;
     }
     // Remove results-area
-    const resultsArea = document.querySelector('.results-area');
+  const resultsArea = document.querySelector('.results-area');
     if (resultsArea) {
       resultsArea.remove();
     }
-    // Reset container margin
     const container = document.querySelector('.container');
     container.style.marginTop = '20px';
-    // Update auth-section for signed-out state
     const authSection = document.querySelector('.auth-section');
     authSection.classList.add('signed-out');
     showToast('success', 'Signed Out', 'You have been successfully signed out.');
