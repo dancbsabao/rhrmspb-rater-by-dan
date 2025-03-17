@@ -772,11 +772,9 @@ async function submitRatings() {
       return;
     }
 
-    // Fetch only Psycho-Social and Potential ratings
     const psychoSocialRating = document.getElementById('psychosocial-tile')?.querySelector('.tile-value')?.textContent || '0.00';
     const potentialRating = document.getElementById('potential-tile')?.querySelector('.tile-value')?.textContent || '0.00';
 
-    // Enhanced modal content
     const modalContent = `
       <div class="modal-body">
         <div class="modal-field"><span class="modal-label">Evaluator:</span> <span class="modal-value">${currentEvaluator}</span></div>
@@ -866,7 +864,7 @@ async function processSubmissionQueue() {
       const candidateName = ratings[0][2];
       const item = ratings[0][1];
       localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showToast('success', 'Success', result.message, 0, 'center'); // Persistent toast
+      showToast('success', 'Success', result.message, 0); // Persistent toast with duration 0
       fetchSubmittedRatings();
     }
   } catch (error) {
@@ -1219,27 +1217,35 @@ async function displayCompetencies(name, competencies) {
     </div>
     <div class="results-modal" id="resultsModal">
       <div class="results-content">
-        <h3 style="font-size: 24px; margin-bottom: 15px;">RATING RESULTS</h3>
+        <div class="dropdown-info">
+          <h3 class="dropdown-title">CURRENT SELECTION</h3>
+          <div class="dropdown-field"><span class="dropdown-label">Evaluator:</span> <span class="dropdown-value">${currentEvaluator || 'N/A'}</span></div>
+          <div class="dropdown-field"><span class="dropdown-label">Assignment:</span> <span class="dropdown-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+          <div class="dropdown-field"><span class="dropdown-label">Position:</span> <span class="dropdown-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+          <div class="dropdown-field"><span class="dropdown-label">Item:</span> <span class="dropdown-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+          <div class="dropdown-field"><span class="dropdown-label">Name:</span> <span class="dropdown-value">${elements.nameDropdown.value || 'N/A'}</span></div>
+        </div>
+        <h3 class="ratings-title">RATING RESULTS</h3>
         <div class="row">
-          <div class="result-tile small-tile" id="basic-rating-tile">
+          <div class="result-tile small-tile" id="basic-rating-tile" data-tooltip-id="basic-tooltip">
             <span class="tile-label">BASIC:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile small-tile" id="organizational-rating-tile">
+          <div class="result-tile small-tile" id="organizational-rating-tile" data-tooltip-id="org-tooltip">
             <span class="tile-label">ORG:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile small-tile" id="minimum-rating-tile">
+          <div class="result-tile small-tile" id="minimum-rating-tile" data-tooltip-id="min-tooltip">
             <span class="tile-label">MIN:</span>
             <span class="tile-value">0.00</span>
           </div>
         </div>
         <div class="row">
-          <div class="result-tile large-tile" id="psychosocial-tile">
+          <div class="result-tile large-tile" id="psychosocial-tile" data-tooltip-id="psycho-tooltip">
             <span class="tile-label">PSYCHO-SOCIAL:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile large-tile" id="potential-tile">
+          <div class="result-tile large-tile" id="potential-tile" data-tooltip-id="potential-tooltip">
             <span class="tile-label">POTENTIAL:</span>
             <span class="tile-value">0.00</span>
           </div>
@@ -1252,31 +1258,63 @@ async function displayCompetencies(name, competencies) {
   const style = document.createElement("style");
   style.innerHTML = `
     .results-modal {
-      position: fixed; top: 20px; right: 20px; width: 300px; background: #fff;
-      border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1000;
-      padding: 15px; border: 1px solid #666;
+      position: fixed; top: 20px; right: 20px; width: 320px; background: #fff;
+      border-radius: 12px; box-shadow: 0 6px 12px rgba(0,0,0,0.2); z-index: 1000;
+      padding: 20px; border: 1px solid #666; font-family: Arial, sans-serif;
+      transition: transform 0.3s ease;
     }
-    .results-content { display: flex; flex-direction: column; gap: 10px; text-align: center; }
+    .results-modal:hover { transform: scale(1.02); }
+    .results-content { display: flex; flex-direction: column; gap: 15px; }
+    .dropdown-info { background: #f5f5f5; padding: 10px; border-radius: 8px; }
+    .dropdown-title {
+      font-size: 18px; color: #333; margin-bottom: 10px; text-align: center;
+      font-weight: 600; text-transform: uppercase;
+    }
+    .dropdown-field {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 14px; padding: 4px 0; border-bottom: 1px solid #ddd;
+    }
+    .dropdown-label { color: #666; font-weight: 500; }
+    .dropdown-value { color: #222; font-weight: 600; }
+    .ratings-title {
+      font-size: 24px; color: #333; margin-bottom: 10px; text-align: center;
+      font-weight: 600; text-transform: uppercase;
+    }
     .row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
     .result-tile {
-      padding: 10px; border-radius: 8px; border: 1px solid #666; background-color: #f9f9f9;
+      padding: 12px; border-radius: 8px; border: 1px solid #666; background-color: #f9f9f9;
       color: #222; text-transform: uppercase; display: flex; flex-direction: column;
-      gap: 5px; justify-content: center; align-items: center; text-align: center;
-      font-weight: bold; flex: 1 1 80px; min-width: 80px; transition: transform 0.2s;
+      gap: 6px; justify-content: center; align-items: center; text-align: center;
+      font-weight: bold; flex: 1 1 90px; min-width: 90px; cursor: pointer;
+      position: relative; transition: background 0.2s, transform 0.2s;
     }
-    .result-tile:hover { transform: scale(1.05); }
+    .result-tile:hover { background-color: #e9ecef; transform: scale(1.05); }
     .tile-label { font-size: clamp(0.8rem, 2vw, 1rem); color: #555; }
     .tile-value { font-size: clamp(1.2rem, 3vw, 1.5rem); color: #111; font-weight: 900; }
     .small-tile { background-color: #ffffff; }
-    .large-tile { flex: 1 1 120px; background-color: #eaf4f4; }
+    .large-tile { flex: 1 1 130px; background-color: #eaf4f4; }
     .large-tile .tile-label { font-size: clamp(0.9rem, 2.2vw, 1.1rem); }
     .large-tile .tile-value { font-size: clamp(1.5rem, 3.5vw, 2rem); }
-    .btn-reset { margin-top: 20px; padding: 8px 16px; font-size: 1rem; color: #333; background-color: #fff; border: 1px solid #666; border-radius: 6px; cursor: pointer; display: block; margin-left: auto; margin-right: auto; }
+    .tooltip {
+      position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.9); color: #fff; padding: 10px; border-radius: 6px;
+      font-size: 14px; max-width: 280px; z-index: 1001; display: none;
+      opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .result-tile:hover .tooltip, .result-tile.active .tooltip { display: block; opacity: 1; }
+    .btn-reset {
+      margin-top: 20px; padding: 10px 20px; font-size: 1rem; color: #333;
+      background-color: #fff; border: 1px solid #666; border-radius: 6px;
+      cursor: pointer; display: block; margin-left: auto; margin-right: auto;
+      transition: background 0.2s, color 0.2s;
+    }
     .btn-reset:hover { background-color: #d9534f; color: white; }
     @media (max-width: 768px) {
       .results-modal { width: 90%; top: 10px; right: 5%; left: 5%; margin: 0 auto; }
       .row { flex-direction: column; }
-      .result-tile { padding: 8px; }
+      .result-tile { padding: 10px; }
+      .tooltip { max-width: 90%; left: 50%; transform: translateX(-50%); }
     }
   `;
   document.head.appendChild(style);
@@ -1304,6 +1342,7 @@ async function displayCompetencies(name, competencies) {
         computePsychosocial();
         computePotential();
         saveRadioState(comp, radio.value, name, elements.itemDropdown.value);
+        updateTooltips();
       });
     });
     return div;
@@ -1357,6 +1396,56 @@ async function displayCompetencies(name, competencies) {
     document.getElementById("potential-tile").querySelector('.tile-value').textContent = potential.toFixed(2);
   }
 
+  function updateTooltips() {
+    const basicTile = document.getElementById('basic-rating-tile');
+    const orgTile = document.getElementById('organizational-rating-tile');
+    const minTile = document.getElementById('minimum-rating-tile');
+    const psychoTile = document.getElementById('psychosocial-tile');
+    const potentialTile = document.getElementById('potential-tile');
+
+    const basicDetails = basicCompetencyRatings.slice(0, 5).map((r, i) => `${i + 1}. ${r || 'N/A'}`).join('<br>');
+    const orgDetails = organizationalCompetencyRatings.slice(0, 5).map((r, i) => `${i + 1}. ${r || 'N/A'}`).join('<br>');
+    const minDetails = minimumCompetencyRatings.map((r, i) => `${i + 1}. ${r || 'N/A'}`).join('<br>');
+    const basicTotal = parseFloat(basicTile.querySelector('.tile-value').textContent) || 0;
+    const orgTotal = parseFloat(orgTile.querySelector('.tile-value').textContent) || 0;
+    const minTotal = parseFloat(minTile.querySelector('.tile-value').textContent) || 0;
+
+    basicTile.innerHTML = `
+      <span class="tile-label">BASIC:</span>
+      <span class="tile-value">${basicTotal.toFixed(2)}</span>
+      <div class="tooltip">Ratings:<br>${basicDetails}<br>Formula: Σ(rating / 5) * 2</div>
+    `;
+    orgTile.innerHTML = `
+      <span class="tile-label">ORG:</span>
+      <span class="tile-value">${orgTotal.toFixed(2)}</span>
+      <div class="tooltip">Ratings:<br>${orgDetails}<br>Formula: Σ(rating / 5)</div>
+    `;
+    minTile.innerHTML = `
+      <span class="tile-label">MIN:</span>
+      <span class="tile-value">${minTotal.toFixed(2)}</span>
+      <div class="tooltip">Ratings:<br>${minDetails}<br>Formula: Σ(rating) / count</div>
+    `;
+    psychoTile.innerHTML = `
+      <span class="tile-label">PSYCHO-SOCIAL:</span>
+      <span class="tile-value">${basicTotal.toFixed(2)}</span>
+      <div class="tooltip">Equals Basic: ${basicTotal.toFixed(2)}</div>
+    `;
+    potentialTile.innerHTML = `
+      <span class="tile-label">POTENTIAL:</span>
+      <span class="tile-value">${((orgTotal + minTotal) / 2 * 2).toFixed(2)}</span>
+      <div class="tooltip">Formula: ((Org: ${orgTotal.toFixed(2)} + Min: ${minTotal.toFixed(2)}) / 2) * 2</div>
+    `;
+
+    [basicTile, orgTile, minTile, psychoTile, potentialTile].forEach(tile => {
+      tile.addEventListener('click', () => {
+        tile.classList.toggle('active');
+      });
+      tile.addEventListener('mouseleave', () => {
+        tile.classList.remove('active');
+      });
+    });
+  }
+
   document.getElementById("reset-ratings").addEventListener("click", () => {
     document.querySelectorAll(".competency-item input[type='radio']").forEach(input => {
       input.checked = false;
@@ -1371,7 +1460,11 @@ async function displayCompetencies(name, competencies) {
     computeMinimumRating();
     computePsychosocial();
     computePotential();
+    updateTooltips();
   });
+
+  // Initial tooltip setup
+  updateTooltips();
 }
 
 function saveRadioState(competency, value, name, item) {
@@ -1482,6 +1575,9 @@ function showModal(title, content, onConfirm, onCancel) {
 }
 
 function showToast(type, title, message, duration = 3000, position = 'top-right') {
+  const existingToasts = document.querySelectorAll('.toast');
+  existingToasts.forEach(toast => toast.remove()); // Clear previous toasts
+
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
@@ -1491,11 +1587,15 @@ function showToast(type, title, message, duration = 3000, position = 'top-right'
     </div>
   `;
   toast.style.cssText = `
-    position: fixed; ${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} 
-    ${position.includes('right') ? 'right: 20px;' : position === 'center' ? 'left: 50%; transform: translateX(-50%);' : 'left: 20px;'}
-    padding: 12px 20px; background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
+    position: fixed; 
+    ${position === 'center' ? 'top: 50%; left: 50%; transform: translate(-50%, -50%);' : 
+      `${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} 
+       ${position.includes('right') ? 'right: 20px;' : 'left: 20px;'}`}
+    padding: 12px 20px; 
+    background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
     color: white; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1000;
     font-family: Arial, sans-serif; font-size: 16px; max-width: 400px;
+    transition: opacity 0.3s ease;
   `;
 
   const style = document.createElement('style');
@@ -1506,6 +1606,7 @@ function showToast(type, title, message, duration = 3000, position = 'top-right'
       transition: color 0.2s;
     }
     .toast-close:hover { color: #ddd; }
+    .toast { opacity: 1; }
     @media (max-width: 768px) {
       .toast { font-size: 14px; padding: 10px 15px; max-width: 90%; }
     }
@@ -1515,13 +1616,22 @@ function showToast(type, title, message, duration = 3000, position = 'top-right'
 
   if (duration > 0) {
     setTimeout(() => {
-      document.body.removeChild(toast);
-      document.head.removeChild(style);
+      toast.style.opacity = '0';
+      setTimeout(() => {
+        if (document.body.contains(toast)) document.body.removeChild(toast);
+        document.head.removeChild(style);
+      }, 300); // Match transition duration
     }, duration);
-  } else {
-    toast.querySelector('.toast-close').onclick = () => {
-      document.body.removeChild(toast);
-      document.head.removeChild(style);
-    };
+  } else if (duration === 0) {
+    const closeBtn = toast.querySelector('.toast-close');
+    if (closeBtn) {
+      closeBtn.onclick = () => {
+        toast.style.opacity = '0';
+        setTimeout(() => {
+          if (document.body.contains(toast)) document.body.removeChild(toast);
+          document.head.removeChild(style);
+        }, 300);
+      };
+    }
   }
 }
