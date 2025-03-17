@@ -1212,25 +1212,28 @@ async function displayCompetencies(name, competencies) {
   resultsArea.classList.add('active');
   resultsArea.innerHTML = `
     <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
-    <div class="dropdown-info">
-      <div class="data-row"><span class="data-label">Evaluator:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
-      <div class="data-row"><span class="data-label">Assignment:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-      <div class="data-row"><span class="data-label">Position:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-      <div class="data-row"><span class="data-label">Item:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-      <div class="data-row"><span class="data-label">Name:</span> <span class="data-value">${elements.nameDropdown.value || 'N/A'}</span></div>
-    </div>
-    <div class="ratings-data">
-      <div class="data-row"><span class="data-label">Basic:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
-      <div class="data-row"><span class="data-label">Organizational:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
-      <div class="data-row"><span class="data-label">Minimum:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
-      <div class="data-row"><span class="data-label">Psycho-Social:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
-      <div class="data-row"><span class="data-label">Potential:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
+    <div class="grid-container">
+      <div class="dropdown-info">
+        <div class="data-row"><span class="data-label">Evaluator:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">Assignment:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">Position:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">Item:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">Name:</span> <span class="data-value">${elements.nameDropdown.value || 'N/A'}</span></div>
+      </div>
+      <div class="ratings-data">
+        <div class="data-row"><span class="data-label">Basic:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">Organizational:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">Minimum:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">Psycho-Social:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">Potential:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
+      </div>
     </div>
   `;
 
-  // Remove dynamic margin adjustment since modal floats above content
+  // Dynamically adjust container margin-top
   const container = document.querySelector('.container');
-  container.style.marginTop = '20px'; // Reset to default
+  const resultsHeight = resultsArea.offsetHeight + 20; // Add buffer
+  container.style.marginTop = `${resultsHeight}px`;
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
