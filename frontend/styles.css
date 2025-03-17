@@ -1,12 +1,108 @@
+/* General Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  line-height: 1.6;
+  color: #333;
+  background-color: #f4f4f4;
+}
+
+h1, h2, h3, h4 {
+  margin-bottom: 10px;
+}
+
+button, select, input {
+  cursor: pointer;
+}
+
+/* Form and Dropdown Styles */
+.rating-form {
+  max-width: 1200px;
+  margin: 20px auto;
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+select, input[type="password"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+select:disabled {
+  background-color: #eee;
+  cursor: not-allowed;
+}
+
+/* Auth Buttons */
+#signInBtn, #signOutBtn {
+  padding: 10px 20px;
+  font-size: 16px;
+  border: none;
+  border-radius: 5px;
+  margin: 5px;
+  display: none;
+}
+
+#signInBtn {
+  background-color: #4285f4;
+  color: white;
+}
+
+#signInBtn:hover {
+  background-color: #357abd;
+}
+
+#signOutBtn {
+  background-color: #d9534f;
+  color: white;
+}
+
+#signOutBtn:hover {
+  background-color: #c9302c;
+}
+
+#authStatus {
+  text-align: center;
+  margin: 10px 0;
+  font-weight: bold;
+}
+
 /* Candidates Table Styles */
+#candidates-table {
+  max-width: 1200px;
+  margin: 20px auto;
+}
+
 .candidate-header {
   font-size: 22px;
   text-align: center;
 }
+
 .candidate-name {
   font-size: 36px;
   text-align: center;
 }
+
 .tiles-container {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -14,6 +110,7 @@
   justify-items: center;
   padding: 20px;
 }
+
 .tile {
   border: 1px solid #ccc;
   border-radius: 8px;
@@ -28,12 +125,14 @@
   justify-content: space-between;
   max-height: 200px;
 }
+
 .tile h4 {
   font-size: 14px;
   font-weight: bold;
   margin-bottom: 10px;
   text-align: center;
 }
+
 .tile-content p {
   font-size: 12px;
   font-weight: bold;
@@ -44,10 +143,12 @@
   white-space: normal;
   margin: 5px 0;
 }
+
 .tile-content p.no-data {
   color: #888;
   font-style: italic;
 }
+
 .open-link-button {
   background-color: rgb(65, 65, 65);
   color: white;
@@ -56,35 +157,222 @@
   font-size: 12px;
   cursor: pointer;
   margin-top: 10px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
 }
+
 .open-link-button:hover {
   background-color: rgb(0, 0, 0);
 }
+
 .open-link-button:disabled {
   background-color: #ccc;
   cursor: not-allowed;
 }
 
 /* Competency Section Styles */
+#competencyContainer {
+  max-width: 1200px;
+  margin: 150px auto 20px;
+  padding: 20px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.competency-section {
+  margin-bottom: 30px;
+}
+
 .section-title {
   font-size: 32px;
+  color: #222;
 }
-.btn-reset {
-  margin: 20px auto;
-  padding: 10px 20px;
-  font-size: 1rem;
-  color: #333;
-  background-color: #fff;
-  border: 1px solid #666;
-  border-radius: 6px;
+
+.competency-grid {
+  display: grid;
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.competency-item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  background: #fafafa;
+}
+
+.competency-item label {
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.rating-container {
+  display: flex;
+  gap: 15px;
+}
+
+.rating-container input[type="radio"] {
+  display: none;
+}
+
+.rating-container label {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #666;
+  border-radius: 50%;
   cursor: pointer;
-  display: block;
-  transition: background 0.2s, color 0.2s;
+  transition: background-color 0.2s, color 0.2s;
 }
-.btn-reset:hover {
-  background-color: #d9534f;
+
+.rating-container input[type="radio"]:checked + label {
+  background-color: #4285f4;
   color: white;
 }
+
+.rating-container label:hover {
+  background-color: #ddd;
+}
+
+/* Results Modal Styles */
+.results-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: #fff;
+  border-bottom: 2px solid #666;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  z-index: 1000;
+  padding: 10px 0;
+  font-family: Arial, sans-serif;
+  transition: transform 0.3s ease;
+  height: 140px;
+  overflow: hidden;
+}
+
+.results-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dropdown-info {
+  background: #f5f5f5;
+  padding: 5px;
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.dropdown-title {
+  font-size: 14px;
+  color: #333;
+  text-align: center;
+  font-weight: 600;
+  text-transform: uppercase;
+  width: 100%;
+  margin: 0;
+}
+
+.dropdown-field {
+  flex: 1 1 18%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-bottom: 1px solid #ddd;
+}
+
+.dropdown-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.dropdown-value {
+  color: #222;
+  font-weight: 600;
+}
+
+.ratings-title {
+  font-size: 16px;
+  color: #333;
+  text-align: center;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin: 5px 0;
+}
+
+.ratings-row {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  padding: 0 10px;
+}
+
+.result-tile {
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #666;
+  background-color: #f9f9f9;
+  color: #222;
+  text-transform: uppercase;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  font-weight: bold;
+  flex: 0 0 80px;
+  height: 60px;
+  min-width: 80px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.prominent-tile {
+  flex: 0 0 150px;
+  min-width: 150px;
+  background-color: #eaf4f4;
+}
+
+.result-tile:hover {
+  background-color: #e9ecef;
+  transform: scale(1.05);
+}
+
+.tile-label {
+  font-size: clamp(0.8rem, 1vw, 0.9rem);
+  color: #555;
+}
+
+.tile-value {
+  font-size: clamp(1.2rem, 1.5vw, 1.4rem);
+  color: #111;
+  font-weight: 900;
+}
+
+.prominent-tile .tile-label {
+  font-size: clamp(0.9rem, 1.2vw, 1rem);
+}
+
+.prominent-tile .tile-value {
+  font-size: clamp(1.4rem, 2vw, 1.8rem);
+}
+
 .tooltip {
   position: absolute;
   top: calc(100% + 5px);
@@ -105,9 +393,28 @@
   white-space: normal;
   word-wrap: break-word;
 }
+
 .result-tile:hover .tooltip, .result-tile.active .tooltip {
   display: block;
   opacity: 1;
+}
+
+.btn-reset {
+  margin: 20px auto;
+  padding: 10px 20px;
+  font-size: 1rem;
+  color: #333;
+  background-color: #fff;
+  border: 1px solid #666;
+  border-radius: 6px;
+  cursor: pointer;
+  display: block;
+  transition: background 0.2s, color 0.2s;
+}
+
+.btn-reset:hover {
+  background-color: #d9534f;
+  color: white;
 }
 
 /* Submitting Indicator Styles */
@@ -122,6 +429,7 @@
   box-shadow: 0 4px 8px rgba(0,0,0,0.3);
   z-index: 2000;
 }
+
 .submitting-content {
   display: flex;
   align-items: center;
@@ -130,6 +438,7 @@
   font-size: 24px;
   font-weight: bold;
 }
+
 .spinner {
   width: 30px;
   height: 30px;
@@ -138,6 +447,7 @@
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
@@ -159,6 +469,7 @@
   visibility: hidden;
   transition: all 0.3s ease;
 }
+
 .modal {
   background-color: white;
   border-radius: 10px;
@@ -169,39 +480,47 @@
   transition: all 0.3s ease;
   border: 2px solid #333;
 }
+
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
 }
+
 .modal-title {
   font-size: 20px;
   font-weight: 600;
   color: #333;
 }
+
 .modal-content {
   margin-bottom: 24px;
   color: #666;
 }
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
 }
+
 .modal-overlay.active {
   opacity: 1;
   visibility: visible;
 }
+
 .modal-overlay.active .modal {
   transform: scale(1);
 }
+
 .modal-close {
   color: #333;
   cursor: pointer;
   font-size: 24px;
   padding: 4px;
 }
+
 .modal-input {
   width: 100%;
   padding: 8px;
@@ -209,43 +528,146 @@
   border-radius: 4px;
   margin-top: 10px;
 }
+
 .modal-cancel {
   background-color: white;
   color: black;
   border: 2px solid #333;
-  padding: 12px 24px;
+  padding: 8px 16px;
   border-radius: 5px;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
+
+.modal-cancel:hover {
+  background-color: #f0f0f0;
+}
+
 .modal-confirm {
   background-color: black;
   color: white;
   border: 2px solid #333;
-  padding: 12px 24px;
+  padding: 8px 16px;
   border-radius: 5px;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
+
+.modal-confirm:hover {
+  background-color: #333;
+}
+
 .modal-field {
   display: flex;
   justify-content: space-between;
   margin: 8px 0;
 }
+
 .modal-label {
   font-weight: 600;
   color: #333;
 }
+
 .modal-value {
   color: #666;
 }
+
 .rating-value {
   font-weight: bold;
   color: #000;
 }
+
 .modal-section {
   margin-top: 16px;
 }
+
 .modal-section h4 {
   font-size: 16px;
   color: #333;
   margin-bottom: 8px;
+}
+
+/* Submit Ratings Button */
+#submitRatings {
+  display: block;
+  margin: 20px auto;
+  padding: 12px 24px;
+  font-size: 16px;
+  background-color: #5cb85c;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+#submitRatings:hover {
+  background-color: #4cae4c;
+}
+
+#submitRatings:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .rating-form, #competencyContainer, #candidates-table {
+    margin: 10px;
+    padding: 15px;
+  }
+
+  .tiles-container {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+
+  .tile {
+    max-height: 180px;
+  }
+
+  .results-modal {
+    padding: 5px 0;
+    height: 160px;
+  }
+
+  .dropdown-field {
+    flex: 1 1 45%;
+  }
+
+  .ratings-row {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .result-tile {
+    flex: 0 0 60px;
+    min-width: 60px;
+    height: 50px;
+    padding: 6px;
+  }
+
+  .prominent-tile {
+    flex: 0 0 120px;
+    min-width: 120px;
+  }
+
+  .tooltip {
+    max-width: 90%;
+    font-size: 10px;
+  }
+
+  #competencyContainer {
+    margin-top: 170px;
+  }
+
+  .rating-container label {
+    width: 25px;
+    height: 25px;
+    font-size: 12px;
+  }
+
+  .modal {
+    padding: 16px;
+    max-width: 90%;
+  }
 }
