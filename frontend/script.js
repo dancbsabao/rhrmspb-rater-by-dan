@@ -683,7 +683,7 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
   if (Object.keys(competencyRatings).length > 0) {
     Array.from(competencyItems).forEach(item => {
       const competencyName = item.querySelector('label').textContent.split('. ')[1];
-      const rating = competencyRatings[competencyName]?.[currentEvaluator];
+      const rating = competency Ratings[competencyName]?.[currentEvaluator];
 
       if (rating) {
         originalRatings[competencyName] = rating;
@@ -823,22 +823,26 @@ function showSubmittingIndicator() {
     indicator = document.createElement('div');
     indicator.id = 'submittingIndicator';
     indicator.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 10px; color: #555;">
+      <div style="display: flex; align-items: center; gap: 15px; color: #fff; font-size: 24px; font-weight: bold;">
         <span class="spinner"></span>
-        <span>Submitting...</span>
+        <span>SUBMITTING...</span>
       </div>
     `;
-    indicator.style.cssText = 'position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background: #f0f0f0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);';
+    indicator.style.cssText = `
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      padding: 20px 40px; background: rgba(0, 0, 0, 0.8); border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 2000;
+    `;
     document.body.appendChild(indicator);
 
     // Add spinner CSS
     const style = document.createElement('style');
     style.innerHTML = `
       .spinner {
-        width: 20px;
-        height: 20px;
-        border: 3px solid #ccc;
-        border-top: 3px solid #333;
+        width: 30px;
+        height: 30px;
+        border: 4px solid #fff;
+        border-top: 4px solid #00cc00;
         border-radius: 50%;
         animation: spin 1s linear infinite;
       }
@@ -1219,30 +1223,32 @@ async function displayCompetencies(name, competencies) {
       <h3>MINIMUM COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
-    <div class="results-area">
-      <h3 style="font-size: 32px;">RATING RESULTS</h3>
-      <div class="row">
-        <div class="result-tile small-tile" id="basic-rating-tile">
-          <span class="tile-label">BASIC COMPETENCIES:</span>
-          <span class="tile-value">0.00</span>
+    <div class="results-modal" id="resultsModal">
+      <div class="results-content">
+        <h3 style="font-size: 24px; margin-bottom: 15px;">RATING RESULTS</h3>
+        <div class="row">
+          <div class="result-tile small-tile" id="basic-rating-tile">
+            <span class="tile-label">BASIC:</span>
+            <span class="tile-value">0.00</span>
+          </div>
+          <div class="result-tile small-tile" id="organizational-rating-tile">
+            <span class="tile-label">ORG:</span>
+            <span class="tile-value">0.00</span>
+          </div>
+          <div class="result-tile small-tile" id="minimum-rating-tile">
+            <span class="tile-label">MIN:</span>
+            <span class="tile-value">0.00</span>
+          </div>
         </div>
-        <div class="result-tile small-tile" id="organizational-rating-tile">
-          <span class="tile-label">ORGANIZATIONAL COMPETENCIES:</span>
-          <span class="tile-value">0.00</span>
-        </div>
-        <div class="result-tile small-tile" id="minimum-rating-tile">
-          <span class="tile-label">MINIMUM COMPETENCIES:</span>
-          <span class="tile-value">0.00</span>
-        </div>
-      </div>
-      <div class="row">
-        <div class="result-tile large-tile" id="psychosocial-tile">
-          <span class="tile-label">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS:</span>
-          <span class="tile-value">0.00</span>
-        </div>
-        <div class="result-tile large-tile" id="potential-tile">
-          <span class="tile-label">POTENTIAL:</span>
-          <span class="tile-value">0.00</span>
+        <div class="row">
+          <div class="result-tile large-tile" id="psychosocial-tile">
+            <span class="tile-label">PSYCHO-SOCIAL:</span>
+            <span class="tile-value">0.00</span>
+          </div>
+          <div class="result-tile large-tile" id="potential-tile">
+            <span class="tile-label">POTENTIAL:</span>
+            <span class="tile-value">0.00</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1251,19 +1257,33 @@ async function displayCompetencies(name, competencies) {
 
   const style = document.createElement("style");
   style.innerHTML = `
-    .results-area { display: flex; flex-direction: column; align-items: center; gap: 20px; margin: 30px 0; text-align: center; }
-    .row { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; width: 100%; }
-    .result-tile { padding: 30px; border-radius: 12px; border: 1px solid #666; background-color: #f9f9f9; color: #222; text-transform: uppercase; display: flex; flex-direction: column; gap: 20px; justify-content: center; align-items: center; text-align: center; min-height: 140px; font-weight: bold; flex: 1 1 200px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1); transition: transform 0.2s; }
+    .results-modal {
+      position: fixed; top: 20px; right: 20px; width: 300px; background: #fff;
+      border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 1000;
+      padding: 15px; border: 1px solid #666;
+    }
+    .results-content { display: flex; flex-direction: column; gap: 10px; text-align: center; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    .result-tile {
+      padding: 10px; border-radius: 8px; border: 1px solid #666; background-color: #f9f9f9;
+      color: #222; text-transform: uppercase; display: flex; flex-direction: column;
+      gap: 5px; justify-content: center; align-items: center; text-align: center;
+      font-weight: bold; flex: 1 1 80px; min-width: 80px; transition: transform 0.2s;
+    }
     .result-tile:hover { transform: scale(1.05); }
-    .tile-label { font-size: clamp(1rem, 2.5vw, 1.5rem); width: 100%; color: #555; }
-    .tile-value { font-size: clamp(2.2rem, 5vw, 3.2rem); color: #111; font-weight: 900; }
-    .small-tile { flex: 1 1 200px; background-color: #ffffff; }
-    .large-tile { flex: 1 1 350px; background-color: #eaf4f4; }
-    .large-tile .tile-label { font-size: clamp(1.3rem, 2.8vw, 1.8rem); }
-    .large-tile .tile-value { font-size: clamp(2.8rem, 5.5vw, 3.8rem); }
-    .btn-reset { margin-top: 25px; padding: 10px 20px; font-size: 1rem; color: #333; background-color: #fff; border: 1px solid #666; border-radius: 6px; cursor: pointer; }
+    .tile-label { font-size: clamp(0.8rem, 2vw, 1rem); color: #555; }
+    .tile-value { font-size: clamp(1.2rem, 3vw, 1.5rem); color: #111; font-weight: 900; }
+    .small-tile { background-color: #ffffff; }
+    .large-tile { flex: 1 1 120px; background-color: #eaf4f4; }
+    .large-tile .tile-label { font-size: clamp(0.9rem, 2.2vw, 1.1rem); }
+    .large-tile .tile-value { font-size: clamp(1.5rem, 3.5vw, 2rem); }
+    .btn-reset { margin-top: 20px; padding: 8px 16px; font-size: 1rem; color: #333; background-color: #fff; border: 1px solid #666; border-radius: 6px; cursor: pointer; display: block; margin-left: auto; margin-right: auto; }
     .btn-reset:hover { background-color: #d9534f; color: white; }
-    @media (max-width: 768px) { .row { flex-direction: column; } .result-tile { padding: 20px; min-height: 100px; flex: 1 1 90%; } }
+    @media (max-width: 768px) {
+      .results-modal { width: 90%; top: 10px; right: 5%; left: 5%; margin: 0 auto; }
+      .row { flex-direction: column; }
+      .result-tile { padding: 8px; }
+    }
   `;
   document.head.appendChild(style);
 
