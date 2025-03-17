@@ -1205,10 +1205,11 @@ async function displayCompetencies(name, competencies) {
   `;
 
   let resultsArea = document.querySelector('.results-area');
+  const pageWrapper = document.querySelector('.page-wrapper');
   if (!resultsArea) {
     resultsArea = document.createElement('div');
     resultsArea.className = 'results-area';
-    document.body.insertBefore(resultsArea, document.body.firstChild);
+    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild); // Append inside .page-wrapper
   }
   resultsArea.classList.add('active');
   resultsArea.innerHTML = `
