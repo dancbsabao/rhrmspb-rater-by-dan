@@ -20,13 +20,13 @@ body {
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
-  max-width: 1400px; /* Matches .container */
+  max-width: 1400px;
   background: white;
   border: 2px solid #333;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  padding: 10px 20px; /* Side padding */
+  padding: 10px 20px;
   display: none;
 }
 
@@ -494,22 +494,27 @@ select:disabled {
 }
 
 .modal-body {
-  font-size: 14px;
+  font-size: 12px; /* Matches .results-area */
 }
 
 .modal-field {
   display: flex;
-  gap: 5px;
-  margin: 5px 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  margin: 2px 0; /* Matches .data-row */
 }
 
 .modal-label {
   font-weight: 600;
   color: #333;
+  min-width: 120px; /* Matches .data-label */
+  text-transform: uppercase; /* Matches .results-area */
 }
 
 .modal-value {
   color: #555;
+  margin-left: 10px; /* Matches .data-value */
+  flex: 1; /* Matches .data-value */
 }
 
 .modal-section {
@@ -520,6 +525,7 @@ select:disabled {
   font-size: 16px;
   color: #333;
   margin-bottom: 10px;
+  text-transform: uppercase; /* Consistent with .results-area */
 }
 
 .rating-value {
@@ -728,6 +734,14 @@ select:disabled {
 
   .results-area .data-label {
     min-width: 100px;
+  }
+
+  .modal-body {
+    font-size: 10px; /* Matches .results-area */
+  }
+
+  .modal-label {
+    min-width: 100px; /* Matches .data-label */
   }
 
   .tiles-container {
