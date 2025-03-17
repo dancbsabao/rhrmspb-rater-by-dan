@@ -19,14 +19,14 @@ body {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: calc(100% - 40px); /* Matches body padding */
-  max-width: 1400px; /* Matches .container */
+  width: 100%; /* Base width */
+  max-width: 1400px; /* Matches .container on desktop */
   background: white;
   border: 2px solid #333;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  padding: 20px; /* Matches .container */
+  padding: 20px; /* Matches .container on desktop */
   display: none;
 }
 
@@ -715,9 +715,11 @@ select:disabled {
 @media only screen and (min-width: 768px) and (max-width: 850px) and (orientation: portrait) {
   .container {
     padding: 10px;
+    max-width: 760px; /* Matches effective width after body padding */
   }
 
   .results-area {
+    max-width: 760px; /* Matches .container */
     padding: 10px; /* Matches .container */
   }
 
