@@ -1204,7 +1204,7 @@ async function displayCompetencies(name, competencies) {
   if (!resultsArea) {
     resultsArea = document.createElement('div');
     resultsArea.className = 'results-area';
-    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild); // Append inside .page-wrapper
+    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild);
   }
   resultsArea.classList.add('active');
   resultsArea.innerHTML = `
@@ -1228,8 +1228,13 @@ async function displayCompetencies(name, competencies) {
   `;
 
   const container = document.querySelector('.container');
-  const resultsHeight = resultsArea.offsetHeight + 20;
-  container.style.marginTop = `${resultsHeight}px`;
+  const updateMarginTop = () => {
+    const resultsHeight = resultsArea.offsetHeight + 20; // Add buffer
+    container.style.marginTop = `${resultsHeight}px`;
+  };
+  
+  updateMarginTop();
+  window.addEventListener('resize', updateMarginTop); // Adjust on resize
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
