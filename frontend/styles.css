@@ -25,6 +25,11 @@ body {
   z-index: 1000;
   padding: 8px 0;
   text-align: center;
+  display: none; /* Hidden by default, shown when signed in */
+}
+
+.results-area.active {
+  display: block; /* Shown when active */
 }
 
 .results-area .ratings-title {
@@ -62,7 +67,7 @@ body {
   gap: 10px;
   justify-content: center;
   width: 100%;
-  max-width: 1400px; /* Increased to match container */
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -133,8 +138,8 @@ body {
 
 /* Container */
 .container {
-  max-width: 1400px; /* Increased from 1200px to maximize side space */
-  margin: calc(160px + 30px) auto 20px;
+  max-width: 1400px;
+  margin: 20px auto; /* Default for signed-out state */
   background-color: white;
   padding: 20px;
   border-radius: 10px;
@@ -144,6 +149,11 @@ body {
   flex-direction: column;
   align-items: center;
   width: 100%;
+  transition: margin-top 0.3s ease; /* Smooth transition */
+}
+
+.container.authenticated {
+  margin-top: calc(160px + 30px); /* Adjusted when signed in */
 }
 
 /* Auth Section */
@@ -151,8 +161,14 @@ body {
   width: 100%;
   margin-bottom: 20px;
   display: flex;
-  justify-content: space-between; /* Align buttons left and right */
+  justify-content: space-between;
   align-items: center;
+}
+
+.auth-section.signed-out {
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
 }
 
 .auth-section h1 {
@@ -177,7 +193,7 @@ body {
   transition: all 0.3s ease;
   background-color: white;
   color: black;
-  margin: 0; /* Remove margin to align properly */
+  margin: 0;
 }
 
 #signInBtn:hover,
@@ -187,7 +203,7 @@ body {
 }
 
 #signOutBtn {
-  order: -1; /* Move to left */
+  order: -1; /* Left when signed in */
 }
 
 /* Rating Form */
@@ -230,7 +246,7 @@ select:disabled {
 
 /* Candidates Table */
 #candidates-table {
-  max-width: 1400px; /* Increased to match container */
+  max-width: 1400px;
   margin: 20px auto;
 }
 
@@ -313,7 +329,7 @@ select:disabled {
 #competencyContainer {
   margin-top: 20px;
   width: 100%;
-  max-width: 1400px; /* Increased from 1200px to maximize side space */
+  max-width: 1400px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -362,7 +378,7 @@ select:disabled {
 #organizational-competencies,
 #minimum-competencies {
   width: 100%;
-  max-width: 1400px; /* Increased to match container */
+  max-width: 1400px;
 }
 
 .competency-item label {
@@ -756,13 +772,11 @@ select:disabled {
 @media (max-width: 768px) {
   .container {
     padding: 15px;
-    margin-top: calc(220px + січ
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .container {
-    padding: 15px;
     margin-top: calc(220px + 30px);
+  }
+
+  .container:not(.authenticated) {
+    margin-top: 20px; /* Reset for signed-out state */
   }
 
   .tiles-container {
