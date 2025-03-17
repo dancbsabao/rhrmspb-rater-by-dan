@@ -25,7 +25,7 @@ const elements = {
   nameDropdown: document.getElementById('nameDropdown'),
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
-  ratingForm: document.querySelector('.rating-form'), // Add this line
+  ratingForm: document.querySelector('.rating-form'), // Added ratingForm
 };
 
 let vacancies = [];
@@ -435,23 +435,11 @@ function handleSignOutClick() {
 }
 
 function updateUI(isSignedIn) {
-  const authSection = document.querySelector('.auth-section');
-  if (isSignedIn) {
-    authSection.innerHTML = `
-      <h1>Rating Tool</h1>
-      <div id="authStatus">SIGNED IN</div>
-      <button id="signOutBtn">Sign Out</button>
-    `;
-    document.getElementById('signOutBtn').addEventListener('click', handleSignOutClick);
-    if (elements.ratingForm) elements.ratingForm.style.display = 'block'; // Check if exists
-  } else {
-    authSection.innerHTML = `
-      <h1>Rating Tool</h1>
-      <div id="authStatus">You are not signed in</div>
-      <button id="signInBtn">Sign In</button>
-    `;
-    document.getElementById('signInBtn').addEventListener('click', handleAuthClick);
-    if (elements.ratingForm) elements.ratingForm.style.display = 'none'; // Check if exists
+  elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
+  elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
+  elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
+  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
+  if (!isSignedIn) {
     elements.competencyContainer.innerHTML = '';
     const resultsArea = document.querySelector('.results-area');
     if (resultsArea) resultsArea.classList.remove('active');
