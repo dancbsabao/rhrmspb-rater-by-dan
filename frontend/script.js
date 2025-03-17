@@ -1184,12 +1184,21 @@ async function displayCandidatesTable(name, itemNumber) {
         button.classList.add('open-link-button');
         button.textContent = value ? 'View Document' : 'NONE';
         if (value) {
-          button.addEventListener('click', () => {
-            const modalContent = `
-              <iframe src="${value}" width="100%" height="100%" frameborder="0"></iframe>
-            `;
-            showFullScreenModal(`${headers[index]}`, modalContent);
-          });
+          // Extract file ID from the URL and convert to embeddable format
+          const fileIdMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
+          const fileId = fileIdMatch ? fileIdMatch[1] : null;
+          if (fileId) {
+            const embedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+            button.addEventListener('click', () => {
+              const modalContent = `
+                <iframe src="${embedUrl}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>
+              `;
+              showFullScreenModal(`${headers[index]}`, modalContent);
+            });
+          } else {
+            button.textContent = 'INVALID LINK';
+            button.disabled = true;
+          }
         } else {
           button.disabled = true;
         }
