@@ -884,3 +884,44 @@ select:disabled {
     font-size: 20px;
   }
 }
+
+/* Force Spacing */
+body {
+  padding: 20px !important;
+  margin: 0 !important;
+  overflow-x: hidden !important; /* Prevent horizontal overflow */
+}
+
+.page-wrapper {
+  max-width: 1400px !important;
+  width: calc(100% - 40px) !important; /* Explicitly account for body padding */
+  margin: 0 auto !important;
+  position: relative; /* Ensure children respect this container */
+}
+
+.results-area {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100% !important;
+  max-width: 1400px !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+}
+
+.container {
+  width: 100% !important;
+  max-width: 1400px !important;
+  margin: 20px auto !important;
+  padding: 20px !important;
+  box-sizing: border-box !important;
+}
+
+/* Ensure no overflow */
+html, body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
