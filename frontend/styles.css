@@ -19,14 +19,14 @@ body {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 100%;
-  max-width: 1400px; /* Matches .container on desktop */
+  width: calc(100% - 40px); /* Matches body padding */
+  max-width: 1400px; /* Matches .container */
   background: white;
-  border: 2px solid #333;
+  border: 1px solid #333; /* Matches .container border */
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  padding: 20px; /* Matches .container on desktop */
+  padding: 20px; /* Consistent with .container */
   display: none;
 }
 
@@ -88,7 +88,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
+  width: calc(100% - 40px); /* Matches body padding */
   transition: margin-top 0.3s ease;
 }
 
@@ -711,16 +711,14 @@ select:disabled {
 
 /* Media Queries */
 
-/* Redmi Pad SE 8.7 Portrait (800px width) */
-@media only screen and (min-width: 768px) and (max-width: 800px) and (orientation: portrait) {
-  .container {
-    padding: 10px;
-    max-width: 760px; /* 800px - 40px body padding */
+/* Small Devices (up to 600px) */
+@media (max-width: 600px) {
+  .results-area {
+    padding: 15px;
   }
 
-  .results-area {
-    max-width: 760px; /* Matches .container */
-    padding: 10px; /* Matches .container */
+  .container {
+    padding: 15px;
   }
 
   .results-area .ratings-title {
@@ -731,28 +729,19 @@ select:disabled {
   .results-area .dropdown-info,
   .results-area .ratings-data {
     font-size: 10px;
-    margin-bottom: 6px;
   }
 
   .results-area .data-label {
     min-width: 100px;
   }
 
-  .modal-body {
-    font-size: 10px;
-  }
-
-  .modal-label {
-    min-width: 100px;
-  }
-
   .tiles-container {
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    padding: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    padding: 15px;
   }
 
   .tile {
-    max-height: 160px;
+    max-height: 180px;
   }
 
   .tile h4 {
@@ -766,123 +755,6 @@ select:disabled {
   .open-link-button {
     font-size: 10px;
     padding: 4px 8px;
-  }
-
-  .competency-grid {
-    gap: 8px;
-  }
-
-  .competency-item {
-    padding: 8px;
-  }
-
-  .rating-container {
-    gap: 12px;
-  }
-
-  .rating-container label {
-    width: 30px;
-    height: 30px;
-    line-height: 30px;
-    font-size: 12px;
-  }
-
-  .section-title {
-    font-size: 20px;
-  }
-
-  .competency-section h3:not(.section-title) {
-    font-size: 16px;
-  }
-}
-
-/* Redmi Pad SE 8.7 Landscape (1340px width) */
-@media only screen and (min-width: 1300px) and (max-width: 1340px) and (orientation: landscape) {
-  .container {
-    max-width: 1300px;
-    padding: 15px;
-  }
-
-  .results-area {
-    max-width: 1300px; /* Matches .container */
-    padding: 15px; /* Matches .container */
-  }
-
-  .results-area .ratings-title {
-    font-size: 16px;
-  }
-
-  .results-area .dropdown-info,
-  .results-area .ratings-data {
-    font-size: 12px;
-  }
-
-  .tiles-container {
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    padding: 15px;
-  }
-
-  .tile {
-    max-height: 160px;
-  }
-
-  .tile h4 {
-    font-size: 13px;
-  }
-
-  .tile-content p {
-    font-size: 11px;
-  }
-
-  .open-link-button {
-    font-size: 11px;
-    padding: 5px 9px;
-  }
-
-  .competency-grid {
-    gap: 10px;
-  }
-
-  .competency-item {
-    padding: 10px;
-  }
-
-  .rating-container {
-    gap: 18px;
-  }
-
-  .rating-container label {
-    width: 38px;
-    height: 38px;
-    line-height: 38px;
-    font-size: 15px;
-  }
-
-  .section-title {
-    font-size: 28px;
-  }
-
-  .competency-section h3:not(.section-title) {
-    font-size: 20px;
-  }
-}
-
-/* General Mobile Query */
-@media (max-width: 767px) {
-  .container {
-    padding: 15px;
-  }
-
-  .results-area {
-    padding: 15px;
-  }
-
-  .tiles-container {
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  }
-
-  .tile {
-    max-height: 180px;
   }
 
   .rating-container label {
@@ -906,19 +778,112 @@ select:disabled {
   }
 
   .toast-container {
-    top: 20px;
+    top: 15px;
+    right: 15px;
   }
-}
 
-/* Smaller Mobile Query */
-@media (max-width: 600px) {
   .site-footer {
     font-size: 12px;
     padding: 8px 0;
   }
+}
+
+/* Medium Devices (601px to 850px) */
+@media (min-width: 601px) and (max-width: 850px) {
+  .results-area {
+    padding: 15px;
+  }
+
+  .container {
+    padding: 15px;
+  }
+
+  .results-area .ratings-title {
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
 
   .results-area .dropdown-info,
   .results-area .ratings-data {
-    font-size: 10px;
+    font-size: 11px;
+  }
+
+  .results-area .data-label {
+    min-width: 110px;
+  }
+
+  .tiles-container {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    padding: 15px;
+  }
+
+  .tile h4 {
+    font-size: 13px;
+  }
+
+  .tile-content p {
+    font-size: 11px;
+  }
+
+  .open-link-button {
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+
+  .rating-container label {
+    width: 38px;
+    height: 38px;
+    line-height: 38px;
+  }
+
+  .section-title {
+    font-size: 24px;
+  }
+
+  .competency-section h3:not(.section-title) {
+    font-size: 18px;
+  }
+}
+
+/* Large Tablets (851px to 1400px) */
+@media (min-width: 851px) and (max-width: 1400px) {
+  .results-area {
+    padding: 20px;
+  }
+
+  .container {
+    padding: 20px;
+  }
+
+  .tiles-container {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    padding: 20px;
+  }
+
+  .tile h4 {
+    font-size: 14px;
+  }
+
+  .tile-content p {
+    font-size: 12px;
+  }
+
+  .open-link-button {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+
+  .rating-container label {
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+  }
+
+  .section-title {
+    font-size: 28px;
+  }
+
+  .competency-section h3:not(.section-title) {
+    font-size: 20px;
   }
 }
