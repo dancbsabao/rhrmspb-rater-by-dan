@@ -77,6 +77,8 @@ function loadDropdownState() {
 async function restoreState() {
   const authState = loadAuthState();
   const dropdownState = loadDropdownState();
+  const authSection = document.querySelector('.auth-section');
+  const container = document.querySelector('.container');
 
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
@@ -87,6 +89,7 @@ async function restoreState() {
     elements.authStatus.textContent = 'Signed in';
     elements.signInBtn.style.display = 'none';
     elements.signOutBtn.style.display = 'block';
+    authSection.classList.remove('signed-out');
     await loadSheetData();
     const evaluatorSelect = document.getElementById('evaluatorSelect');
     if (evaluatorSelect && dropdownState.evaluator) {
@@ -150,6 +153,10 @@ async function restoreState() {
       compeCodes = [];
       competencies = [];
       resetDropdowns([]);
+      container.style.marginTop = '20px'; // Ensure top position
+      authSection.classList.add('signed-out');
+      const resultsArea = document.querySelector('.results-area');
+      if (resultsArea) resultsArea.remove(); // Clean up if present
     }
   }
 }
@@ -400,7 +407,7 @@ function handleSignOutClick() {
     competencies = [];
     submissionQueue = [];
     console.log('Global variables reset');
-    elements.authStatus.textContent = 'Signed out';
+    elements.authStatus.textContent = 'Ready to sign in'; // Changed to match initial state
     elements.signInBtn.style.display = 'block';
     elements.signOutBtn.style.display = 'none';
     resetDropdowns([]);
@@ -422,6 +429,17 @@ function handleSignOutClick() {
       clearTimeout(refreshTimer);
       refreshTimer = null;
     }
+    // Remove results-area
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) {
+      resultsArea.remove();
+    }
+    // Reset container margin
+    const container = document.querySelector('.container');
+    container.style.marginTop = '20px';
+    // Update auth-section for signed-out state
+    const authSection = document.querySelector('.auth-section');
+    authSection.classList.add('signed-out');
     showToast('success', 'Signed Out', 'You have been successfully signed out.');
   }, () => {
     console.log('Sign out canceled');
@@ -1167,7 +1185,6 @@ async function fetchCompetenciesFromSheet() {
 async function displayCompetencies(name, competencies) {
   const { competenciesColumn1, competenciesColumn2 } = await fetchCompetenciesFromSheet();
 
-  // Existing competency sections remain inside #competencyContainer
   elements.competencyContainer.innerHTML = `
     <div class="competency-section" id="basic-competencies">
       <h3 class="section-title">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
@@ -1186,13 +1203,13 @@ async function displayCompetencies(name, competencies) {
     <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
   `;
 
-  // Move results-area to body
   let resultsArea = document.querySelector('.results-area');
   if (!resultsArea) {
     resultsArea = document.createElement('div');
     resultsArea.className = 'results-area';
     document.body.insertBefore(resultsArea, document.body.firstChild);
   }
+  resultsArea.classList.add('active');
   resultsArea.innerHTML = `
     <div class="dropdown-info">
       <h3 class="dropdown-title">CURRENT SELECTION</h3>
@@ -1229,7 +1246,7 @@ async function displayCompetencies(name, competencies) {
 
   const container = document.querySelector('.container');
   if (resultsArea && container) {
-    container.style.marginTop = `${resultsArea.offsetHeight + 30}px`; // 30px buffer
+    container.style.marginTop = `${resultsArea.offsetHeight + 30}px`; // Dynamic adjustment
   }
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
@@ -1351,7 +1368,7 @@ async function displayCompetencies(name, competencies) {
     [basicTile, orgTile, minTile, psychoTile, potentialTile].forEach(tile => {
       tile.addEventListener('click', () => {
         tile.classList.toggle('active');
-        setTimeout(() => tile.classList.remove('active'), 2000); // Auto-hide tooltip after 2s
+        setTimeout(() => tile.classList.remove('active'), 2000);
       });
     });
   }
