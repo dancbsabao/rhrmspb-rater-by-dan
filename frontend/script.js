@@ -772,35 +772,30 @@ async function submitRatings() {
       return;
     }
 
-    // Fetch summary ratings from the results tiles
-    const basicRating = document.getElementById('basic-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
-    const orgRating = document.getElementById('organizational-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
-    const minRating = document.getElementById('minimum-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    // Fetch only Psycho-Social and Potential ratings
     const psychoSocialRating = document.getElementById('psychosocial-tile')?.querySelector('.tile-value')?.textContent || '0.00';
     const potentialRating = document.getElementById('potential-tile')?.querySelector('.tile-value')?.textContent || '0.00';
 
-    // Build modal content with dropdowns and summary ratings
+    // Enhanced modal content
     const modalContent = `
-      <p><strong>Evaluator:</strong> ${currentEvaluator}</p>
-      <p><strong>Assignment:</strong> ${elements.assignmentDropdown.value}</p>
-      <p><strong>Position:</strong> ${elements.positionDropdown.value}</p>
-      <p><strong>Item:</strong> ${item}</p>
-      <p><strong>Name:</strong> ${candidateName}</p>
-      <h4>Summary Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
-      <ul style="list-style: none; padding: 0;">
-        <li><strong>Basic Competencies:</strong> ${basicRating}</li>
-        <li><strong>Organizational Competencies:</strong> ${orgRating}</li>
-        <li><strong>Minimum Competencies:</strong> ${minRating}</li>
-        <li><strong>Psycho-Social Attributes:</strong> ${psychoSocialRating}</li>
-        <li><strong>Potential:</strong> ${potentialRating}</li>
-      </ul>
+      <div class="modal-body">
+        <div class="modal-field"><span class="modal-label">Evaluator:</span> <span class="modal-value">${currentEvaluator}</span></div>
+        <div class="modal-field"><span class="modal-label">Assignment:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
+        <div class="modal-field"><span class="modal-label">Position:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
+        <div class="modal-field"><span class="modal-label">Item:</span> <span class="modal-value">${item}</span></div>
+        <div class="modal-field"><span class="modal-label">Name:</span> <span class="modal-value">${candidateName}</span></div>
+        <div class="modal-section">
+          <h4>Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
+          <div class="modal-field"><span class="modal-label">Psycho-Social Attributes:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
+          <div class="modal-field"><span class="modal-label">Potential:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
+        </div>
+      </div>
     `;
 
     showModal(
       `Confirm ${isUpdate ? 'Update' : 'Submission'}`,
       modalContent,
       () => {
-        // On confirm, queue the submission
         submissionQueue.push(ratings);
         showSubmittingIndicator();
         processSubmissionQueue();
@@ -835,7 +830,6 @@ function showSubmittingIndicator() {
     `;
     document.body.appendChild(indicator);
 
-    // Add spinner CSS
     const style = document.createElement('style');
     style.innerHTML = `
       .spinner {
@@ -872,7 +866,7 @@ async function processSubmissionQueue() {
       const candidateName = ratings[0][2];
       const item = ratings[0][1];
       localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showToast('success', 'Success', result.message, 5000, 'center');
+      showToast('success', 'Success', result.message, 0, 'center'); // Persistent toast
       fetchSubmittedRatings();
     }
   } catch (error) {
@@ -1415,41 +1409,119 @@ if (elements.submitRatings) {
   console.log('Submit ratings listener attached');
 }
 
-// Enhanced Modal and Toast (basic implementations)
+// Enhanced Modal and Toast
 function showModal(title, content, onConfirm, onCancel) {
   const modal = document.createElement('div');
   modal.className = 'custom-modal';
   modal.innerHTML = `
-    <div class="modal-content" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); max-width: 500px; width: 90%;">
-      <h3>${title}</h3>
-      <div>${content}</div>
-      <div style="margin-top: 20px; text-align: right;">
-        <button id="modalConfirm" style="padding: 8px 16px; margin-right: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Confirm</button>
-        <button id="modalCancel" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+    <div class="modal-content">
+      <h3 class="modal-title">${title}</h3>
+      ${content}
+      <div class="modal-footer">
+        <button id="modalConfirm" class="modal-btn modal-btn-confirm">Confirm</button>
+        <button id="modalCancel" class="modal-btn modal-btn-cancel">Cancel</button>
       </div>
     </div>
   `;
-  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;';
+  modal.style.cssText = `
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+    background: rgba(0,0,0,0.6); display: flex; justify-content: center; 
+    align-items: center; z-index: 1000;
+  `;
+
+  const style = document.createElement('style');
+  style.innerHTML = `
+    .modal-content {
+      background: #fff; padding: 25px; border-radius: 12px; 
+      box-shadow: 0 6px 12px rgba(0,0,0,0.3); max-width: 600px; width: 90%;
+      font-family: Arial, sans-serif;
+    }
+    .modal-title {
+      font-size: 24px; color: #333; margin-bottom: 20px; text-align: center;
+      font-weight: 600;
+    }
+    .modal-body { font-size: 16px; color: #444; }
+    .modal-field {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid #eee;
+    }
+    .modal-label { font-weight: 500; color: #666; }
+    .modal-value { font-weight: 600; color: #222; }
+    .rating-value { font-size: 18px; color: #007bff; }
+    .modal-section { margin-top: 20px; }
+    .modal-section h4 { font-size: 18px; color: #333; margin-bottom: 10px; }
+    .modal-footer { margin-top: 25px; text-align: right; }
+    .modal-btn {
+      padding: 10px 20px; margin-left: 10px; border: none; border-radius: 6px;
+      font-size: 16px; cursor: pointer; transition: background 0.2s;
+    }
+    .modal-btn-confirm { background: #28a745; color: white; }
+    .modal-btn-confirm:hover { background: #218838; }
+    .modal-btn-cancel { background: #dc3545; color: white; }
+    .modal-btn-cancel:hover { background: #c82333; }
+    @media (max-width: 768px) {
+      .modal-content { padding: 15px; max-width: 95%; }
+      .modal-title { font-size: 20px; }
+      .modal-field { flex-direction: column; align-items: flex-start; }
+      .modal-btn { padding: 8px 16px; font-size: 14px; }
+    }
+  `;
+  document.head.appendChild(style);
   document.body.appendChild(modal);
 
   document.getElementById('modalConfirm').onclick = () => {
     document.body.removeChild(modal);
+    document.head.removeChild(style);
     onConfirm();
   };
   document.getElementById('modalCancel').onclick = () => {
     document.body.removeChild(modal);
+    document.head.removeChild(style);
     if (onCancel) onCancel();
   };
 }
 
 function showToast(type, title, message, duration = 3000, position = 'top-right') {
   const toast = document.createElement('div');
-  toast.innerHTML = `<strong>${title}</strong>: ${message}`;
-  toast.style.cssText = `
-    position: fixed; ${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} ${position.includes('right') ? 'right: 20px;' : 'left: 20px;'}
-    padding: 10px 20px; background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
-    color: white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 1000;
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <div class="toast-content">
+      <strong>${title}</strong>: ${message}
+      ${duration === 0 ? '<span class="toast-close">✖</span>' : ''}
+    </div>
   `;
+  toast.style.cssText = `
+    position: fixed; ${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} 
+    ${position.includes('right') ? 'right: 20px;' : position === 'center' ? 'left: 50%; transform: translateX(-50%);' : 'left: 20px;'}
+    padding: 12px 20px; background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
+    color: white; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1000;
+    font-family: Arial, sans-serif; font-size: 16px; max-width: 400px;
+  `;
+
+  const style = document.createElement('style');
+  style.innerHTML = `
+    .toast-content { display: flex; justify-content: space-between; align-items: center; }
+    .toast-close {
+      margin-left: 15px; font-size: 18px; cursor: pointer; color: #fff;
+      transition: color 0.2s;
+    }
+    .toast-close:hover { color: #ddd; }
+    @media (max-width: 768px) {
+      .toast { font-size: 14px; padding: 10px 15px; max-width: 90%; }
+    }
+  `;
+  document.head.appendChild(style);
   document.body.appendChild(toast);
-  setTimeout(() => document.body.removeChild(toast), duration);
+
+  if (duration > 0) {
+    setTimeout(() => {
+      document.body.removeChild(toast);
+      document.head.removeChild(style);
+    }, duration);
+  } else {
+    toast.querySelector('.toast-close').onclick = () => {
+      document.body.removeChild(toast);
+      document.head.removeChild(style);
+    };
+  }
 }
