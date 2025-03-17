@@ -1211,43 +1211,27 @@ async function displayCompetencies(name, competencies) {
   }
   resultsArea.classList.add('active');
   resultsArea.innerHTML = `
+    <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
     <div class="dropdown-info">
-      <h3 class="dropdown-title">CURRENT SELECTION</h3>
-      <div class="dropdown-field"><span class="dropdown-label">Evaluator:</span> <span class="dropdown-value">${currentEvaluator || 'N/A'}</span></div>
-      <div class="dropdown-field"><span class="dropdown-label">Assignment:</span> <span class="dropdown-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-      <div class="dropdown-field"><span class="dropdown-label">Position:</span> <span class="dropdown-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-      <div class="dropdown-field"><span class="dropdown-label">Item:</span> <span class="dropdown-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-      <div class="dropdown-field"><span class="dropdown-label">Name:</span> <span class="dropdown-value">${elements.nameDropdown.value || 'N/A'}</span></div>
+      <div class="data-row"><span class="data-label">Evaluator:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
+      <div class="data-row"><span class="data-label">Assignment:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+      <div class="data-row"><span class="data-label">Position:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+      <div class="data-row"><span class="data-label">Item:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+      <div class="data-row"><span class="data-label">Name:</span> <span class="data-value">${elements.nameDropdown.value || 'N/A'}</span></div>
     </div>
-    <h3 class="ratings-title">RATING RESULTS</h3>
-    <div class="ratings-row">
-      <div class="result-tile" id="basic-rating-tile">
-        <span class="tile-label">BASIC:</span>
-        <span class="tile-value">0.00</span>
-      </div>
-      <div class="result-tile" id="organizational-rating-tile">
-        <span class="tile-label">ORG:</span>
-        <span class="tile-value">0.00</span>
-      </div>
-      <div class="result-tile" id="minimum-rating-tile">
-        <span class="tile-label">MIN:</span>
-        <span class="tile-value">0.00</span>
-      </div>
-      <div class="result-tile prominent-tile" id="psychosocial-tile">
-        <span class="tile-label">PSYCHO-SOCIAL:</span>
-        <span class="tile-value">0.00</span>
-      </div>
-      <div class="result-tile prominent-tile" id="potential-tile">
-        <span class="tile-label">POTENTIAL:</span>
-        <span class="tile-value">0.00</span>
-      </div>
+    <div class="ratings-data">
+      <div class="data-row"><span class="data-label">Basic:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
+      <div class="data-row"><span class="data-label">Organizational:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
+      <div class="data-row"><span class="data-label">Minimum:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
+      <div class="data-row"><span class="data-label">Psycho-Social:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
+      <div class="data-row"><span class="data-label">Potential:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
     </div>
   `;
 
+  // Remove dynamic margin adjustment since modal floats above content
   const container = document.querySelector('.container');
-  if (resultsArea && container) {
-    container.style.marginTop = `${resultsArea.offsetHeight + 30}px`; // Dynamic adjustment
-  }
+  container.style.marginTop = '20px'; // Reset to default
+
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
   const minimumCompetencyRatings = Array(competencies.length).fill(0);
@@ -1271,7 +1255,6 @@ async function displayCompetencies(name, competencies) {
         computePsychosocial();
         computePotential();
         saveRadioState(comp, radio.value, name, elements.itemDropdown.value);
-        updateTooltips();
       });
     });
     return div;
@@ -1300,77 +1283,29 @@ async function displayCompetencies(name, competencies) {
 
   function computeTotalBasicRating() {
     const totalRating = basicCompetencyRatings.filter(r => r > 0).reduce((sum, r) => sum + (r / 5) * 2, 0);
-    document.getElementById("basic-rating-tile").querySelector('.tile-value').textContent = totalRating.toFixed(2);
+    document.getElementById("basic-rating-value").textContent = totalRating.toFixed(2);
   }
 
   function computeOrganizationalRating() {
     const totalRating = organizationalCompetencyRatings.filter(r => r > 0).reduce((sum, r) => sum + r / 5, 0);
-    document.getElementById("organizational-rating-tile").querySelector('.tile-value').textContent = totalRating.toFixed(2);
+    document.getElementById("organizational-rating-value").textContent = totalRating.toFixed(2);
   }
 
   function computeMinimumRating() {
     const totalRating = minimumCompetencyRatings.filter(r => r > 0).reduce((sum, r) => sum + r / minimumCompetencyRatings.length, 0);
-    document.getElementById("minimum-rating-tile").querySelector('.tile-value').textContent = totalRating.toFixed(2);
+    document.getElementById("minimum-rating-value").textContent = totalRating.toFixed(2);
   }
 
   function computePsychosocial() {
-    const basicTotal = parseFloat(document.getElementById("basic-rating-tile").querySelector('.tile-value').textContent) || 0;
-    document.getElementById("psychosocial-tile").querySelector('.tile-value').textContent = basicTotal.toFixed(2);
+    const basicTotal = parseFloat(document.getElementById("basic-rating-value").textContent) || 0;
+    document.getElementById("psychosocial-rating-value").textContent = basicTotal.toFixed(2);
   }
 
   function computePotential() {
-    const organizationalTotal = parseFloat(document.getElementById("organizational-rating-tile").querySelector('.tile-value').textContent) || 0;
-    const minimumTotal = parseFloat(document.getElementById("minimum-rating-tile").querySelector('.tile-value').textContent) || 0;
+    const organizationalTotal = parseFloat(document.getElementById("organizational-rating-value").textContent) || 0;
+    const minimumTotal = parseFloat(document.getElementById("minimum-rating-value").textContent) || 0;
     const potential = ((organizationalTotal + minimumTotal) / 2) * 2;
-    document.getElementById("potential-tile").querySelector('.tile-value').textContent = potential.toFixed(2);
-  }
-
-  function updateTooltips() {
-    const basicTile = document.getElementById('basic-rating-tile');
-    const orgTile = document.getElementById('organizational-rating-tile');
-    const minTile = document.getElementById('minimum-rating-tile');
-    const psychoTile = document.getElementById('psychosocial-tile');
-    const potentialTile = document.getElementById('potential-tile');
-
-    const basicDetails = basicCompetencyRatings.slice(0, 5).map((r, i) => `${i + 1}. ${r || 'N/A'}`).join('<br>');
-    const orgDetails = organizationalCompetencyRatings.slice(0, 5).map((r, i) => `${i + 1}. ${r || 'N/A'}`).join('<br>');
-    const minDetails = minimumCompetencyRatings.map((r, i) => `${i + 1}. ${r || 'N/A'}`).join('<br>');
-    const basicTotal = parseFloat(basicTile.querySelector('.tile-value').textContent) || 0;
-    const orgTotal = parseFloat(orgTile.querySelector('.tile-value').textContent) || 0;
-    const minTotal = parseFloat(minTile.querySelector('.tile-value').textContent) || 0;
-
-    basicTile.innerHTML = `
-      <span class="tile-label">BASIC:</span>
-      <span class="tile-value">${basicTotal.toFixed(2)}</span>
-      <div class="tooltip">Ratings:<br>${basicDetails}<br>Formula: Σ(rating / 5) * 2</div>
-    `;
-    orgTile.innerHTML = `
-      <span class="tile-label">ORG:</span>
-      <span class="tile-value">${orgTotal.toFixed(2)}</span>
-      <div class="tooltip">Ratings:<br>${orgDetails}<br>Formula: Σ(rating / 5)</div>
-    `;
-    minTile.innerHTML = `
-      <span class="tile-label">MIN:</span>
-      <span class="tile-value">${minTotal.toFixed(2)}</span>
-      <div class="tooltip">Ratings:<br>${minDetails}<br>Formula: Σ(rating) / count</div>
-    `;
-    psychoTile.innerHTML = `
-      <span class="tile-label">PSYCHO-SOCIAL:</span>
-      <span class="tile-value">${basicTotal.toFixed(2)}</span>
-      <div class="tooltip">Equals Basic: ${basicTotal.toFixed(2)}</div>
-    `;
-    potentialTile.innerHTML = `
-      <span class="tile-label">POTENTIAL:</span>
-      <span class="tile-value">${((orgTotal + minTotal) / 2 * 2).toFixed(2)}</span>
-      <div class="tooltip">Formula: ((Org: ${orgTotal.toFixed(2)} + Min: ${minTotal.toFixed(2)}) / 2) * 2</div>
-    `;
-
-    [basicTile, orgTile, minTile, psychoTile, potentialTile].forEach(tile => {
-      tile.addEventListener('click', () => {
-        tile.classList.toggle('active');
-        setTimeout(() => tile.classList.remove('active'), 2000);
-      });
-    });
+    document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
   }
 
   document.getElementById('reset-ratings').addEventListener('click', () => {
@@ -1384,7 +1319,6 @@ async function displayCompetencies(name, competencies) {
         computeMinimumRating();
         computePsychosocial();
         computePotential();
-        updateTooltips();
         localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
         elements.submitRatings.disabled = true;
         showToast('success', 'Reset Complete', 'All ratings have been cleared.');
@@ -1393,7 +1327,6 @@ async function displayCompetencies(name, competencies) {
   });
 
   loadRadioState(name, elements.itemDropdown.value);
-  updateTooltips();
 }
 
 function saveRadioState(competencyName, value, candidateName, item) {
