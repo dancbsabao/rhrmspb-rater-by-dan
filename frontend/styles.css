@@ -25,7 +25,7 @@ body {
   z-index: 1000;
   padding: 8px 0;
   text-align: center;
-  display: none; /* Hidden by default, shown when signed in */
+  display: none; /* Hidden by default */
 }
 
 .results-area.active {
@@ -149,11 +149,7 @@ body {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  transition: margin-top 0.3s ease; /* Smooth transition */
-}
-
-.container.authenticated {
-  margin-top: calc(160px + 30px); /* Adjusted when signed in */
+  transition: margin-top 0.3s ease;
 }
 
 /* Auth Section */
@@ -203,7 +199,7 @@ body {
 }
 
 #signOutBtn {
-  order: -1; /* Left when signed in */
+  order: -1;
 }
 
 /* Rating Form */
@@ -373,7 +369,6 @@ select:disabled {
   width: 100%;
 }
 
-/* Ensure consistency across all competency sections */
 #basic-competencies,
 #organizational-competencies,
 #minimum-competencies {
@@ -639,7 +634,7 @@ select:disabled {
 /* Toast */
 .toast-container {
   position: fixed;
-  top: 170px;
+  top: 20px; /* Adjusted to top when signed out */
   right: 20px;
   z-index: 2000;
 }
@@ -772,11 +767,7 @@ select:disabled {
 @media (max-width: 768px) {
   .container {
     padding: 15px;
-    margin-top: calc(220px + 30px);
-  }
-
-  .container:not(.authenticated) {
-    margin-top: 20px; /* Reset for signed-out state */
+    margin-top: 20px; /* Default for signed-out */
   }
 
   .tiles-container {
@@ -822,7 +813,7 @@ select:disabled {
   }
 
   .toast-container {
-    top: 230px;
+    top: 20px; /* Adjusted for signed-out state */
   }
 }
 
