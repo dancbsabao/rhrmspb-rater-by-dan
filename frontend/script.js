@@ -740,90 +740,68 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
   checkAllRatingsSelected();
 }
 
-async function submitRatings() {
-  if (isSubmitting) {
-    console.log('Submission already in progress');
-    return;
-  }
+function submitRatings() {
+  const basicRating = document.getElementById("basic-rating-value").textContent;
+  const organizationalRating = document.getElementById("organizational-rating-value").textContent;
+  const minimumRating = document.getElementById("minimum-rating-value").textContent;
+  const psychosocialRating = document.getElementById("psychosocial-rating-value").textContent;
+  const potentialRating = document.getElementById("potential-rating-value").textContent;
 
-  try {
-    const token = gapi.client.getToken();
-    if (!token || !await isTokenValid()) {
-      await refreshAccessToken();
-      if (!gapi.client.getToken()) {
-        showToast('error', 'Error', 'Authentication failed. Please sign in again.');
-        handleAuthClick();
-        return;
-      }
-    }
+  const modalContent = `
+    <p>Are you sure you want to submit the following ratings?</p>
+    <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator || 'N/A'}</span></div>
+    <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+    <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+    <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+    <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${elements.nameDropdown.value || 'N/A'}</span></div>
+    <div class="modal-section">
+      <h4>RATINGS TO SUBMIT:</h4>
+      <div class="modal-field"><span class="modal-label">BASIC:</span> <span class="modal-value rating-value">${basicRating}</span></div>
+      <div class="modal-field"><span class="modal-label">ORGANIZATIONAL:</span> <span class="modal-value rating-value">${organizationalRating}</span></div>
+      <div class="modal-field"><span class="modal-label">MINIMUM:</span> <span class="modal-value rating-value">${minimumRating}</span></div>
+      <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychosocialRating}</span></div>
+      <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
+    </div>
+  `;
 
-    if (!currentEvaluator) {
-      showToast('warning', 'Warning', 'Please select an evaluator');
-      return;
-    }
-
-    const item = elements.itemDropdown.value;
-    const candidateName = elements.nameDropdown.value;
-
-    if (!item || !candidateName) {
-      showToast('error', 'Error', 'Please select both item and candidate');
-      return;
-    }
-
-    const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
-    const isUpdate = existingRatings.length > 0;
-
-    if (isUpdate) {
-      const isVerified = await verifyEvaluatorPassword();
-      if (!isVerified) {
-        revertToExistingRatings(existingRatings);
-        showToast('warning', 'Update Canceled', 'Ratings reverted');
-        return;
-      }
-    }
-
-    const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
-    if (error) {
-      showToast('error', 'Error', error);
-      return;
-    }
-
-    const psychoSocialRating = document.getElementById('psychosocial-tile')?.querySelector('.tile-value')?.textContent || '0.00';
-    const potentialRating = document.getElementById('potential-tile')?.querySelector('.tile-value')?.textContent || '0.00';
-
-    const modalContent = `
-      <div class="modal-body">
-        <div class="modal-field"><span class="modal-label">Evaluator:</span> <span class="modal-value">${currentEvaluator}</span></div>
-        <div class="modal-field"><span class="modal-label">Assignment:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">Position:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">Item:</span> <span class="modal-value">${item}</span></div>
-        <div class="modal-field"><span class="modal-label">Name:</span> <span class="modal-value">${candidateName}</span></div>
-        <div class="modal-section">
-          <h4>Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
-          <div class="modal-field"><span class="modal-label">Psycho-Social Attributes:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
-          <div class="modal-field"><span class="modal-label">Potential:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
-        </div>
-      </div>
+  showModal('Confirm Submission', modalContent, async () => {
+    const submittingIndicator = document.createElement('div');
+    submittingIndicator.className = 'submitting-indicator';
+    submittingIndicator.innerHTML = `
+      <div class="spinner"></div>
+      <div class="submitting-content">Submitting Ratings...</div>
     `;
+    document.body.appendChild(submittingIndicator);
 
-    showModal(
-      `Confirm ${isUpdate ? 'Update' : 'Submission'}`,
-      modalContent,
-      () => {
-        submissionQueue.push(ratings);
-        showSubmittingIndicator();
-        processSubmissionQueue();
-      },
-      () => {
-        console.log('Submission canceled');
-        showToast('info', 'Canceled', 'Ratings submission aborted');
-      }
-    );
-  } catch (error) {
-    console.error('Submission error:', error);
-    showToast('error', 'Error', `Failed to submit: ${error.message}`);
-    if (error.status === 401 || error.status === 403) handleAuthClick();
-  }
+    try {
+      const response = await fetch('https://script.google.com/macros/s/AKfycbwWvR0bS20g7iK-kzIJH2Z8S-YR8aTwxJDx8uM6gI6v/exec', {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          evaluator: currentEvaluator || 'N/A',
+          assignment: elements.assignmentDropdown.value || 'N/A',
+          position: elements.positionDropdown.value || 'N/A',
+          item: elements.itemDropdown.value || 'N/A',
+          name: elements.nameDropdown.value || 'N/A',
+          basic: basicRating,
+          organizational: organizationalRating,
+          minimum: minimumRating,
+          psychosocial: psychosocialRating,
+          potential: potentialRating,
+          timestamp: new Date().toISOString()
+        })
+      });
+
+      document.body.removeChild(submittingIndicator);
+      showToast('success', 'Submission Successful', 'Ratings have been submitted.');
+      elements.submitRatings.disabled = true;
+    } catch (error) {
+      document.body.removeChild(submittingIndicator);
+      showToast('error', 'Submission Failed', 'An error occurred while submitting ratings.');
+      console.error('Submission error:', error);
+    }
+  });
 }
 
 function showSubmittingIndicator() {
@@ -1214,18 +1192,18 @@ async function displayCompetencies(name, competencies) {
     <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
     <div class="grid-container">
       <div class="dropdown-info">
-        <div class="data-row"><span class="data-label">Evaluator:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">Assignment:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">Position:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">Item:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">Name:</span> <span class="data-value">${elements.nameDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">NAME:</span> <span class="data-value">${elements.nameDropdown.value || 'N/A'}</span></div>
       </div>
       <div class="ratings-data">
-        <div class="data-row"><span class="data-label">Basic:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">Organizational:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">Minimum:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">Psycho-Social:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">Potential:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
       </div>
     </div>
   `;
