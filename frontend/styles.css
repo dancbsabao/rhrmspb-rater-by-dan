@@ -19,7 +19,7 @@ body {
   top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 100%; /* Base width */
+  width: 100%;
   max-width: 1400px; /* Matches .container on desktop */
   background: white;
   border: 2px solid #333;
@@ -712,10 +712,10 @@ select:disabled {
 /* Media Queries */
 
 /* Redmi Pad SE 8.7 Portrait (800px width) */
-@media only screen and (min-width: 768px) and (max-width: 850px) and (orientation: portrait) {
+@media only screen and (min-width: 768px) and (max-width: 800px) and (orientation: portrait) {
   .container {
     padding: 10px;
-    max-width: 760px; /* Matches effective width after body padding */
+    max-width: 760px; /* 800px - 40px body padding */
   }
 
   .results-area {
@@ -797,7 +797,7 @@ select:disabled {
 }
 
 /* Redmi Pad SE 8.7 Landscape (1340px width) */
-@media only screen and (min-width: 1300px) and (max-width: 1400px) and (orientation: landscape) {
+@media only screen and (min-width: 1300px) and (max-width: 1340px) and (orientation: landscape) {
   .container {
     max-width: 1300px;
     padding: 15px;
@@ -867,9 +867,13 @@ select:disabled {
   }
 }
 
-/* Existing General Mobile Query */
-@media (max-width: 768px) {
+/* General Mobile Query */
+@media (max-width: 767px) {
   .container {
+    padding: 15px;
+  }
+
+  .results-area {
     padding: 15px;
   }
 
@@ -885,10 +889,6 @@ select:disabled {
     width: 35px;
     height: 35px;
     line-height: 35px;
-  }
-
-  .results-area {
-    padding: 15px;
   }
 
   .submitting-indicator {
@@ -910,7 +910,7 @@ select:disabled {
   }
 }
 
-/* Existing Smaller Mobile Query */
+/* Smaller Mobile Query */
 @media (max-width: 600px) {
   .site-footer {
     font-size: 12px;
