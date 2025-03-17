@@ -864,8 +864,16 @@ async function processSubmissionQueue() {
       const candidateName = ratings[0][2];
       const item = ratings[0][1];
       localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showToast('success', 'Success', result.message, 0); // Persistent toast with duration 0
-      fetchSubmittedRatings();
+      showModal(
+        'Submission Successful',
+        `<p>${result.message}</p>`,
+        () => {
+          console.log('Success modal closed');
+          fetchSubmittedRatings();
+        },
+        null,
+        false // No cancel button
+      );
     }
   } catch (error) {
     console.error('Queue submission failed:', error);
@@ -1226,26 +1234,24 @@ async function displayCompetencies(name, competencies) {
           <div class="dropdown-field"><span class="dropdown-label">Name:</span> <span class="dropdown-value">${elements.nameDropdown.value || 'N/A'}</span></div>
         </div>
         <h3 class="ratings-title">RATING RESULTS</h3>
-        <div class="row">
-          <div class="result-tile small-tile" id="basic-rating-tile" data-tooltip-id="basic-tooltip">
+        <div class="ratings-row">
+          <div class="result-tile small-tile" id="basic-rating-tile">
             <span class="tile-label">BASIC:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile small-tile" id="organizational-rating-tile" data-tooltip-id="org-tooltip">
+          <div class="result-tile small-tile" id="organizational-rating-tile">
             <span class="tile-label">ORG:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile small-tile" id="minimum-rating-tile" data-tooltip-id="min-tooltip">
+          <div class="result-tile small-tile" id="minimum-rating-tile">
             <span class="tile-label">MIN:</span>
             <span class="tile-value">0.00</span>
           </div>
-        </div>
-        <div class="row">
-          <div class="result-tile large-tile" id="psychosocial-tile" data-tooltip-id="psycho-tooltip">
+          <div class="result-tile large-tile" id="psychosocial-tile">
             <span class="tile-label">PSYCHO-SOCIAL:</span>
             <span class="tile-value">0.00</span>
           </div>
-          <div class="result-tile large-tile" id="potential-tile" data-tooltip-id="potential-tooltip">
+          <div class="result-tile large-tile" id="potential-tile">
             <span class="tile-label">POTENTIAL:</span>
             <span class="tile-value">0.00</span>
           </div>
@@ -1258,63 +1264,73 @@ async function displayCompetencies(name, competencies) {
   const style = document.createElement("style");
   style.innerHTML = `
     .results-modal {
-      position: fixed; top: 20px; right: 20px; width: 320px; background: #fff;
-      border-radius: 12px; box-shadow: 0 6px 12px rgba(0,0,0,0.2); z-index: 1000;
-      padding: 20px; border: 1px solid #666; font-family: Arial, sans-serif;
+      position: fixed; top: 0; left: 0; width: 100%; background: #fff;
+      border-bottom: 2px solid #666; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      z-index: 1000; padding: 20px 0; font-family: Arial, sans-serif;
       transition: transform 0.3s ease;
     }
-    .results-modal:hover { transform: scale(1.02); }
-    .results-content { display: flex; flex-direction: column; gap: 15px; }
-    .dropdown-info { background: #f5f5f5; padding: 10px; border-radius: 8px; }
+    .results-content { 
+      max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; 
+    }
+    .dropdown-info { 
+      background: #f5f5f5; padding: 10px; border-radius: 8px; display: flex; flex-wrap: wrap; gap: 10px; 
+    }
     .dropdown-title {
-      font-size: 18px; color: #333; margin-bottom: 10px; text-align: center;
-      font-weight: 600; text-transform: uppercase;
+      font-size: 18px; color: #333; text-align: center; font-weight: 600; 
+      text-transform: uppercase; width: 100%;
     }
     .dropdown-field {
-      display: flex; justify-content: space-between; align-items: center;
-      font-size: 14px; padding: 4px 0; border-bottom: 1px solid #ddd;
+      flex: 1 1 18%; display: flex; justify-content: space-between; align-items: center;
+      font-size: 14px; padding: 4px 8px; border-bottom: 1px solid #ddd;
     }
     .dropdown-label { color: #666; font-weight: 500; }
     .dropdown-value { color: #222; font-weight: 600; }
     .ratings-title {
-      font-size: 24px; color: #333; margin-bottom: 10px; text-align: center;
-      font-weight: 600; text-transform: uppercase;
+      font-size: 24px; color: #333; text-align: center; font-weight: 600; 
+      text-transform: uppercase; margin: 10px 0;
     }
-    .row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    .ratings-row { 
+      display: flex; justify-content: space-around; align-items: center; gap: 15px; 
+      flex-wrap: nowrap; padding: 0 20px;
+    }
     .result-tile {
-      padding: 12px; border-radius: 8px; border: 1px solid #666; background-color: #f9f9f9;
+      padding: 15px; border-radius: 8px; border: 1px solid #666; background-color: #f9f9f9;
       color: #222; text-transform: uppercase; display: flex; flex-direction: column;
-      gap: 6px; justify-content: center; align-items: center; text-align: center;
-      font-weight: bold; flex: 1 1 90px; min-width: 90px; cursor: pointer;
+      gap: 8px; justify-content: center; align-items: center; text-align: center;
+      font-weight: bold; flex: 1; min-width: 120px; cursor: pointer;
       position: relative; transition: background 0.2s, transform 0.2s;
     }
     .result-tile:hover { background-color: #e9ecef; transform: scale(1.05); }
-    .tile-label { font-size: clamp(0.8rem, 2vw, 1rem); color: #555; }
-    .tile-value { font-size: clamp(1.2rem, 3vw, 1.5rem); color: #111; font-weight: 900; }
+    .tile-label { font-size: clamp(0.9rem, 1.5vw, 1.1rem); color: #555; }
+    .tile-value { font-size: clamp(1.4rem, 2.5vw, 1.8rem); color: #111; font-weight: 900; }
     .small-tile { background-color: #ffffff; }
-    .large-tile { flex: 1 1 130px; background-color: #eaf4f4; }
-    .large-tile .tile-label { font-size: clamp(0.9rem, 2.2vw, 1.1rem); }
-    .large-tile .tile-value { font-size: clamp(1.5rem, 3.5vw, 2rem); }
+    .large-tile { background-color: #eaf4f4; }
+    .large-tile .tile-label { font-size: clamp(1rem, 1.8vw, 1.2rem); }
+    .large-tile .tile-value { font-size: clamp(1.6rem, 3vw, 2.2rem); }
     .tooltip {
-      position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.9); color: #fff; padding: 10px; border-radius: 6px;
-      font-size: 14px; max-width: 280px; z-index: 1001; display: none;
+      position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.9); color: #fff; padding: 12px; border-radius: 6px;
+      font-size: 14px; max-width: 300px; z-index: 1001; display: none;
       opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2); white-space: normal; word-wrap: break-word;
     }
-    .result-tile:hover .tooltip, .result-tile.active .tooltip { display: block; opacity: 1; }
+    .result-tile:hover .tooltip, .result-tile.active .tooltip { 
+      display: block; opacity: 1; 
+    }
     .btn-reset {
-      margin-top: 20px; padding: 10px 20px; font-size: 1rem; color: #333;
+      margin: 20px auto; padding: 10px 20px; font-size: 1rem; color: #333;
       background-color: #fff; border: 1px solid #666; border-radius: 6px;
-      cursor: pointer; display: block; margin-left: auto; margin-right: auto;
-      transition: background 0.2s, color 0.2s;
+      cursor: pointer; display: block; transition: background 0.2s, color 0.2s;
     }
     .btn-reset:hover { background-color: #d9534f; color: white; }
+    #competencyContainer { margin-top: 220px; } /* Adjust for fixed header height */
     @media (max-width: 768px) {
-      .results-modal { width: 90%; top: 10px; right: 5%; left: 5%; margin: 0 auto; }
-      .row { flex-direction: column; }
-      .result-tile { padding: 10px; }
-      .tooltip { max-width: 90%; left: 50%; transform: translateX(-50%); }
+      .results-modal { padding: 10px 0; }
+      .dropdown-field { flex: 1 1 45%; }
+      .ratings-row { flex-wrap: wrap; justify-content: center; }
+      .result-tile { min-width: 100px; padding: 10px; }
+      .tooltip { max-width: 90%; font-size: 12px; }
+      #competencyContainer { margin-top: 280px; }
     }
   `;
   document.head.appendChild(style);
@@ -1503,7 +1519,7 @@ if (elements.submitRatings) {
 }
 
 // Enhanced Modal and Toast
-function showModal(title, content, onConfirm, onCancel) {
+function showModal(title, content, onConfirm, onCancel, showCancel = true) {
   const modal = document.createElement('div');
   modal.className = 'custom-modal';
   modal.innerHTML = `
@@ -1512,7 +1528,7 @@ function showModal(title, content, onConfirm, onCancel) {
       ${content}
       <div class="modal-footer">
         <button id="modalConfirm" class="modal-btn modal-btn-confirm">Confirm</button>
-        <button id="modalCancel" class="modal-btn modal-btn-cancel">Cancel</button>
+        ${showCancel ? '<button id="modalCancel" class="modal-btn modal-btn-cancel">Cancel</button>' : ''}
       </div>
     </div>
   `;
@@ -1567,11 +1583,13 @@ function showModal(title, content, onConfirm, onCancel) {
     document.head.removeChild(style);
     onConfirm();
   };
-  document.getElementById('modalCancel').onclick = () => {
-    document.body.removeChild(modal);
-    document.head.removeChild(style);
-    if (onCancel) onCancel();
-  };
+  if (showCancel && document.getElementById('modalCancel')) {
+    document.getElementById('modalCancel').onclick = () => {
+      document.body.removeChild(modal);
+      document.head.removeChild(style);
+      if (onCancel) onCancel();
+    };
+  }
 }
 
 function showToast(type, title, message, duration = 3000, position = 'top-right') {
