@@ -740,68 +740,90 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
   checkAllRatingsSelected();
 }
 
-function submitRatings() {
-  const basicRating = document.getElementById("basic-rating-value").textContent;
-  const organizationalRating = document.getElementById("organizational-rating-value").textContent;
-  const minimumRating = document.getElementById("minimum-rating-value").textContent;
-  const psychosocialRating = document.getElementById("psychosocial-rating-value").textContent;
-  const potentialRating = document.getElementById("potential-rating-value").textContent;
+async function submitRatings() {
+  if (isSubmitting) {
+    console.log('Submission already in progress');
+    return;
+  }
 
-  const modalContent = `
-    <p>Are you sure you want to submit the following ratings?</p>
-    <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator || 'N/A'}</span></div>
-    <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-    <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-    <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-    <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${elements.nameDropdown.value || 'N/A'}</span></div>
-    <div class="modal-section">
-      <h4>RATINGS TO SUBMIT:</h4>
-      <div class="modal-field"><span class="modal-label">BASIC:</span> <span class="modal-value rating-value">${basicRating}</span></div>
-      <div class="modal-field"><span class="modal-label">ORGANIZATIONAL:</span> <span class="modal-value rating-value">${organizationalRating}</span></div>
-      <div class="modal-field"><span class="modal-label">MINIMUM:</span> <span class="modal-value rating-value">${minimumRating}</span></div>
-      <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychosocialRating}</span></div>
-      <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
-    </div>
-  `;
-
-  showModal('Confirm Submission', modalContent, async () => {
-    const submittingIndicator = document.createElement('div');
-    submittingIndicator.className = 'submitting-indicator';
-    submittingIndicator.innerHTML = `
-      <div class="spinner"></div>
-      <div class="submitting-content">Submitting Ratings...</div>
-    `;
-    document.body.appendChild(submittingIndicator);
-
-    try {
-      const response = await fetch('https://script.google.com/macros/s/AKfycbwWvR0bS20g7iK-kzIJH2Z8S-YR8aTwxJDx8uM6gI6v/exec', {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          evaluator: currentEvaluator || 'N/A',
-          assignment: elements.assignmentDropdown.value || 'N/A',
-          position: elements.positionDropdown.value || 'N/A',
-          item: elements.itemDropdown.value || 'N/A',
-          name: elements.nameDropdown.value || 'N/A',
-          basic: basicRating,
-          organizational: organizationalRating,
-          minimum: minimumRating,
-          psychosocial: psychosocialRating,
-          potential: potentialRating,
-          timestamp: new Date().toISOString()
-        })
-      });
-
-      document.body.removeChild(submittingIndicator);
-      showToast('success', 'Submission Successful', 'Ratings have been submitted.');
-      elements.submitRatings.disabled = true;
-    } catch (error) {
-      document.body.removeChild(submittingIndicator);
-      showToast('error', 'Submission Failed', 'An error occurred while submitting ratings.');
-      console.error('Submission error:', error);
+  try {
+    const token = gapi.client.getToken();
+    if (!token || !await isTokenValid()) {
+      await refreshAccessToken();
+      if (!gapi.client.getToken()) {
+        showToast('error', 'Error', 'Authentication failed. Please sign in again.');
+        handleAuthClick();
+        return;
+      }
     }
-  });
+
+    if (!currentEvaluator) {
+      showToast('warning', 'Warning', 'Please select an evaluator');
+      return;
+    }
+
+    const item = elements.itemDropdown.value;
+    const candidateName = elements.nameDropdown.value;
+
+    if (!item || !candidateName) {
+      showToast('error', 'Error', 'Please select both item and candidate');
+      return;
+    }
+
+    const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
+    const isUpdate = existingRatings.length > 0;
+
+    if (isUpdate) {
+      const isVerified = await verifyEvaluatorPassword();
+      if (!isVerified) {
+        revertToExistingRatings(existingRatings);
+        showToast('warning', 'Update Canceled', 'Ratings reverted');
+        return;
+      }
+    }
+
+    const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
+    if (error) {
+      showToast('error', 'Error', error);
+      return;
+    }
+
+    const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
+    const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
+
+    const modalContent = `
+      <div class="modal-body">
+        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
+        <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
+        <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
+        <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
+        <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${candidateName}</span></div>
+        <div class="modal-section">
+          <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
+          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL ATTRIBUTES:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
+          <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
+        </div>
+      </div>
+    `;
+
+    showModal(
+      `Confirm ${isUpdate ? 'Update' : 'Submission'}`,
+      modalContent,
+      () => {
+        submissionQueue.push(ratings);
+        showSubmittingIndicator();
+        processSubmissionQueue();
+      },
+      () => {
+        console.log('Submission canceled');
+        showToast('info', 'Canceled', 'Ratings submission aborted');
+      }
+    );
+  } catch (error) {
+    console.error('Submission error:', error);
+    showToast('error', 'Error', `Failed to submit: ${error.message}`);
+    if (error.status === 401 || error.status === 403) handleAuthClick();
+  }
 }
 
 function showSubmittingIndicator() {
@@ -1208,9 +1230,8 @@ async function displayCompetencies(name, competencies) {
     </div>
   `;
 
-  // Dynamically adjust container margin-top
   const container = document.querySelector('.container');
-  const resultsHeight = resultsArea.offsetHeight + 20; // Add buffer
+  const resultsHeight = resultsArea.offsetHeight + 20;
   container.style.marginTop = `${resultsHeight}px`;
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
