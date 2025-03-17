@@ -86,9 +86,7 @@ async function restoreState() {
     await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay
     if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
-    elements.authStatus.textContent = 'Signed in';
-    elements.signInBtn.style.display = 'none';
-    elements.signOutBtn.style.display = 'block';
+    updateUI(true); // Updated UI for signed-in state
     authSection.classList.remove('signed-out');
     await loadSheetData();
     const evaluatorSelect = document.getElementById('evaluatorSelect');
@@ -144,9 +142,7 @@ async function restoreState() {
       });
       window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
     } else {
-      elements.authStatus.textContent = 'Ready to sign in';
-      elements.signInBtn.style.display = 'block';
-      elements.signOutBtn.style.display = 'none';
+      updateUI(false); // Updated UI for signed-out state
       currentEvaluator = null;
       vacancies = [];
       candidates = [];
@@ -296,9 +292,7 @@ function handleTokenCallback(tokenResponse) {
   } else {
     saveAuthState(tokenResponse, currentEvaluator);
     gapi.client.setToken({ access_token: tokenResponse.access_token });
-    elements.authStatus.textContent = 'Signed in';
-    elements.signInBtn.style.display = 'none';
-    elements.signOutBtn.style.display = 'block';
+    updateUI(true);
     fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
       .then(() => {
         createEvaluatorSelector();
@@ -405,9 +399,7 @@ function handleSignOutClick() {
     competencies = [];
     submissionQueue = [];
     console.log('Global variables reset');
-    elements.authStatus.textContent = 'Ready to sign in';
-    elements.signInBtn.style.display = 'block';
-    elements.signOutBtn.style.display = 'none';
+    updateUI(false);
     resetDropdowns([]);
     elements.competencyContainer.innerHTML = '';
     clearRatings();
@@ -441,6 +433,30 @@ function handleSignOutClick() {
   });
 }
 
+function updateUI(isSignedIn) {
+  const authSection = document.querySelector('.auth-section');
+  if (isSignedIn) {
+    authSection.innerHTML = `
+      <h1>Rating Tool</h1>
+      <div id="authStatus">SIGNED IN</div>
+      <button id="signOutBtn">Sign Out</button>
+    `;
+    document.getElementById('signOutBtn').addEventListener('click', handleSignOutClick);
+    elements.ratingForm.style.display = 'block';
+  } else {
+    authSection.innerHTML = `
+      <h1>Rating Tool</h1>
+      <div id="authStatus">You are not signed in</div>
+      <button id="signInBtn">Sign In</button>
+    `;
+    document.getElementById('signInBtn').addEventListener('click', handleAuthClick);
+    elements.ratingForm.style.display = 'none';
+    elements.competencyContainer.innerHTML = '';
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) resultsArea.classList.remove('active');
+  }
+}
+
 async function loadSheetData(maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -462,7 +478,7 @@ async function loadSheetData(maxRetries = 3) {
       competencies = data[3]?.result?.values || [];
       console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
       initializeDropdowns(vacancies);
-      elements.authStatus.textContent = 'Signed in';
+      updateUI(true);
       return;
     } catch (error) {
       console.error(`Attempt ${attempt} failed:`, error);
@@ -796,14 +812,14 @@ async function submitRatings() {
         <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${candidateName}</span></div>
         <div class="modal-section">
           <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
-          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL ATTRIBUTES:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
+          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
           <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
         </div>
       </div>
     `;
 
     showModal(
-      `Confirm ${isUpdate ? 'Update' : 'Submission'}`,
+      `CONFIRM ${isUpdate ? 'UPDATE' : 'SUBMISSION'}`,
       modalContent,
       () => {
         submissionQueue.push(ratings);
@@ -1097,13 +1113,6 @@ async function displayCandidatesTable(name, itemNumber) {
   const container = document.getElementById('candidates-table');
   container.innerHTML = '';
 
-  const headerSection = document.createElement('div');
-  headerSection.innerHTML = `
-    <h2 class="candidate-header">YOU ARE RATING</h2>
-    <h2 class="candidate-name">${name}</h2>
-  `;
-  container.appendChild(headerSection);
-
   const candidateRow = candidates.find(row => row[0] === name && row[1] === itemNumber);
   if (candidateRow) {
     const tilesContainer = document.createElement('div');
@@ -1216,8 +1225,6 @@ async function displayCompetencies(name, competencies) {
         <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-      </div>
-      <div class="ratings-data">
         <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
         <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
         <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
@@ -1316,7 +1323,7 @@ async function displayCompetencies(name, competencies) {
 
   document.getElementById('reset-ratings').addEventListener('click', () => {
     showModal(
-      'Confirm Reset',
+      'CONFIRM RESET',
       '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
       () => {
         clearRatings();
@@ -1410,6 +1417,34 @@ function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCa
       }
     };
     modalOverlay.addEventListener('click', outsideClickHandler);
+  });
+}
+
+function showToast(type, title, message) {
+  const toastContainer = document.createElement('div');
+  toastContainer.className = 'toast-container';
+  document.body.appendChild(toastContainer);
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+    <span class="toast-close">×</span>
+  `;
+  toastContainer.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease-out forwards';
+    setTimeout(() => toastContainer.remove(), 300);
+  }, 5000);
+
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    toast.style.animation = 'slideOut 0.3s ease-out forwards';
+    setTimeout(() => toastContainer.remove(), 300);
   });
 }
 
