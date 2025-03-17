@@ -17,16 +17,16 @@ body {
 .results-area {
   position: fixed;
   top: 10px;
-  left: 20px; /* Aligns with body padding */
-  right: 20px; /* Aligns with body padding */
-  width: calc(100% - 40px); /* Matches .container width within body padding */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
   max-width: 1400px; /* Matches .container */
   background: white;
   border: 2px solid #333;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  padding: 10px 20px; /* Added side padding */
+  padding: 10px 20px; /* Side padding */
   display: none;
 }
 
@@ -40,13 +40,13 @@ body {
   margin-bottom: 8px;
   color: #333;
   text-align: center;
-  grid-column: 1 / -1; /* Spans full width */
+  grid-column: 1 / -1;
   text-transform: uppercase;
 }
 
 .results-area .grid-container {
   display: grid;
-  grid-template-columns: 1fr 1fr; /* Two equal columns */
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
@@ -54,26 +54,26 @@ body {
 .results-area .ratings-data {
   font-size: 12px;
   color: #666;
-  text-transform: uppercase; /* Uppercase text */
+  text-transform: uppercase;
 }
 
 .results-area .data-row {
   display: flex;
-  align-items: flex-start; /* Aligns text tops */
-  justify-content: flex-start; /* Left-justify */
+  align-items: flex-start;
+  justify-content: flex-start;
   margin: 2px 0;
 }
 
 .results-area .data-label {
   font-weight: 600;
   color: #333;
-  min-width: 120px; /* Consistent label width for alignment */
+  min-width: 120px;
 }
 
 .results-area .data-value {
   color: #555;
-  margin-left: 10px; /* Space after label */
-  flex: 1; /* Allows wrapping without breaking alignment */
+  margin-left: 10px;
+  flex: 1;
 }
 
 /* Container */
@@ -696,7 +696,7 @@ select:disabled {
   font-size: 14px;
   color: #666;
   padding: 10px 0;
- makenbackground-color: #f8f8f8;
+  background-color: #f8f8f8;
   width: 100%;
   position: fixed;
   bottom: 0;
@@ -712,7 +712,7 @@ select:disabled {
   }
 
   .results-area {
-    padding: 8px 10px; /* Adjusted side padding */
+    padding: 8px 10px;
   }
 
   .results-area .ratings-title {
@@ -727,7 +727,7 @@ select:disabled {
   }
 
   .results-area .data-label {
-    min-width: 100px; /* Slightly smaller for portrait */
+    min-width: 100px;
   }
 
   .tiles-container {
@@ -788,7 +788,7 @@ select:disabled {
   }
 
   .results-area {
-    padding: 10px 15px; /* Matches container padding */
+    padding: 10px 15px;
   }
 
   .results-area .ratings-title {
