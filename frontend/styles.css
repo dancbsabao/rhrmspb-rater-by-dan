@@ -136,7 +136,7 @@ body {
   max-width: 1200px;
   margin: calc(160px + 30px) auto 20px;
   background-color: white;
-  padding: 30px;
+  padding: 20px; /* Reduced from 30px */
   border-radius: 10px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
   border: 1px solid #333;
@@ -149,7 +149,7 @@ body {
 /* Auth Section */
 .auth-section {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: 20px; /* Reduced from 30px */
 }
 
 .auth-section h1 {
@@ -188,7 +188,7 @@ body {
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: 15px; /* Reduced from 20px */
 }
 
 .form-group label {
@@ -204,7 +204,7 @@ select {
   border: 2px solid #333;
   border-radius: 5px;
   font-size: 16px;
-  margin-bottom: 15px;
+  margin-bottom: 10px; /* Reduced from 15px */
   background-color: white;
   color: black;
 }
@@ -302,7 +302,7 @@ select:disabled {
 
 /* Competency Container */
 #competencyContainer {
-  margin-top: 30px;
+  margin-top: 20px; /* Reduced from 30px */
   width: 100%;
   max-width: 1200px;
   display: flex;
@@ -311,39 +311,54 @@ select:disabled {
 }
 
 .competency-section {
-  margin-bottom: 30px;
+  margin-bottom: 20px; /* Reduced from 30px */
+  width: 100%; /* Ensure uniform width */
 }
 
 .section-title {
   font-size: 32px;
   color: #333;
   border-bottom: 2px solid black;
-  padding-bottom: 10px;
-  margin: 30px 0 20px;
+  padding-bottom: 8px; /* Reduced from 10px */
+  margin: 20px 0 15px; /* Reduced from 30px 0 20px */
+  width: 100%;
+  text-align: center;
 }
 
 .competency-section h3:not(.section-title) {
   font-size: 24px;
   color: #333;
   margin: 10px 0;
+  width: 100%;
+  text-align: center;
 }
 
 .competency-grid {
   display: grid;
-  gap: 15px;
+  gap: 10px; /* Reduced from 15px */
+  width: 100%; /* Ensure uniform width */
 }
 
 .competency-item {
   background-color: #f0f0f0;
-  padding: 15px;
-  margin-bottom: 15px;
+  padding: 10px; /* Reduced from 15px */
+  margin-bottom: 10px; /* Reduced from 15px */
   border-radius: 5px;
   border: 1px solid #333;
+  width: 100%; /* Ensure uniform width */
+}
+
+/* Ensure consistency across all competency sections */
+#basic-competencies,
+#organizational-competencies,
+#minimum-competencies {
+  width: 100%;
+  max-width: 1200px; /* Match container */
 }
 
 .competency-item label {
   display: block;
-  margin-bottom: 10px;
+  margin-bottom: 8px; /* Reduced from 10px */
   font-weight: 500;
 }
 
@@ -379,7 +394,7 @@ select:disabled {
 
 /* Actions */
 .actions {
-  margin-top: 30px;
+  margin-top: 20px; /* Reduced from 30px */
   text-align: center;
 }
 
@@ -392,7 +407,7 @@ select:disabled {
   transition: all 0.3s ease;
   background-color: black;
   color: white;
-  margin-top: 20px;
+  margin-top: 15px; /* Reduced from 20px */
 }
 
 #submitRatings:disabled {
@@ -401,7 +416,7 @@ select:disabled {
 }
 
 .btn-reset {
-  margin-top: 25px;
+  margin-top: 20px; /* Reduced from 25px */
   padding: 10px 20px;
   font-size: 1rem;
   color: #333;
