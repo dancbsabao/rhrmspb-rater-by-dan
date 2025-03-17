@@ -769,51 +769,55 @@ select:disabled {
 @media only screen and (min-width: 768px) and (max-width: 850px) and (orientation: portrait) {
   .container {
     padding: 10px;
-    margin-top: 180px; /* Adjusted to ensure visibility below results-area */
+    margin-top: 130px; /* Matches fixed results-area height */
   }
 
   .results-area {
-    padding: 4px 0;
-    max-height: 180px; /* Limit height to prevent covering screen */
-    overflow-y: auto; /* Enable scrolling if content exceeds */
+    padding: 3px 0;
+    height: 130px; /* Fixed height to fit all content */
   }
 
   .ratings-row {
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     padding: 0 5px;
   }
 
   .result-tile {
     flex: 1 1 100%;
-    min-height: 40px; /* Reduced height */
-    padding: 5px;
+    min-height: 20px; /* Significantly reduced height */
+    padding: 3px;
   }
 
   .tile-label {
-    font-size: 0.7rem;
+    font-size: 0.6rem; /* Smaller text */
   }
 
   .tile-value {
-    font-size: 1.2rem;
+    font-size: 0.9rem; /* Smaller text */
   }
 
   .prominent-tile .tile-label {
-    font-size: 0.8rem;
+    font-size: 0.65rem;
   }
 
   .prominent-tile .tile-value {
-    font-size: 1.4rem;
+    font-size: 1rem;
   }
 
   .results-area .ratings-title {
-    font-size: 18px;
-    margin: 4px 0;
+    font-size: 14px;
+    margin: 3px 0;
   }
 
   .results-area .dropdown-info {
-    font-size: 10px;
+    font-size: 8px;
     padding: 0 5px;
+    line-height: 1.2; /* Tighter line spacing */
+  }
+
+  .dropdown-field {
+    margin: 0 3px;
   }
 
   .tiles-container {
