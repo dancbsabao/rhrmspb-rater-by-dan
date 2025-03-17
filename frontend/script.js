@@ -394,8 +394,6 @@ function handleAuthClick() {
 function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
   showModal('Confirm Sign Out', modalContent, () => {
-  `;
-  showModal('Confirm Sign Out', modalContent, () => {
     gapi.client.setToken(null);
     localStorage.clear();
     console.log('All localStorage cleared');
@@ -407,7 +405,7 @@ function handleSignOutClick() {
     competencies = [];
     submissionQueue = [];
     console.log('Global variables reset');
-    elements.authStatus.textContent = 'Ready to sign in'; // Changed to match initial state
+    elements.authStatus.textContent = 'Ready to sign in';
     elements.signInBtn.style.display = 'block';
     elements.signOutBtn.style.display = 'none';
     resetDropdowns([]);
@@ -429,8 +427,7 @@ function handleSignOutClick() {
       clearTimeout(refreshTimer);
       refreshTimer = null;
     }
-    // Remove results-area
-  const resultsArea = document.querySelector('.results-area');
+    const resultsArea = document.querySelector('.results-area');
     if (resultsArea) {
       resultsArea.remove();
     }
