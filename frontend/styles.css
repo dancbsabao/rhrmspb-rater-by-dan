@@ -25,11 +25,11 @@ body {
 .results-area {
   position: fixed;
   top: 10px;
-  left: 20px; /* Matches body's padding */
-  right: 20px; /* Matches body's padding */
-  width: calc(100% - 40px); /* Accounts for body padding on both sides */
-  max-width: 1400px; /* Matches .page-wrapper and .container */
-  margin: 0 auto; /* Centers within body */
+  left: 20px;
+  right: 20px;
+  width: calc(100% - 40px);
+  max-width: 1400px;
+  margin: 0 auto;
   background: white;
   border: 1px solid #333;
   border-radius: 8px;
@@ -60,11 +60,17 @@ body {
   gap: 10px;
 }
 
-.results-area .dropdown-info,
+.results-area .dropdown-info {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+}
+
 .results-area .ratings-data {
   font-size: 12px;
   color: #666;
   text-transform: uppercase;
+  margin-left: 20px; /* Shifts ratings-data to the right */
 }
 
 .results-area .data-row {
@@ -506,6 +512,8 @@ select:disabled {
 
 .modal-body {
   font-size: 12px;
+  color: #666;
+  text-transform: uppercase; /* Matches results-area style */
 }
 
 .modal-field {
@@ -518,13 +526,12 @@ select:disabled {
 .modal-label {
   font-weight: 600;
   color: #333;
-  min-width: 120px;
-  text-transform: uppercase;
+  min-width: 120px; /* Matches results-area data-label width */
 }
 
 .modal-value {
   color: #555;
-  margin-left: 10px;
+  margin-left: 10px; /* Matches results-area spacing */
   flex: 1;
 }
 
@@ -729,7 +736,7 @@ select:disabled {
   }
 
   .page-wrapper {
-    width: calc(100% - 30px); /* Adjusts for smaller body padding */
+    width: calc(100% - 30px);
   }
 
   .results-area {
@@ -747,6 +754,10 @@ select:disabled {
   .results-area .dropdown-info,
   .results-area .ratings-data {
     font-size: 10px;
+  }
+
+  .results-area .ratings-data {
+    margin-left: 10px; /* Adjusted for smaller screens */
   }
 
   .results-area .data-label {
@@ -808,6 +819,10 @@ select:disabled {
     font-size: 12px;
     padding: 8px 0;
   }
+
+  .modal-body {
+    font-size: 10px;
+  }
 }
 
 /* Medium Devices (601px to 850px) */
@@ -827,6 +842,10 @@ select:disabled {
   .results-area .dropdown-info,
   .results-area .ratings-data {
     font-size: 11px;
+  }
+
+  .results-area .ratings-data {
+    margin-left: 15px; /* Adjusted for medium screens */
   }
 
   .results-area .data-label {
@@ -867,6 +886,10 @@ select:disabled {
 
   .competency-section h3:not(.section-title) {
     font-size: 18px;
+  }
+
+  .modal-body {
+    font-size: 11px;
   }
 }
 
