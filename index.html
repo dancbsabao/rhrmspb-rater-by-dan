@@ -5,45 +5,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DENR CALABARZON COMPETENCY RATING SYSTEM</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
-    <link rel="stylesheet" href="frontend/styles.css">
+    <link rel="stylesheet" href="frontend/styles.css?v=4">
 </head>
 <body>
-    <div class="container">
-        <div class="auth-section">
-            <h1>DENR CALABARZON COMPETENCY RATING SYSTEM</h1>
-            <p id="authStatus">Initializing...</p>
-            <button id="signInBtn">Sign in with Google</button>
-            <button id="signOutBtn">Sign Out</button>
+    <div class="page-wrapper">
+        <div class="results-area" id="resultsArea">
+            <!-- Placeholder for dynamically generated content -->
         </div>
-        <div class="rating-form">
-            <div class="form-group">
-                <label for="assignmentDropdown">Assignment:</label>
-                <select id="assignmentDropdown" required>
-                    <option value="">Select Assignment</option>
-                </select>
+        <div class="container">
+            <div class="auth-section">
+                <h1>DENR CALABARZON COMPETENCY RATING SYSTEM</h1>
+                <p id="authStatus">Initializing...</p>
+                <button id="signInBtn">Sign in with Google</button>
+                <button id="signOutBtn">Sign Out</button>
             </div>
-            <div class="form-group">
-                <label for="positionDropdown">Position:</label>
-                <select id="positionDropdown" required>
-                    <option value="">Select Position</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="itemDropdown">Item:</label>
-                <select id="itemDropdown" required>
-                    <option value="">Select Item</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="nameDropdown">Name:</label>
-                <select id="nameDropdown" required>
-                    <option value="">Select Name</option>
-                </select>
-            </div>
-            <div id="candidates-table"></div>
-            <div id="competencyContainer"></div>
-            <div class="actions">
-                <button id="submitRatings" disabled>SUBMIT RATINGS</button>
+            <div class="rating-form">
+                <div class="form-group">
+                    <label for="assignmentDropdown">Assignment:</label>
+                    <select id="assignmentDropdown" required>
+                        <option value="">Select Assignment</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="positionDropdown">Position:</label>
+                    <select id="positionDropdown" required>
+                        <option value="">Select Position</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="itemDropdown">Item:</label>
+                    <select id="itemDropdown" required>
+                        <option value="">Select Item</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="nameDropdown">Name:</label>
+                    <select id="nameDropdown" required>
+                        <option value="">Select Name</option>
+                    </select>
+                </div>
+                <div id="candidates-table"></div>
+                <div id="competencyContainer"></div>
+                <div class="actions">
+                    <button id="submitRatings" disabled>SUBMIT RATINGS</button>
+                </div>
             </div>
         </div>
     </div>
