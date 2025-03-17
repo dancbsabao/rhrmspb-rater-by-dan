@@ -84,7 +84,7 @@ select:focus {
 }
 
 #competencyContainer {
-    margin-top: 30px;
+    margin-top: 150px; /* Adjusted to account for fixed .results-modal height */
 }
 
 .competency-item {
@@ -299,5 +299,164 @@ button {
     .site-footer {
         font-size: 12px;
         padding: 8px 0;
+    }
+}
+
+/* Rating Tiles Fallback Styles (to ensure visibility) */
+.results-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: #fff;
+    border-bottom: 2px solid #666;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    z-index: 1000;
+    padding: 10px 0;
+    font-family: Arial, sans-serif;
+    height: 140px;
+    overflow: hidden;
+}
+
+.results-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dropdown-info {
+    background: #f5f5f5;
+    padding: 5px;
+    border-radius: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.dropdown-title {
+    font-size: 14px;
+    color: #333;
+    text-align: center;
+    font-weight: 600;
+    text-transform: uppercase;
+    width: 100%;
+    margin: 0;
+}
+
+.dropdown-field {
+    flex: 1 1 18%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-bottom: 1px solid #ddd;
+}
+
+.dropdown-label {
+    color: #666;
+    font-weight: 500;
+}
+
+.dropdown-value {
+    color: #222;
+    font-weight: 600;
+}
+
+.ratings-title {
+    font-size: 16px;
+    color: #333;
+    text-align: center;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin: 5px 0;
+}
+
+.ratings-row {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+    padding: 0 10px;
+}
+
+.result-tile {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #666;
+    background-color: #f9f9f9;
+    color: #222;
+    text-transform: uppercase;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    font-weight: bold;
+    flex: 0 0 80px;
+    height: 60px;
+    min-width: 80px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.prominent-tile {
+    flex: 0 0 150px;
+    min-width: 150px;
+    background-color: #eaf4f4;
+}
+
+.result-tile:hover {
+    background-color: #e9ecef;
+    transform: scale(1.05);
+}
+
+.tile-label {
+    font-size: clamp(0.8rem, 1vw, 0.9rem);
+    color: #555;
+}
+
+.tile-value {
+    font-size: clamp(1.2rem, 1.5vw, 1.4rem);
+    color: #111;
+    font-weight: 900;
+}
+
+.prominent-tile .tile-label {
+    font-size: clamp(0.9rem, 1.2vw, 1rem);
+}
+
+.prominent-tile .tile-value {
+    font-size: clamp(1.4rem, 2vw, 1.8rem);
+}
+
+@media (max-width: 768px) {
+    .results-modal {
+        padding: 5px 0;
+        height: 160px;
+    }
+    .dropdown-field {
+        flex: 1 1 45%;
+    }
+    .ratings-row {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .result-tile {
+        flex: 0 0 60px;
+        min-width: 60px;
+        height: 50px;
+        padding: 6px;
+    }
+    .prominent-tile {
+        flex: 0 0 120px;
+        min-width: 120px;
+    }
+    #competencyContainer {
+        margin-top: 170px; /* Adjusted for mobile */
     }
 }
