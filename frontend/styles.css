@@ -25,11 +25,11 @@ body {
   z-index: 1000;
   padding: 8px 0;
   text-align: center;
-  display: none; /* Hidden by default */
+  display: none;
 }
 
 .results-area.active {
-  display: block; /* Shown when active */
+  display: block;
 }
 
 .results-area .ratings-title {
@@ -139,7 +139,7 @@ body {
 /* Container */
 .container {
   max-width: 1400px;
-  margin: 20px auto; /* Default for signed-out state */
+  margin: 20px auto;
   background-color: white;
   padding: 20px;
   border-radius: 10px;
@@ -634,7 +634,7 @@ select:disabled {
 /* Toast */
 .toast-container {
   position: fixed;
-  top: 20px; /* Adjusted to top when signed out */
+  top: 20px;
   right: 20px;
   z-index: 2000;
 }
@@ -763,11 +763,194 @@ select:disabled {
   left: 0;
 }
 
-/* Responsive Design */
+/* Media Queries */
+
+/* Redmi Pad SE 8.7 Portrait (800px width) */
+@media only screen and (min-width: 768px) and (max-width: 850px) and (orientation: portrait) {
+  .container {
+    padding: 15px;
+    margin-top: 120px; /* Adjusted for results-area */
+  }
+
+  .results-area {
+    padding: 5px 0;
+  }
+
+  .ratings-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .result-tile {
+    flex: 1 1 100%;
+    min-height: 50px;
+    padding: 8px;
+  }
+
+  .tile-label {
+    font-size: 0.8rem;
+  }
+
+  .tile-value {
+    font-size: 1.4rem;
+  }
+
+  .prominent-tile .tile-label {
+    font-size: 0.9rem;
+  }
+
+  .prominent-tile .tile-value {
+    font-size: 1.6rem;
+  }
+
+  .tiles-container {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    padding: 10px;
+  }
+
+  .tile {
+    max-height: 180px;
+  }
+
+  .tile h4 {
+    font-size: 12px;
+  }
+
+  .tile-content p {
+    font-size: 10px;
+  }
+
+  .open-link-button {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  .competency-grid {
+    gap: 8px;
+  }
+
+  .competency-item {
+    padding: 8px;
+  }
+
+  .rating-container {
+    gap: 15px;
+  }
+
+  .rating-container label {
+    width: 35px;
+    height: 35px;
+    line-height: 35px;
+    font-size: 14px;
+  }
+
+  .section-title {
+    font-size: 24px;
+  }
+
+  .competency-section h3:not(.section-title) {
+    font-size: 18px;
+  }
+}
+
+/* Redmi Pad SE 8.7 Landscape (1340px width) */
+@media only screen and (min-width: 1300px) and (max-width: 1400px) and (orientation: landscape) {
+  .container {
+    max-width: 1300px;
+    padding: 15px;
+    margin-top: 100px; /* Adjusted for results-area */
+  }
+
+  .results-area {
+    padding: 6px 0;
+  }
+
+  .ratings-row {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .result-tile {
+    flex: 1 1 18%;
+    padding: 8px;
+    min-height: 55px;
+  }
+
+  .tile-label {
+    font-size: 0.7rem;
+  }
+
+  .tile-value {
+    font-size: 1.3rem;
+  }
+
+  .prominent-tile {
+    flex: 1 1 25%;
+  }
+
+  .prominent-tile .tile-label {
+    font-size: 0.8rem;
+  }
+
+  .prominent-tile .tile-value {
+    font-size: 1.5rem;
+  }
+
+  .tiles-container {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    padding: 15px;
+  }
+
+  .tile {
+    max-height: 160px;
+  }
+
+  .tile h4 {
+    font-size: 13px;
+  }
+
+  .tile-content p {
+    font-size: 11px;
+  }
+
+  .open-link-button {
+    font-size: 11px;
+    padding: 5px 9px;
+  }
+
+  .competency-grid {
+    gap: 10px;
+  }
+
+  .competency-item {
+    padding: 10px;
+  }
+
+  .rating-container {
+    gap: 18px;
+  }
+
+  .rating-container label {
+    width: 38px;
+    height: 38px;
+    line-height: 38px;
+    font-size: 15px;
+  }
+
+  .section-title {
+    font-size: 28px;
+  }
+
+  .competency-section h3:not(.section-title) {
+    font-size: 20px;
+  }
+}
+
+/* Existing General Mobile Query */
 @media (max-width: 768px) {
   .container {
     padding: 15px;
-    margin-top: 20px; /* Default for signed-out */
+    margin-top: 20px;
   }
 
   .tiles-container {
@@ -813,10 +996,11 @@ select:disabled {
   }
 
   .toast-container {
-    top: 20px; /* Adjusted for signed-out state */
+    top: 20px;
   }
 }
 
+/* Existing Smaller Mobile Query */
 @media (max-width: 600px) {
   .site-footer {
     font-size: 12px;
