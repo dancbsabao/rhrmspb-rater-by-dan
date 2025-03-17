@@ -379,27 +379,33 @@ select:disabled {
 /* Submitting Indicator */
 #submittingIndicator {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  padding: 10px 20px;
-  background: #f0f0f0;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-  z-index: 1000;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 20px 30px;
+  background: rgba(240, 240, 240, 0.95);
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
 #submittingIndicator div {
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: #555;
+  gap: 15px;
+  color: #333;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .spinner {
-  width: 20px;
-  height: 20px;
-  border: 3px solid #ccc;
-  border-top: 3px solid #333;
+  width: 40px;
+  height: 40px;
+  border: 5px solid #ccc;
+  border-top: 5px solid #333;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -423,7 +429,12 @@ select:disabled {
   z-index: 1000;
   opacity: 0;
   visibility: hidden;
-  transition: all 0.3s ease;
+  transition: opacity 0.3s ease;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
 }
 
 .modal {
@@ -433,61 +444,75 @@ select:disabled {
   max-width: 400px;
   width: 90%;
   transform: scale(0.9);
-  transition: all 0.3s ease;
+  transition: transform 0.3s ease;
   border: 2px solid #333;
-}
-
-.modal-overlay.active {
-  opacity: 1;
-  visibility: visible;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 .modal-overlay.active .modal {
   transform: scale(1);
 }
 
-.custom-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.5);
+.modal-header {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
-  z-index: 1000;
+  margin-bottom: 16px;
 }
 
-.modal-content {
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-  max-width: 500px;
-  width: 90%;
+.modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
 }
 
-.modal-content h3 {
-  margin-bottom: 10px;
-}
-
-.modal-content button {
-  padding: 8px 16px;
-  margin-right: 10px;
-  border: none;
-  border-radius: 4px;
+.modal-close {
+  font-size: 24px;
+  color: #333;
   cursor: pointer;
 }
 
-#modalConfirm {
-  background: #28a745;
-  color: white;
+.modal-content {
+  margin-bottom: 24px;
+  color: #666;
 }
 
-#modalCancel {
-  background: #dc3545;
+.modal-content p {
+  margin: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.modal-actions button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.modal-actions button:first-child {
+  background-color: white;
+  color: black;
+  border: 2px solid #333;
+}
+
+.modal-actions button:first-child:hover {
+  background-color: #eee;
+}
+
+.modal-actions button:last-child {
+  background-color: black;
   color: white;
+  border: 2px solid #333;
+}
+
+.modal-actions button:last-child:hover {
+  background-color: #444;
 }
 
 .modal-input {
@@ -496,6 +521,7 @@ select:disabled {
   border: 1px solid #ddd;
   border-radius: 4px;
   margin-top: 10px;
+  font-size: 16px;
 }
 
 /* Toast */
@@ -663,6 +689,20 @@ select:disabled {
 
   .results-area {
     padding: 5px 0;
+  }
+
+  #submittingIndicator {
+    padding: 15px 25px;
+  }
+
+  .spinner {
+    width: 30px;
+    height: 30px;
+    border-width: 4px;
+  }
+
+  #submittingIndicator div {
+    font-size: 16px;
   }
 }
 
