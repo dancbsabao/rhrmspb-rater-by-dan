@@ -871,7 +871,7 @@ async function processSubmissionQueue() {
           console.log('Success modal closed');
           fetchSubmittedRatings();
         },
-        null,
+        null, // No cancel callback
         false // No cancel button
       );
     }
@@ -1266,51 +1266,51 @@ async function displayCompetencies(name, competencies) {
     .results-modal {
       position: fixed; top: 0; left: 0; width: 100%; background: #fff;
       border-bottom: 2px solid #666; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-      z-index: 1000; padding: 20px 0; font-family: Arial, sans-serif;
+      z-index: 1000; padding: 10px 0; font-family: Arial, sans-serif;
       transition: transform 0.3s ease;
     }
     .results-content { 
-      max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; 
+      max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; 
     }
     .dropdown-info { 
-      background: #f5f5f5; padding: 10px; border-radius: 8px; display: flex; flex-wrap: wrap; gap: 10px; 
+      background: #f5f5f5; padding: 5px; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 5px; 
     }
     .dropdown-title {
-      font-size: 18px; color: #333; text-align: center; font-weight: 600; 
-      text-transform: uppercase; width: 100%;
+      font-size: 14px; color: #333; text-align: center; font-weight: 600; 
+      text-transform: uppercase; width: 100%; margin: 0;
     }
     .dropdown-field {
       flex: 1 1 18%; display: flex; justify-content: space-between; align-items: center;
-      font-size: 14px; padding: 4px 8px; border-bottom: 1px solid #ddd;
+      font-size: 12px; padding: 2px 4px; border-bottom: 1px solid #ddd;
     }
     .dropdown-label { color: #666; font-weight: 500; }
     .dropdown-value { color: #222; font-weight: 600; }
     .ratings-title {
-      font-size: 24px; color: #333; text-align: center; font-weight: 600; 
-      text-transform: uppercase; margin: 10px 0;
+      font-size: 16px; color: #333; text-align: center; font-weight: 600; 
+      text-transform: uppercase; margin: 5px 0;
     }
     .ratings-row { 
-      display: flex; justify-content: space-around; align-items: center; gap: 15px; 
-      flex-wrap: nowrap; padding: 0 20px;
+      display: flex; justify-content: space-around; align-items: center; gap: 10px; 
+      flex-wrap: nowrap; padding: 0 10px;
     }
     .result-tile {
-      padding: 15px; border-radius: 8px; border: 1px solid #666; background-color: #f9f9f9;
+      padding: 8px; border-radius: 6px; border: 1px solid #666; background-color: #f9f9f9;
       color: #222; text-transform: uppercase; display: flex; flex-direction: column;
-      gap: 8px; justify-content: center; align-items: center; text-align: center;
-      font-weight: bold; flex: 1; min-width: 120px; cursor: pointer;
+      gap: 4px; justify-content: center; align-items: center; text-align: center;
+      font-weight: bold; flex: 1; min-width: 100px; cursor: pointer;
       position: relative; transition: background 0.2s, transform 0.2s;
     }
     .result-tile:hover { background-color: #e9ecef; transform: scale(1.05); }
-    .tile-label { font-size: clamp(0.9rem, 1.5vw, 1.1rem); color: #555; }
-    .tile-value { font-size: clamp(1.4rem, 2.5vw, 1.8rem); color: #111; font-weight: 900; }
+    .tile-label { font-size: clamp(0.8rem, 1.2vw, 0.9rem); color: #555; }
+    .tile-value { font-size: clamp(1.2rem, 2vw, 1.4rem); color: #111; font-weight: 900; }
     .small-tile { background-color: #ffffff; }
     .large-tile { background-color: #eaf4f4; }
-    .large-tile .tile-label { font-size: clamp(1rem, 1.8vw, 1.2rem); }
-    .large-tile .tile-value { font-size: clamp(1.6rem, 3vw, 2.2rem); }
+    .large-tile .tile-label { font-size: clamp(0.9rem, 1.5vw, 1rem); }
+    .large-tile .tile-value { font-size: clamp(1.4rem, 2.5vw, 1.8rem); }
     .tooltip {
       position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.9); color: #fff; padding: 12px; border-radius: 6px;
-      font-size: 14px; max-width: 300px; z-index: 1001; display: none;
+      background: rgba(0, 0, 0, 0.9); color: #fff; padding: 8px; border-radius: 4px;
+      font-size: 12px; max-width: 250px; z-index: 1001; display: none;
       opacity: 0; transition: opacity 0.2s ease; pointer-events: none;
       box-shadow: 0 4px 8px rgba(0,0,0,0.2); white-space: normal; word-wrap: break-word;
     }
@@ -1323,14 +1323,14 @@ async function displayCompetencies(name, competencies) {
       cursor: pointer; display: block; transition: background 0.2s, color 0.2s;
     }
     .btn-reset:hover { background-color: #d9534f; color: white; }
-    #competencyContainer { margin-top: 220px; } /* Adjust for fixed header height */
+    #competencyContainer { margin-top: 120px; } /* Adjusted for slimmer header */
     @media (max-width: 768px) {
-      .results-modal { padding: 10px 0; }
+      .results-modal { padding: 5px 0; }
       .dropdown-field { flex: 1 1 45%; }
       .ratings-row { flex-wrap: wrap; justify-content: center; }
-      .result-tile { min-width: 100px; padding: 10px; }
-      .tooltip { max-width: 90%; font-size: 12px; }
-      #competencyContainer { margin-top: 280px; }
+      .result-tile { min-width: 80px; padding: 6px; }
+      .tooltip { max-width: 90%; font-size: 10px; }
+      #competencyContainer { margin-top: 140px; }
     }
   `;
   document.head.appendChild(style);
