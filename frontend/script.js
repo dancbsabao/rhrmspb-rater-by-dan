@@ -15,7 +15,7 @@ let SCOPES;
 let EVALUATOR_PASSWORDS;
 let SHEET_RANGES;
 
-const elements = {
+const elements conformational= {
   authStatus: document.getElementById('authStatus'),
   signInBtn: document.getElementById('signInBtn'),
   signOutBtn: document.getElementById('signOutBtn'),
@@ -25,7 +25,7 @@ const elements = {
   nameDropdown: document.getElementById('nameDropdown'),
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
-  ratingForm: document.querySelector('.rating-form'), // Added ratingForm
+  ratingForm: document.querySelector('.rating-form'),
 };
 
 let vacancies = [];
@@ -84,10 +84,10 @@ async function restoreState() {
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
     sessionId = authState.session_id;
-    await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
     if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
-    updateUI(true); // Updated UI for signed-in state
+    updateUI(true);
     authSection.classList.remove('signed-out');
     await loadSheetData();
     const evaluatorSelect = document.getElementById('evaluatorSelect');
@@ -143,17 +143,17 @@ async function restoreState() {
       });
       window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
     } else {
-      updateUI(false); // Updated UI for signed-out state
+      updateUI(false);
       currentEvaluator = null;
       vacancies = [];
       candidates = [];
       compeCodes = [];
       competencies = [];
       resetDropdowns([]);
-      container.style.marginTop = '20px'; // Ensure top position
+      container.style.marginTop = '20px';
       authSection.classList.add('signed-out');
       const resultsArea = document.querySelector('.results-area');
-      if (resultsArea) resultsArea.remove(); // Clean up if present
+      if (resultsArea) resultsArea.remove();
     }
   }
 }
@@ -773,13 +773,21 @@ async function submitRatings() {
     const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
     const isUpdate = existingRatings.length > 0;
 
+    let tempRatings = {};
     if (isUpdate) {
-      const isVerified = await verifyEvaluatorPassword();
+      const isVerified = await verifyEvaluatorPassword(existingRatings);
       if (!isVerified) {
         revertToExistingRatings(existingRatings);
-        showToast('warning', 'Update Canceled', 'Ratings reverted');
+        showToast('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
+      // Store current ratings before update
+      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+      Array.from(competencyItems).forEach(item => {
+        const competencyName = item.querySelector('label').textContent.split('. ')[1];
+        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
+        if (rating) tempRatings[competencyName] = rating;
+      });
     }
 
     const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
@@ -791,7 +799,7 @@ async function submitRatings() {
     const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
     const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
 
-    const modalContent = `
+    let modalContent = `
       <div class="modal-body">
         <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
         <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
@@ -803,6 +811,26 @@ async function submitRatings() {
           <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
           <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
           <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
+    `;
+
+    if (isUpdate) {
+      modalContent += '<h4>CHANGES:</h4>';
+      ratings.forEach(row => {
+        const competencyName = row[3];
+        const newRating = row[4];
+        const oldRating = existingRatings.find(r => r[3] === competencyName)?.[4] || 'N/A';
+        if (oldRating !== newRating) {
+          modalContent += `
+            <div class="modal-field">
+              <span class="modal-label">${competencyName}:</span>
+              <span class="modal-value rating-value">${oldRating} → ${newRating}</span>
+            </div>
+          `;
+        }
+      });
+    }
+
+    modalContent += `
         </div>
       </div>
     `;
@@ -816,8 +844,13 @@ async function submitRatings() {
         processSubmissionQueue();
       },
       () => {
-        console.log('Submission canceled');
-        showToast('info', 'Canceled', 'Ratings submission aborted');
+        if (isUpdate) {
+          revertToExistingRatings(existingRatings);
+          showToast('info', 'Canceled', 'Ratings reverted to original values');
+        } else {
+          console.log('Submission canceled');
+          showToast('info', 'Canceled', 'Ratings submission aborted');
+        }
       }
     );
   } catch (error) {
@@ -867,19 +900,19 @@ async function processSubmissionQueue() {
           console.log('Success modal closed');
           fetchSubmittedRatings();
         },
-        null, // No cancel callback
-        false // No cancel button
+        null,
+        false
       );
     }
   } catch (error) {
     console.error('Queue submission failed:', error);
     showToast('error', 'Error', error.message);
-    submissionQueue.unshift(ratings); // Re-queue on failure
-    setTimeout(processSubmissionQueue, 5000); // Retry after 5s
+    submissionQueue.unshift(ratings);
+    setTimeout(processSubmissionQueue, 5000);
   } finally {
     isSubmitting = false;
     hideSubmittingIndicator();
-    processSubmissionQueue(); // Next in line
+    processSubmissionQueue();
   }
 }
 
@@ -906,23 +939,36 @@ function revertToExistingRatings(existingRatings) {
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
   Array.from(competencyItems).forEach(item => {
     const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName);
+    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
     if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating[4]}"]`);
-      if (radio) radio.checked = true;
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    } else {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => radio.checked = false);
     }
   });
 }
 
-async function verifyEvaluatorPassword() {
+async function verifyEvaluatorPassword(existingRatings) {
   return new Promise((resolve) => {
     const modalContent = `
-      <p>Please verify password for ${currentEvaluator}:</p>
+      <p>Please verify password for ${currentEvaluator} to update ratings:</p>
       <input type="password" id="verificationPassword" class="modal-input">
     `;
     showModal('Password Verification', modalContent, () => {
       const password = document.getElementById('verificationPassword').value;
-      resolve(password === EVALUATOR_PASSWORDS[currentEvaluator]);
+      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    }, () => {
+      revertToExistingRatings(existingRatings);
+      resolve(false);
     });
   });
 }
@@ -960,8 +1006,8 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
 }
 
 async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:I1"; // Extended for owner
-  const LOCK_TIMEOUT = 15000; // 15s
+  const lockRange = "RATELOG!G1:I1";
+  const LOCK_TIMEOUT = 15000;
   let retryCount = 0;
   let lockAcquired = false;
 
@@ -1136,9 +1182,14 @@ async function displayCandidatesTable(name, itemNumber) {
       } else {
         const button = document.createElement('button');
         button.classList.add('open-link-button');
-        button.textContent = value ? 'Open Link' : 'NONE';
+        button.textContent = value ? 'View Document' : 'NONE';
         if (value) {
-          button.addEventListener('click', () => window.open(value, '_blank'));
+          button.addEventListener('click', () => {
+            const modalContent = `
+              <iframe src="${value}" width="100%" height="100%" frameborder="0"></iframe>
+            `;
+            showFullScreenModal(`${headers[index]}`, modalContent);
+          });
         } else {
           button.disabled = true;
         }
@@ -1396,7 +1447,10 @@ function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCa
     };
 
     if (cancelBtn) {
-      cancelBtn.onclick = () => closeHandler(false);
+      cancelBtn.onclick = () => {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      };
     }
 
     const outsideClickHandler = (event) => {
@@ -1406,6 +1460,33 @@ function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCa
       }
     };
     modalOverlay.addEventListener('click', outsideClickHandler);
+  });
+}
+
+function showFullScreenModal(title, contentHTML) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  modalOverlay.innerHTML = `
+    <div class="modal full-screen-modal">
+      <div class="modal-header">
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+      </div>
+      <div class="modal-content full-screen-content">${contentHTML}</div>
+    </div>
+  `;
+
+  modalOverlay.classList.add('active');
+  modalOverlay.addEventListener('click', (event) => {
+    if (event.target === modalOverlay) {
+      modalOverlay.classList.remove('active');
+    }
   });
 }
 
