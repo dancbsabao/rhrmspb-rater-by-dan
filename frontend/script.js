@@ -1227,6 +1227,9 @@ async function displayCompetencies(name, competencies) {
     </div>
   `;
 
+  const container = document.querySelector('.container');
+  if (resultsArea && container) {
+    container.style.marginTop = `${resultsArea.offsetHeight + 30}px`; // 30px buffer
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
   const minimumCompetencyRatings = Array(competencies.length).fill(0);
