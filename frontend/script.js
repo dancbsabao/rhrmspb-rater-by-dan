@@ -1167,6 +1167,7 @@ async function fetchCompetenciesFromSheet() {
 async function displayCompetencies(name, competencies) {
   const { competenciesColumn1, competenciesColumn2 } = await fetchCompetenciesFromSheet();
 
+  // Existing competency sections remain inside #competencyContainer
   elements.competencyContainer.innerHTML = `
     <div class="competency-section" id="basic-competencies">
       <h3 class="section-title">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
@@ -1182,42 +1183,48 @@ async function displayCompetencies(name, competencies) {
       <h3>MINIMUM COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
-    <div class="results-modal" id="resultsModal">
-      <div class="results-content">
-        <div class="dropdown-info">
-          <h3 class="dropdown-title">CURRENT SELECTION</h3>
-          <div class="dropdown-field"><span class="dropdown-label">Evaluator:</span> <span class="dropdown-value">${currentEvaluator || 'N/A'}</span></div>
-          <div class="dropdown-field"><span class="dropdown-label">Assignment:</span> <span class="dropdown-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-          <div class="dropdown-field"><span class="dropdown-label">Position:</span> <span class="dropdown-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-          <div class="dropdown-field"><span class="dropdown-label">Item:</span> <span class="dropdown-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-          <div class="dropdown-field"><span class="dropdown-label">Name:</span> <span class="dropdown-value">${elements.nameDropdown.value || 'N/A'}</span></div>
-        </div>
-        <h3 class="ratings-title">RATING RESULTS</h3>
-        <div class="ratings-row">
-          <div class="result-tile" id="basic-rating-tile">
-            <span class="tile-label">BASIC:</span>
-            <span class="tile-value">0.00</span>
-          </div>
-          <div class="result-tile" id="organizational-rating-tile">
-            <span class="tile-label">ORG:</span>
-            <span class="tile-value">0.00</span>
-          </div>
-          <div class="result-tile" id="minimum-rating-tile">
-            <span class="tile-label">MIN:</span>
-            <span class="tile-value">0.00</span>
-          </div>
-          <div class="result-tile prominent-tile" id="psychosocial-tile">
-            <span class="tile-label">PSYCHO-SOCIAL:</span>
-            <span class="tile-value">0.00</span>
-          </div>
-          <div class="result-tile prominent-tile" id="potential-tile">
-            <span class="tile-label">POTENTIAL:</span>
-            <span class="tile-value">0.00</span>
-          </div>
-        </div>
+    <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
+  `;
+
+  // Move results-area to body
+  let resultsArea = document.querySelector('.results-area');
+  if (!resultsArea) {
+    resultsArea = document.createElement('div');
+    resultsArea.className = 'results-area';
+    document.body.insertBefore(resultsArea, document.body.firstChild);
+  }
+  resultsArea.innerHTML = `
+    <div class="dropdown-info">
+      <h3 class="dropdown-title">CURRENT SELECTION</h3>
+      <div class="dropdown-field"><span class="dropdown-label">Evaluator:</span> <span class="dropdown-value">${currentEvaluator || 'N/A'}</span></div>
+      <div class="dropdown-field"><span class="dropdown-label">Assignment:</span> <span class="dropdown-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+      <div class="dropdown-field"><span class="dropdown-label">Position:</span> <span class="dropdown-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+      <div class="dropdown-field"><span class="dropdown-label">Item:</span> <span class="dropdown-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+      <div class="dropdown-field"><span class="dropdown-label">Name:</span> <span class="dropdown-value">${elements.nameDropdown.value || 'N/A'}</span></div>
+    </div>
+    <h3 class="ratings-title">RATING RESULTS</h3>
+    <div class="ratings-row">
+      <div class="result-tile" id="basic-rating-tile">
+        <span class="tile-label">BASIC:</span>
+        <span class="tile-value">0.00</span>
+      </div>
+      <div class="result-tile" id="organizational-rating-tile">
+        <span class="tile-label">ORG:</span>
+        <span class="tile-value">0.00</span>
+      </div>
+      <div class="result-tile" id="minimum-rating-tile">
+        <span class="tile-label">MIN:</span>
+        <span class="tile-value">0.00</span>
+      </div>
+      <div class="result-tile prominent-tile" id="psychosocial-tile">
+        <span class="tile-label">PSYCHO-SOCIAL:</span>
+        <span class="tile-value">0.00</span>
+      </div>
+      <div class="result-tile prominent-tile" id="potential-tile">
+        <span class="tile-label">POTENTIAL:</span>
+        <span class="tile-value">0.00</span>
       </div>
     </div>
-    <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
   `;
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
