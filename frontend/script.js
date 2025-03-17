@@ -1209,32 +1209,34 @@ async function displayCompetencies(name, competencies) {
   resultsArea.classList.add('active');
   resultsArea.innerHTML = `
     <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
+    <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
     <div class="grid-container">
       <div class="dropdown-info">
         <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">NAME:</span> <span class="data-value">${elements.nameDropdown.value || 'N/A'}</span></div>
       </div>
       <div class="ratings-data">
         <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
         <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
         <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
       </div>
+    </div>
+    <div class="prominent-ratings">
+      <div><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
+      <div><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
     </div>
   `;
 
   const container = document.querySelector('.container');
   const updateMarginTop = () => {
-    const resultsHeight = resultsArea.offsetHeight + 20; // Add buffer
+    const resultsHeight = resultsArea.offsetHeight + 20;
     container.style.marginTop = `${resultsHeight}px`;
   };
   
   updateMarginTop();
-  window.addEventListener('resize', updateMarginTop); // Adjust on resize
+  window.addEventListener('resize', updateMarginTop);
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
