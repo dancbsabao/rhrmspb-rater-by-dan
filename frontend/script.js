@@ -1184,21 +1184,29 @@ async function displayCandidatesTable(name, itemNumber) {
         button.classList.add('open-link-button');
         button.textContent = value ? 'View Document' : 'NONE';
         if (value) {
-          // Extract file ID from the URL and convert to embeddable format
-          const fileIdMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
-          const fileId = fileIdMatch ? fileIdMatch[1] : null;
-          if (fileId) {
-            const embedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
-            button.addEventListener('click', () => {
-              const modalContent = `
-                <iframe src="${embedUrl}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>
-              `;
-              showFullScreenModal(`${headers[index]}`, modalContent);
-            });
-          } else {
-            button.textContent = 'INVALID LINK';
-            button.disabled = true;
-          }
+          button.addEventListener('click', () => {
+            // Create a hidden iframe to trigger the download
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+
+            // Attempt to convert view URL to download URL
+            const fileIdMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            const fileId = fileIdMatch ? fileIdMatch[1] : null;
+            if (fileId) {
+              const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+              iframe.src = downloadUrl;
+
+              // Warn user and fallback to manual Blob capture (requires user interaction)
+              showToast('info', 'Manual Step Required', 'Please allow the download and upload the file manually if it doesn’t display.');
+              setTimeout(() => {
+                showManualUploadModal(headers[index], value);
+              }, 2000); // Delay to allow iframe attempt
+            } else {
+              button.textContent = 'INVALID LINK';
+              button.disabled = true;
+            }
+          });
         } else {
           button.disabled = true;
         }
@@ -1212,6 +1220,29 @@ async function displayCandidatesTable(name, itemNumber) {
   } else {
     container.innerHTML = '<p>No matching data found.</p>';
   }
+}
+
+function showManualUploadModal(title, originalUrl) {
+  const modalContent = `
+    <p>The document couldn’t be loaded automatically. Please download it from <a href="${originalUrl}" target="_blank">here</a>, then upload it below:</p>
+    <input type="file" id="manualFileUpload" accept=".pdf,.docx,.xlsx">
+    <div id="previewContainer"></div>
+  `;
+  showFullScreenModal(title, modalContent, () => {
+    const fileInput = document.getElementById('manualFileUpload');
+    fileInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        const blobUrl = URL.createObjectURL(file);
+        const previewContainer = document.getElementById('previewContainer');
+        previewContainer.innerHTML = `
+          <object data="${blobUrl}" type="${file.type}" width="100%" height="100%">
+            <p>Preview not available.</p>
+          </object>
+        `;
+      }
+    });
+  });
 }
 
 async function fetchCompetenciesFromSheet() {
