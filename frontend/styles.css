@@ -11,30 +11,32 @@ body {
   padding: 20px;
   min-height: 100vh;
   color: black;
+  overflow-x: hidden;
 }
 
 .page-wrapper {
   max-width: 1400px;
   width: 100%;
-  margin: 0 auto; /* Centers within body padding */
+  margin: 0 auto;
+  position: relative;
 }
 
 /* Results Area (Floating Modal) */
 .results-area {
   position: fixed;
   top: 10px;
-  left: 0; /* Align to .page-wrapper’s left */
-  right: 0; /* Align to .page-wrapper’s right */
-  width: 100% !important; /* Full width of .page-wrapper */
-  max-width: 1400px !important; /* Matches .page-wrapper */
-  margin: 0 auto !important; /* Center within .page-wrapper */
+  left: 20px; /* Matches body's padding */
+  right: 20px; /* Matches body's padding */
+  width: calc(100% - 40px); /* Accounts for body padding on both sides */
+  max-width: 1400px; /* Matches .page-wrapper and .container */
+  margin: 0 auto; /* Centers within body */
   background: white;
   border: 1px solid #333;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  padding: 20px !important;
-  box-sizing: border-box !important;
+  padding: 20px;
+  box-sizing: border-box;
   display: none;
 }
 
@@ -98,6 +100,7 @@ body {
   flex-direction: column;
   align-items: center;
   transition: margin-top 0.3s ease;
+  box-sizing: border-box;
 }
 
 /* Auth Section */
@@ -721,8 +724,18 @@ select:disabled {
 
 /* Small Devices (up to 600px) */
 @media (max-width: 600px) {
-  .results-area,
-  .container {
+  body {
+    padding: 15px;
+  }
+
+  .page-wrapper {
+    width: calc(100% - 30px); /* Adjusts for smaller body padding */
+  }
+
+  .results-area {
+    left: 15px;
+    right: 15px;
+    width: calc(100% - 30px);
     padding: 15px;
   }
 
@@ -738,6 +751,10 @@ select:disabled {
 
   .results-area .data-label {
     min-width: 100px;
+  }
+
+  .container {
+    padding: 15px;
   }
 
   .tiles-container {
@@ -795,8 +812,10 @@ select:disabled {
 
 /* Medium Devices (601px to 850px) */
 @media (min-width: 601px) and (max-width: 850px) {
-  .results-area,
-  .container {
+  .results-area {
+    left: 20px;
+    right: 20px;
+    width: calc(100% - 40px);
     padding: 15px;
   }
 
@@ -812,6 +831,10 @@ select:disabled {
 
   .results-area .data-label {
     min-width: 110px;
+  }
+
+  .container {
+    padding: 15px;
   }
 
   .tiles-container {
@@ -849,7 +872,13 @@ select:disabled {
 
 /* Large Tablets (851px to 1400px) */
 @media (min-width: 851px) and (max-width: 1400px) {
-  .results-area,
+  .results-area {
+    left: 20px;
+    right: 20px;
+    width: calc(100% - 40px);
+    padding: 20px;
+  }
+
   .container {
     padding: 20px;
   }
@@ -885,40 +914,6 @@ select:disabled {
   .competency-section h3:not(.section-title) {
     font-size: 20px;
   }
-}
-
-/* Force Spacing */
-body {
-  padding: 20px !important;
-  margin: 0 !important;
-  overflow-x: hidden !important; /* Prevent horizontal overflow */
-}
-
-.page-wrapper {
-  max-width: 1400px !important;
-  width: calc(100% - 40px) !important; /* Explicitly account for body padding */
-  margin: 0 auto !important;
-  position: relative; /* Ensure children respect this container */
-}
-
-.results-area {
-  position: fixed;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100% !important;
-  max-width: 1400px !important;
-  padding: 20px !important;
-  box-sizing: border-box !important;
-  margin: 0 !important;
-}
-
-.container {
-  width: 100% !important;
-  max-width: 1400px !important;
-  margin: 20px auto !important;
-  padding: 20px !important;
-  box-sizing: border-box !important;
 }
 
 /* Ensure no overflow */
