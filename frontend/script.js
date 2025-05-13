@@ -496,7 +496,24 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
   });
 }
 
+function setDropdownState(dropdown, enabled) {
+  dropdown.disabled = !enabled;
+  if (!enabled) {
+    dropdown.value = '';
+    dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+  }
+}
+
+
 function initializeDropdowns(vacancies) {
+  function setDropdownState(dropdown, enabled) {
+    dropdown.disabled = !enabled;
+    if (!enabled) {
+      dropdown.value = '';
+      dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+    }
+  }
+
   elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
   elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
   elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
@@ -574,7 +591,6 @@ function initializeDropdowns(vacancies) {
     setDropdownState(elements.nameDropdown, false);
     saveDropdownState();
   });
-  }
 
   elements.itemDropdown.addEventListener('change', () => {
     const item = elements.itemDropdown.value;
@@ -591,50 +607,42 @@ function initializeDropdowns(vacancies) {
   });
 
   elements.nameDropdown.addEventListener('change', async () => {
-  const item = elements.itemDropdown.value;
-  const name = elements.nameDropdown.value;
-  const assignment = elements.assignmentDropdown.value;
-  const position = elements.positionDropdown.value;
+    const item = elements.itemDropdown.value;
+    const name = elements.nameDropdown.value;
+    const assignment = elements.assignmentDropdown.value;
+    const position = elements.positionDropdown.value;
 
-  if (item && name) {
-    displayCandidatesTable(name, item);
+    if (item && name) {
+      displayCandidatesTable(name, item);
 
-    const selectedCodes = compeCodes
-      .filter((row) => row[0] === item)
-      .flatMap((row) => row[1].split(','));
+      const selectedCodes = compeCodes
+        .filter((row) => row[0] === item)
+        .flatMap((row) => row[1].split(','));
 
-    const relatedCompetencies = competencies
-      .filter((row) => row[0] && selectedCodes.includes(row[0]))
-      .map((row) => row[1]);
+      const relatedCompetencies = competencies
+        .filter((row) => row[0] && selectedCodes.includes(row[0]))
+        .map((row) => row[1]);
 
-    const vacancy = vacancies.find(row =>
-      row[0] === item && row[2] === assignment && row[1] === position
-    );
+      const vacancy = vacancies.find(row =>
+        row[0] === item && row[2] === assignment && row[1] === position
+      );
 
-    const salaryGrade = vacancy && vacancy[3] ? parseInt(vacancy[3], 10) : 0;
-    console.log("Salary Grade detected:", salaryGrade);
+      const salaryGrade = vacancy && vacancy[3] ? parseInt(vacancy[3], 10) : 0;
+      console.log("Salary Grade detected:", salaryGrade);
 
-    await displayCompetencies(name, relatedCompetencies, salaryGrade);
+      await displayCompetencies(name, relatedCompetencies, salaryGrade);
 
-    if (currentEvaluator && name && item) {
+      if (currentEvaluator && name && item) {
+        clearRatings();
+        fetchSubmittedRatings();
+      }
+    } else {
       clearRatings();
-      fetchSubmittedRatings();
     }
-  } else {
-    clearRatings();
-  }
 
-  saveDropdownState();
-});
-
-function setDropdownState(dropdown, enabled) {
-  dropdown.disabled = !enabled;
-  if (!enabled) {
-    dropdown.value = '';
-    dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
-  }
+    saveDropdownState();
+  });
 }
-
 
 function resetDropdowns(vacancies) {
   const uniqueAssignments = vacancies.length ? [...new Set(vacancies.slice(1).map((row) => row[2]))] : [];
