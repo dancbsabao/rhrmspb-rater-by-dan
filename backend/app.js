@@ -73,55 +73,54 @@ app.get('/auth/google', (req, res) => {
 
 // OAuth2 callback endpoint
 app.get('/auth/google/callback', async (req, res) => {
-    const code = req.query.code;
-    if (!code) {
-        console.error('No authorization code provided');
-        return res.status(400).json({ error: 'No authorization code provided' });
+  const code = req.query.code;
+  if (!code) {
+    return res.status(400).json({ error: 'No authorization code provided' });
+  }
+
+  try {
+    const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
+    console.log('Callback redirect_uri:', redirectUri);
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.CLIENT_ID,
+        client_secret: process.env.CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+    if (tokenData.error) {
+      throw new Error(tokenData.error_description || 'Token exchange failed');
     }
 
-    try {
-        const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
-        console.log('Callback redirect_uri:', redirectUri);
-        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                code,
-                client_id: process.env.CLIENT_ID,
-                client_secret: process.env.CLIENT_SECRET,
-                redirect_uri: redirectUri,
-                grant_type: 'authorization_code',
-            }),
-        });
-
-        const tokenData = await tokenResponse.json();
-        if (tokenData.error) {
-            throw new Error(tokenData.error_description || 'Token exchange failed');
-        }
-
-        const sessionId = Date.now().toString();
-        if (tokenData.refresh_token) {
-            res.cookie('refresh_token', tokenData.refresh_token, {
-                httpOnly: true,
-                secure: true,
-                sameSite: 'None',
-                maxAge: 30 * 24 * 60 * 60 * 1000,
-            });
-            console.log('Refresh token cookie set:', tokenData.refresh_token);
-        } else {
-            console.warn('No refresh_token in Google response');
-        }
-
-        const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
-            `access_token=${encodeURIComponent(tokenData.access_token)}&` +
-            `expires_in=${tokenData.expires_in || 3600}&` +
-            `session_id=${encodeURIComponent(sessionId)}`;
-        console.log('Redirecting to:', clientRedirect);
-        res.redirect(clientRedirect);
-    } catch (error) {
-        console.error('Error in OAuth callback:', error);
-        res.status(500).send('Authentication failed');
+    const sessionId = Date.now().toString();
+    if (tokenData.refresh_token) {
+      res.cookie('refresh_token', tokenData.refresh_token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'None',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+      console.log('Refresh token cookie set:', tokenData.refresh_token);
+    } else {
+      console.warn('No refresh_token in Google response');
     }
+
+    const clientRedirect = `https://dancbsabao.github.io/rhrmspb-rater-by-dan/?` +
+      `access_token=${tokenData.access_token}&` +
+      `expires_in=${tokenData.expires_in || 3600}&` +
+      `session_id=${sessionId}`;
+    console.log('Redirecting to:', clientRedirect);
+    res.redirect(clientRedirect);
+  } catch (error) {
+    console.error('Error in OAuth callback:', error);
+    res.status(500).send('Authentication failed');
+  }
 });
 
 // Token refresh endpoint
