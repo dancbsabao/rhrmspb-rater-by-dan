@@ -598,31 +598,42 @@ function initializeDropdowns(vacancies) {
   });
 
   elements.nameDropdown.addEventListener('change', async () => {
-    const item = elements.itemDropdown.value;
-    const name = elements.nameDropdown.value;
-    if (item && name) {
-      displayCandidatesTable(name, item);
-      const selectedCodes = compeCodes
-        .filter((row) => row[0] === item)
-        .flatMap((row) => row[1].split(','));
-      const relatedCompetencies = competencies
-        .filter((row) => row[0] && selectedCodes.includes(row[0]))
-        .map((row) => row[1]);
-      const vacancy = vacancies.find(row =>
-        row[0] === item && row[2] === assignment && row[1] === position
-      );
-      const salaryGrade = vacancy && vacancy[3] ? parseInt(vacancy[3], 10) : 0;
-      await displayCompetencies(name, relatedCompetencies);
-      if (currentEvaluator && name && item) {
-        clearRatings();
-        fetchSubmittedRatings();
-      }
-    } else {
+  const item = elements.itemDropdown.value;
+  const name = elements.nameDropdown.value;
+  const assignment = elements.assignmentDropdown.value;
+  const position = elements.positionDropdown.value;
+
+  if (item && name) {
+    displayCandidatesTable(name, item);
+
+    const selectedCodes = compeCodes
+      .filter((row) => row[0] === item)
+      .flatMap((row) => row[1].split(','));
+
+    const relatedCompetencies = competencies
+      .filter((row) => row[0] && selectedCodes.includes(row[0]))
+      .map((row) => row[1]);
+
+    const vacancy = vacancies.find(row =>
+      row[0] === item && row[2] === assignment && row[1] === position
+    );
+
+    const salaryGrade = vacancy && vacancy[3] ? parseInt(vacancy[3], 10) : 0;
+    console.log("Salary Grade detected:", salaryGrade);
+
+    await displayCompetencies(name, relatedCompetencies, salaryGrade);
+
+    if (currentEvaluator && name && item) {
       clearRatings();
+      fetchSubmittedRatings();
     }
-    saveDropdownState();
-  });
-}
+  } else {
+    clearRatings();
+  }
+
+  saveDropdownState();
+});
+
 
 function resetDropdowns(vacancies) {
   const uniqueAssignments = vacancies.length ? [...new Set(vacancies.slice(1).map((row) => row[2]))] : [];
