@@ -582,6 +582,7 @@ function initializeDropdowns(vacancies) {
     setDropdownState(elements.nameDropdown, false);
     saveDropdownState();
   });
+  }
 
   elements.itemDropdown.addEventListener('change', () => {
     const item = elements.itemDropdown.value;
