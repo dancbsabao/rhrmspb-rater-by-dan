@@ -76,34 +76,62 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
+    console.log('Restoring state');
     const authState = loadAuthState();
     const dropdownState = loadDropdownState();
     const authSection = document.querySelector('.auth-section');
     const container = document.querySelector('.container');
 
-    if (authState && authState.access_token) {
-        try {
-            gapi.client.setToken({ access_token: authState.access_token });
-            sessionId = authState.session_id;
-            if (!await isTokenValid()) await refreshAccessToken();
-            currentEvaluator = authState.evaluator;
-            updateUI(true);
-            authSection.classList.remove('signed-out');
-            await loadSheetData();
-            const evaluatorSelect = document.getElementById('evaluatorSelect');
-            if (evaluatorSelect && dropdownState.evaluator) {
-                evaluatorSelect.value = dropdownState.evaluator;
-                currentEvaluator = dropdownState.evaluator;
-            }
-            restoreDropdowns(dropdownState);
-            if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
-                fetchSubmittedRatings();
-            }
-        } catch (error) {
-            console.error('Error restoring auth state:', error);
-            showToast('error', 'Auth Error', 'Failed to restore session. Please sign in again.');
-            handleAuthClick();
+    if (authState) {
+        gapi.client.setToken({ access_token: authState.access_token });
+        sessionId = authState.session_id;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (!await isTokenValid()) await refreshAccessToken();
+        currentEvaluator = authState.evaluator;
+        updateUI(true);
+        authSection.classList.remove('signed-out');
+        await loadSheetData();
+        const evaluatorSelect = document.getElementById('evaluatorSelect');
+        if (evaluatorSelect && dropdownState.evaluator) {
+            evaluatorSelect.value = dropdownState.evaluator;
+            currentEvaluator = dropdownState.evaluator;
         }
+
+        const changePromises = [];
+        if (dropdownState.assignment) {
+            elements.assignmentDropdown.value = dropdownState.assignment;
+            changePromises.push(new Promise(resolve => {
+                elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
+                elements.assignmentDropdown.dispatchEvent(new Event('change'));
+            }));
+        }
+        if (dropdownState.position) {
+            elements.positionDropdown.value = dropdownState.position;
+            changePromises.push(new Promise(resolve => {
+                elements.positionDropdown.addEventListener('change', resolve, { once: true });
+                elements.positionDropdown.dispatchEvent(new Event('change'));
+            }));
+        }
+        if (dropdownState.item) {
+            elements.itemDropdown.value = dropdownState.item;
+            changePromises.push(new Promise(resolve => {
+                elements.itemDropdown.addEventListener('change', resolve, { once: true });
+                elements.itemDropdown.dispatchEvent(new Event('change'));
+            }));
+        }
+        if (dropdownState.name) {
+            elements.nameDropdown.value = dropdownState.name;
+            changePromises.push(new Promise(resolve => {
+                elements.nameDropdown.addEventListener('change', resolve, { once: true });
+                elements.nameDropdown.dispatchEvent(new Event('change'));
+            }));
+        }
+
+        await Promise.all(changePromises);
+        if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
+            fetchSubmittedRatings();
+        }
+        console.log('State restored, UI should be visible');
     } else {
         const urlParams = new URLSearchParams(window.location.search);
         const accessToken = urlParams.get('access_token');
@@ -115,15 +143,20 @@ async function restoreState() {
                 expires_in: parseInt(expiresIn, 10),
                 session_id: sessionId,
             });
-            window.history.replaceState({}, document.title, '/');
+            window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
         } else {
             updateUI(false);
             currentEvaluator = null;
+            vacancies = [];
+            candidates = [];
+            compeCodes = [];
+            competencies = [];
             resetDropdowns([]);
             container.style.marginTop = '20px';
             authSection.classList.add('signed-out');
             const resultsArea = document.querySelector('.results-area');
             if (resultsArea) resultsArea.remove();
+            console.log('No auth state, showing sign-in UI');
         }
     }
 }
@@ -160,28 +193,18 @@ function triggerChange(element) {
 
 
 function initializeApp() {
-    let retries = 3;
-    function tryLoadGapi() {
-        gapi.load('client', async () => {
-            try {
-                await initializeGapiClient();
-                gapiInitialized = true;
-                console.log('GAPI client initialized');
-                maybeEnableButtons();
-                createEvaluatorSelector();
-                restoreState();
-            } catch (error) {
-                console.error('GAPI initialization failed:', error);
-                if (retries > 0) {
-                    retries--;
-                    setTimeout(tryLoadGapi, 2000);
-                } else {
-                    showToast('error', 'GAPI Error', 'Failed to initialize Google API. Please try again.');
-                }
-            }
-        });
-    }
-    tryLoadGapi();
+    gapi.load('client', async () => {
+        await initializeGapiClient();
+        gapiInitialized = true;
+        console.log('GAPI client initialized');
+        maybeEnableButtons();
+        createEvaluatorSelector();
+        restoreState();
+        console.log('App initialized, checking UI elements');
+        const ratingForm = document.querySelector('.rating-form');
+        console.log('Rating form exists:', !!ratingForm);
+        console.log('Assignment dropdown options:', elements.assignmentDropdown.options.length);
+    });
 }
 
 async function initializeGapiClient() {
@@ -435,11 +458,13 @@ function updateUI(isSignedIn) {
     elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
     elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
     elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
-    if (elements.ratingForm) {
-        elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
-        console.log('Rating form display set to:', elements.ratingForm.style.display);
+    const ratingForm = document.querySelector('.rating-form');
+    if (ratingForm) {
+        ratingForm.style.display = isSignedIn ? 'block' : 'none';
+        console.log('Rating form display set to:', ratingForm.style.display);
     } else {
-        console.warn('Rating form element not found');
+        console.warn('Rating form not found, retrying in 500ms');
+        setTimeout(() => updateUI(isSignedIn), 500);
     }
     if (!isSignedIn) {
         elements.competencyContainer.innerHTML = '';
@@ -499,127 +524,136 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
 }
 
 function initializeDropdowns(vacancies) {
-  function setDropdownState(dropdown, enabled) {
-    dropdown.disabled = !enabled;
-    if (!enabled) {
-      dropdown.value = '';
-      dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
-    }
-  }
-
-  elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
-  elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
-  elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
-  elements.nameDropdown.setAttribute('data-placeholder', 'Select Name');
-
-  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
-  updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
-
-  setDropdownState(elements.positionDropdown, false);
-  setDropdownState(elements.itemDropdown, false);
-  setDropdownState(elements.nameDropdown, false);
-
-  elements.assignmentDropdown.addEventListener('change', async () => {
-    const assignment = elements.assignmentDropdown.value;
-    const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
-    let isAuthorized = true;
-
-    if (assignment && requiresPassword) {
-      const authKey = `currentAssignmentAuth_${currentEvaluator}`;
-      const storedAssignment = localStorage.getItem(authKey);
-
-      if (storedAssignment !== assignment) {
-        const modalContent = `
-          <p>Please enter the password to access assignment "${assignment}":</p>
-          <input type="password" id="assignmentPassword" class="modal-input">
-        `;
-        isAuthorized = await new Promise((resolve) => {
-          showModal('Assignment Authentication', modalContent, () => {
-            const passwordInput = document.getElementById('assignmentPassword');
-            const password = passwordInput.value.trim();
-            const isValid = password === "admindan";
-            if (isValid) localStorage.setItem(authKey, assignment);
-            resolve(isValid);
-          });
-        });
-
-        if (!isAuthorized) {
-          showToast('error', 'Error', 'Incorrect password for assignment');
-          elements.assignmentDropdown.value = storedAssignment || '';
-          setDropdownState(elements.positionDropdown, false);
-          setDropdownState(elements.itemDropdown, false);
-          setDropdownState(elements.nameDropdown, false);
-          saveDropdownState();
-          return;
+    console.log('Initializing dropdowns with vacancies:', vacancies);
+    function setDropdownState(dropdown, enabled) {
+        dropdown.disabled = !enabled;
+        if (!enabled) {
+            dropdown.value = '';
+            dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
         }
-      }
     }
 
-    if (assignment && isAuthorized) {
-      const positions = vacancies
-        .filter((row) => row[2] === assignment)
-        .map((row) => row[1]);
-      updateDropdown(elements.positionDropdown, [...new Set(positions)], 'Select Position');
-      setDropdownState(elements.positionDropdown, true);
-    } else {
-      setDropdownState(elements.positionDropdown, false);
-    }
+    elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
+    elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
+    elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
+    elements.nameDropdown.setAttribute('data-placeholder', 'Select Name');
+
+    const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]))];
+    updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
+
+    setDropdownState(elements.positionDropdown, false);
     setDropdownState(elements.itemDropdown, false);
     setDropdownState(elements.nameDropdown, false);
-    saveDropdownState();
-  });
 
-  elements.positionDropdown.addEventListener('change', () => {
-    const assignment = elements.assignmentDropdown.value;
-    const position = elements.positionDropdown.value;
-    if (assignment && position) {
-      const items = vacancies
-        .filter((row) => row[2] === assignment && row[1] === position)
-        .map((row) => row[0]);
-      updateDropdown(elements.itemDropdown, [...new Set(items)], 'Select Item');
-      setDropdownState(elements.itemDropdown, true);
-    } else {
-      setDropdownState(elements.itemDropdown, false);
-    }
-    setDropdownState(elements.nameDropdown, false);
-    saveDropdownState();
-  });
+    elements.assignmentDropdown.addEventListener('change', async () => {
+        const assignment = elements.assignmentDropdown.value;
+        const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
+        let isAuthorized = true;
 
-  elements.itemDropdown.addEventListener('change', () => {
-    const item = elements.itemDropdown.value;
-    if (item) {
-      const names = candidates
-        .filter((row) => row[1] === item)
-        .map((row) => row[0]);
-      updateDropdown(elements.nameDropdown, [...new Set(names)], 'Select Name');
-      setDropdownState(elements.nameDropdown, true);
-    } else {
-      setDropdownState(elements.nameDropdown, false);
-    }
-    saveDropdownState();
-  });
+        if (assignment && requiresPassword) {
+            const authKey = `currentAssignmentAuth_${currentEvaluator}`;
+            const storedAssignment = localStorage.getItem(authKey);
 
-  elements.nameDropdown.addEventListener('change', async () => {
-    const item = elements.itemDropdown.value;
-    const name = elements.nameDropdown.value;
-    if (item && name) {
-      displayCandidatesTable(name, item);
-      const selectedCodes = compeCodes
-        .filter((row) => row[0] === item)
-        .flatMap((row) => row[1].split(','));
-      const relatedCompetencies = competencies
-        .filter((row) => row[0] && selectedCodes.includes(row[0]))
-        .map((row) => row[1]);
-      await displayCompetencies(name, relatedCompetencies);
-      if (currentEvaluator && name && item) {
-        clearRatings();
-        fetchSubmittedRatings();
-      }
-    } else {
-      clearRatings();
-    }
-    saveDropdownState();
-  });
+            if (storedAssignment !== assignment) {
+                const modalContent = `
+                    <p>Please enter the password to access assignment "${assignment}":</p>
+                    <input type="password" id="assignmentPassword" class="modal-input">
+                `;
+                isAuthorized = await new Promise(resolve => {
+                    showModal('Assignment Authentication', modalContent, () => {
+                        const passwordInput = document.getElementById('assignmentPassword');
+                        const password = passwordInput.value.trim();
+                        const isValid = password === "admindan";
+                        if (isValid) localStorage.setItem(authKey, assignment);
+                        resolve(isValid);
+                    });
+                });
+
+                if (!isAuthorized) {
+                    showToast('error', 'Error', 'Incorrect password for assignment');
+                    elements.assignmentDropdown.value = storedAssignment || '';
+                    setDropdownState(elements.positionDropdown, false);
+                    setDropdownState(elements.itemDropdown, false);
+                    setDropdownState(elements.nameDropdown, false);
+                    saveDropdownState();
+                    return;
+                }
+            }
+        }
+
+        if (assignment && isAuthorized) {
+            const positions = vacancies
+                .filter(row => row[2] === assignment)
+                .map(row => row[1]);
+            updateDropdown(elements.positionDropdown, [...new Set(positions)], 'Select Position');
+            setDropdownState(elements.positionDropdown, true);
+        } else {
+            setDropdownState(elements.positionDropdown, false);
+        }
+        setDropdownState(elements.itemDropdown, false);
+        setDropdownState(elements.nameDropdown, false);
+        saveDropdownState();
+        console.log('Assignment dropdown updated');
+    });
+
+    elements.positionDropdown.addEventListener('change', () => {
+        const assignment = elements.assignmentDropdown.value;
+        const position = elements.positionDropdown.value;
+        if (assignment && position) {
+            const items = vacancies
+                .filter(row => row[2] === assignment && row[1] === position)
+                .map(row => row[0]);
+            updateDropdown(elements.itemDropdown, [...new Set(items)], 'Select Item');
+            setDropdownState(elements.itemDropdown, true);
+        } else {
+            setDropdownState(elements.itemDropdown, false);
+        }
+        setDropdownState(elements.nameDropdown, false);
+        saveDropdownState();
+        console.log('Position dropdown updated');
+    });
+
+    elements.itemDropdown.addEventListener('change', () => {
+        const item = elements.itemDropdown.value;
+        if (item) {
+            const names = candidates
+                .filter(row => row[1] === item)
+                .map(row => row[0]);
+            updateDropdown(elements.nameDropdown, [...new Set(names)], 'Select Name');
+            setDropdownState(elements.nameDropdown, true);
+        } else {
+            setDropdownState(elements.nameDropdown, false);
+        }
+        saveDropdownState();
+        console.log('Item dropdown updated');
+    });
+
+    elements.nameDropdown.addEventListener('change', async () => {
+        const item = elements.itemDropdown.value;
+        const name = elements.nameDropdown.value;
+        if (item && name) {
+            displayCandidatesTable(name, item);
+            const selectedCodes = compeCodes
+                .filter(row => row[0] === item)
+                .flatMap(row => row[1].split(','));
+            const relatedCompetencies = competencies
+                .filter(row => row[0] && selectedCodes.includes(row[0]))
+                .map(row => row[1]);
+            await displayCompetencies(name, relatedCompetencies);
+            if (currentEvaluator && name && item) {
+                clearRatings();
+                fetchSubmittedRatings();
+            }
+        } else {
+            clearRatings();
+        }
+        saveDropdownState();
+        console.log('Name dropdown updated');
+    });
+
+    // Force DOM update
+    elements.ratingForm.style.display = 'block';
+    console.log('Dropdowns initialized, rating form displayed');
 }
 
 function resetDropdowns(vacancies) {
@@ -1525,11 +1559,11 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM fully loaded');
     fetch(`${API_BASE_URL}/config`)
-        .then((response) => {
+        .then(response => {
             if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
             return response.json();
         })
-        .then((config) => {
+        .then(config => {
             CLIENT_ID = config.CLIENT_ID;
             API_KEY = config.API_KEY;
             SHEET_ID = config.SHEET_ID;
@@ -1538,8 +1572,8 @@ document.addEventListener('DOMContentLoaded', () => {
             SHEET_RANGES = config.SHEET_RANGES;
             initializeApp();
         })
-        .catch((error) => {
-            console.error("Error fetching config:", error);
+        .catch(error => {
+            console.error('Error fetching config:', error);
             elements.authStatus.textContent = 'Error loading configuration';
             showToast('error', 'Config Error', 'Failed to load configuration');
         });
