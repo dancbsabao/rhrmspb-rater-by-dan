@@ -496,8 +496,7 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
   });
 }
 
-function initializeDropdowns(vacancies) {
-  function setDropdownState(dropdown, enabled) {
+function setDropdownState(dropdown, enabled) {
     dropdown.disabled = !enabled;
     if (!enabled) {
       dropdown.value = '';
@@ -505,6 +504,7 @@ function initializeDropdowns(vacancies) {
     }
   }
 
+function initializeDropdowns(vacancies) {
   elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
   elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
   elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
