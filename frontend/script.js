@@ -1516,6 +1516,7 @@ elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
 elements.submitRatings.addEventListener('click', submitRatings);
 
+// Fix: Properly close DOMContentLoaded wrapper
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
