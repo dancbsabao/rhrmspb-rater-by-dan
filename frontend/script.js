@@ -76,116 +76,112 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
-  const authState = loadAuthState();
-  const dropdownState = loadDropdownState();
-  const authSection = document.querySelector('.auth-section');
-  const container = document.querySelector('.container');
+    const authState = loadAuthState();
+    const dropdownState = loadDropdownState();
+    const authSection = document.querySelector('.auth-section');
+    const container = document.querySelector('.container');
 
-  if (authState) {
-    gapi.client.setToken({ access_token: authState.access_token });
-    sessionId = authState.session_id;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    if (!await isTokenValid()) await refreshAccessToken();
-    currentEvaluator = authState.evaluator;
-    updateUI(true);
-    authSection.classList.remove('signed-out');
-    await loadSheetData();
-    const evaluatorSelect = document.getElementById('evaluatorSelect');
-    if (evaluatorSelect && dropdownState.evaluator) {
-      evaluatorSelect.value = dropdownState.evaluator;
-      currentEvaluator = dropdownState.evaluator;
-    }
-
-    const changePromises = [];
-    if (dropdownState.assignment) {
-      elements.assignmentDropdown.value = dropdownState.assignment;
-      changePromises.push(new Promise(resolve => {
-        elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
-        elements.assignmentDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
-    if (dropdownState.position) {
-      elements.positionDropdown.value = dropdownState.position;
-      changePromises.push(new Promise(resolve => {
-        elements.positionDropdown.addEventListener('change', resolve, { once: true });
-        elements.positionDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
-    if (dropdownState.item) {
-      elements.itemDropdown.value = dropdownState.item;
-      changePromises.push(new Promise(resolve => {
-        elements.itemDropdown.addEventListener('change', resolve, { once: true });
-        elements.itemDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
-    if (dropdownState.name) {
-      elements.nameDropdown.value = dropdownState.name;
-      changePromises.push(new Promise(resolve => {
-        elements.nameDropdown.addEventListener('change', resolve, { once: true });
-        elements.nameDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
-
-    await Promise.all(changePromises);
-    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
-      fetchSubmittedRatings();
-    }
-  } else {
-    const urlParams = new URLSearchParams(window.location.search);
-    const accessToken = urlParams.get('access_token');
-    const expiresIn = urlParams.get('expires_in');
-    sessionId = urlParams.get('session_id');
-    if (accessToken && sessionId) {
-      handleTokenCallback({
-        access_token: accessToken,
-        expires_in: parseInt(expiresIn, 10),
-        session_id: sessionId,
-      });
-      window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
+    if (authState && authState.access_token) {
+        try {
+            gapi.client.setToken({ access_token: authState.access_token });
+            sessionId = authState.session_id;
+            if (!await isTokenValid()) await refreshAccessToken();
+            currentEvaluator = authState.evaluator;
+            updateUI(true);
+            authSection.classList.remove('signed-out');
+            await loadSheetData();
+            const evaluatorSelect = document.getElementById('evaluatorSelect');
+            if (evaluatorSelect && dropdownState.evaluator) {
+                evaluatorSelect.value = dropdownState.evaluator;
+                currentEvaluator = dropdownState.evaluator;
+            }
+            restoreDropdowns(dropdownState);
+            if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
+                fetchSubmittedRatings();
+            }
+        } catch (error) {
+            console.error('Error restoring auth state:', error);
+            showToast('error', 'Auth Error', 'Failed to restore session. Please sign in again.');
+            handleAuthClick();
+        }
     } else {
-      updateUI(false);
-      currentEvaluator = null;
-      vacancies = [];
-      candidates = [];
-      compeCodes = [];
-      competencies = [];
-      resetDropdowns([]);
-      container.style.marginTop = '20px';
-      authSection.classList.add('signed-out');
-      const resultsArea = document.querySelector('.results-area');
-      if (resultsArea) resultsArea.remove();
+        const urlParams = new URLSearchParams(window.location.search);
+        const accessToken = urlParams.get('access_token');
+        const expiresIn = urlParams.get('expires_in');
+        sessionId = urlParams.get('session_id');
+        if (accessToken && sessionId) {
+            handleTokenCallback({
+                access_token: accessToken,
+                expires_in: parseInt(expiresIn, 10),
+                session_id: sessionId,
+            });
+            window.history.replaceState({}, document.title, '/');
+        } else {
+            updateUI(false);
+            currentEvaluator = null;
+            resetDropdowns([]);
+            container.style.marginTop = '20px';
+            authSection.classList.add('signed-out');
+            const resultsArea = document.querySelector('.results-area');
+            if (resultsArea) resultsArea.remove();
+        }
     }
-  }
 }
 
-fetch(`${API_BASE_URL}/config`)
-  .then((response) => {
-    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-    return response.json();
-  })
-  .then((config) => {
-    CLIENT_ID = config.CLIENT_ID;
-    API_KEY = config.API_KEY;
-    SHEET_ID = config.SHEET_ID;
-    SCOPES = config.SCOPES;
-    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
-    SHEET_RANGES = config.SHEET_RANGES;
-    initializeApp();
-  })
-  .catch((error) => {
-    console.error("Error fetching config:", error);
-    elements.authStatus.textContent = 'Error loading configuration';
-  });
+function restoreDropdowns(dropdownState) {
+    const promises = [];
+    if (dropdownState.assignment) {
+        elements.assignmentDropdown.value = dropdownState.assignment;
+        promises.push(triggerChange(elements.assignmentDropdown));
+    }
+    if (dropdownState.position) {
+        elements.positionDropdown.value = dropdownState.position;
+        promises.push(triggerChange(elements.positionDropdown));
+    }
+    if (dropdownState.item) {
+        elements.itemDropdown.value = dropdownState.item;
+        promises.push(triggerChange(elements.itemDropdown));
+    }
+    if (dropdownState.name) {
+        elements.nameDropdown.value = dropdownState.name;
+        promises.push(triggerChange(elements.nameDropdown));
+    }
+    return Promise.all(promises);
+}
+
+function triggerChange(element) {
+    return new Promise(resolve => {
+        element.addEventListener('change', resolve, { once: true });
+        element.dispatchEvent(new Event('change'));
+    });
+}
+
+
+
 
 function initializeApp() {
-  gapi.load('client', async () => {
-    await initializeGapiClient();
-    gapiInitialized = true;
-    console.log('GAPI client initialized');
-    maybeEnableButtons();
-    createEvaluatorSelector();
-    restoreState();
-  });
+    let retries = 3;
+    function tryLoadGapi() {
+        gapi.load('client', async () => {
+            try {
+                await initializeGapiClient();
+                gapiInitialized = true;
+                console.log('GAPI client initialized');
+                maybeEnableButtons();
+                createEvaluatorSelector();
+                restoreState();
+            } catch (error) {
+                console.error('GAPI initialization failed:', error);
+                if (retries > 0) {
+                    retries--;
+                    setTimeout(tryLoadGapi, 2000);
+                } else {
+                    showToast('error', 'GAPI Error', 'Failed to initialize Google API. Please try again.');
+                }
+            }
+        });
+    }
+    tryLoadGapi();
 }
 
 async function initializeGapiClient() {
@@ -1519,6 +1515,26 @@ elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
 elements.submitRatings.addEventListener('click', submitRatings);
 
+// Replace existing DOMContentLoaded listener
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('DOM fully loaded');
+    console.log('DOM fully loaded');
+    fetch(`${API_BASE_URL}/config`)
+        .then((response) => {
+            if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+            return response.json();
+        })
+        .then((config) => {
+            CLIENT_ID = config.CLIENT_ID;
+            API_KEY = config.API_KEY;
+            SHEET_ID = config.SHEET_ID;
+            SCOPES = config.SCOPES;
+            EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
+            SHEET_RANGES = config.SHEET_RANGES;
+            initializeApp();
+        })
+        .catch((error) => {
+            console.error("Error fetching config:", error);
+            elements.authStatus.textContent = 'Error loading configuration';
+            showToast('error', 'Config Error', 'Failed to load configuration');
+        });
 });
