@@ -431,15 +431,21 @@ function handleSignOutClick() {
 }
 
 function updateUI(isSignedIn) {
-  elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
-  elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
-  elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
-  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
-  if (!isSignedIn) {
-    elements.competencyContainer.innerHTML = '';
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) resultsArea.classList.remove('active');
-  }
+    console.log('Updating UI, isSignedIn:', isSignedIn);
+    elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
+    elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
+    elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
+    if (elements.ratingForm) {
+        elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
+        console.log('Rating form display set to:', elements.ratingForm.style.display);
+    } else {
+        console.warn('Rating form element not found');
+    }
+    if (!isSignedIn) {
+        elements.competencyContainer.innerHTML = '';
+        const resultsArea = document.querySelector('.results-area');
+        if (resultsArea) resultsArea.classList.remove('active');
+    }
 }
 
 async function loadSheetData(maxRetries = 3) {
