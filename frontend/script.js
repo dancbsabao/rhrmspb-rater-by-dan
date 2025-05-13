@@ -25,7 +25,6 @@ const elements = {
   nameDropdown: document.getElementById('nameDropdown'),
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
-  ratingForm: document.querySelector('.rating-form'),
 };
 
 let vacancies = [];
@@ -76,135 +75,113 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
-    console.log('Restoring state');
-    const authState = loadAuthState();
-    const dropdownState = loadDropdownState();
-    const authSection = document.querySelector('.auth-section');
-    const container = document.querySelector('.container');
+  const authState = loadAuthState();
+  const dropdownState = loadDropdownState();
 
-    if (authState) {
-        gapi.client.setToken({ access_token: authState.access_token });
-        sessionId = authState.session_id;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        if (!await isTokenValid()) await refreshAccessToken();
-        currentEvaluator = authState.evaluator;
-        updateUI(true);
-        authSection.classList.remove('signed-out');
-        await loadSheetData();
-        const evaluatorSelect = document.getElementById('evaluatorSelect');
-        if (evaluatorSelect && dropdownState.evaluator) {
-            evaluatorSelect.value = dropdownState.evaluator;
-            currentEvaluator = dropdownState.evaluator;
-        }
-
-        const changePromises = [];
-        if (dropdownState.assignment) {
-            elements.assignmentDropdown.value = dropdownState.assignment;
-            changePromises.push(new Promise(resolve => {
-                elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
-                elements.assignmentDropdown.dispatchEvent(new Event('change'));
-            }));
-        }
-        if (dropdownState.position) {
-            elements.positionDropdown.value = dropdownState.position;
-            changePromises.push(new Promise(resolve => {
-                elements.positionDropdown.addEventListener('change', resolve, { once: true });
-                elements.positionDropdown.dispatchEvent(new Event('change'));
-            }));
-        }
-        if (dropdownState.item) {
-            elements.itemDropdown.value = dropdownState.item;
-            changePromises.push(new Promise(resolve => {
-                elements.itemDropdown.addEventListener('change', resolve, { once: true });
-                elements.itemDropdown.dispatchEvent(new Event('change'));
-            }));
-        }
-        if (dropdownState.name) {
-            elements.nameDropdown.value = dropdownState.name;
-            changePromises.push(new Promise(resolve => {
-                elements.nameDropdown.addEventListener('change', resolve, { once: true });
-                elements.nameDropdown.dispatchEvent(new Event('change'));
-            }));
-        }
-
-        await Promise.all(changePromises);
-        if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
-            fetchSubmittedRatings();
-        }
-        console.log('State restored, UI should be visible');
-    } else {
-        const urlParams = new URLSearchParams(window.location.search);
-        const accessToken = urlParams.get('access_token');
-        const expiresIn = urlParams.get('expires_in');
-        sessionId = urlParams.get('session_id');
-        if (accessToken && sessionId) {
-            handleTokenCallback({
-                access_token: accessToken,
-                expires_in: parseInt(expiresIn, 10),
-                session_id: sessionId,
-            });
-            window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
-        } else {
-            updateUI(false);
-            currentEvaluator = null;
-            vacancies = [];
-            candidates = [];
-            compeCodes = [];
-            competencies = [];
-            resetDropdowns([]);
-            container.style.marginTop = '20px';
-            authSection.classList.add('signed-out');
-            const resultsArea = document.querySelector('.results-area');
-            if (resultsArea) resultsArea.remove();
-            console.log('No auth state, showing sign-in UI');
-        }
+  if (authState) {
+    gapi.client.setToken({ access_token: authState.access_token });
+    sessionId = authState.session_id;
+    await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay
+    if (!await isTokenValid()) await refreshAccessToken();
+    currentEvaluator = authState.evaluator;
+    elements.authStatus.textContent = 'Signed in';
+    elements.signInBtn.style.display = 'none';
+    elements.signOutBtn.style.display = 'block';
+    await loadSheetData();
+    const evaluatorSelect = document.getElementById('evaluatorSelect');
+    if (evaluatorSelect && dropdownState.evaluator) {
+      evaluatorSelect.value = dropdownState.evaluator;
+      currentEvaluator = dropdownState.evaluator;
     }
-}
 
-function restoreDropdowns(dropdownState) {
-    const promises = [];
+    const changePromises = [];
     if (dropdownState.assignment) {
-        elements.assignmentDropdown.value = dropdownState.assignment;
-        promises.push(triggerChange(elements.assignmentDropdown));
+      elements.assignmentDropdown.value = dropdownState.assignment;
+      changePromises.push(new Promise(resolve => {
+        elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
+        elements.assignmentDropdown.dispatchEvent(new Event('change'));
+      }));
     }
     if (dropdownState.position) {
-        elements.positionDropdown.value = dropdownState.position;
-        promises.push(triggerChange(elements.positionDropdown));
+      elements.positionDropdown.value = dropdownState.position;
+      changePromises.push(new Promise(resolve => {
+        elements.positionDropdown.addEventListener('change', resolve, { once: true });
+        elements.positionDropdown.dispatchEvent(new Event('change'));
+      }));
     }
     if (dropdownState.item) {
-        elements.itemDropdown.value = dropdownState.item;
-        promises.push(triggerChange(elements.itemDropdown));
+      elements.itemDropdown.value = dropdownState.item;
+      changePromises.push(new Promise(resolve => {
+        elements.itemDropdown.addEventListener('change', resolve, { once: true });
+        elements.itemDropdown.dispatchEvent(new Event('change'));
+      }));
     }
     if (dropdownState.name) {
-        elements.nameDropdown.value = dropdownState.name;
-        promises.push(triggerChange(elements.nameDropdown));
+      elements.nameDropdown.value = dropdownState.name;
+      changePromises.push(new Promise(resolve => {
+        elements.nameDropdown.addEventListener('change', resolve, { once: true });
+        elements.nameDropdown.dispatchEvent(new Event('change'));
+      }));
     }
-    return Promise.all(promises);
+
+    await Promise.all(changePromises);
+    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
+      fetchSubmittedRatings();
+    }
+  } else {
+    const urlParams = new URLSearchParams(window.location.search);
+    const accessToken = urlParams.get('access_token');
+    const expiresIn = urlParams.get('expires_in');
+    sessionId = urlParams.get('session_id');
+    if (accessToken && sessionId) {
+      handleTokenCallback({
+        access_token: accessToken,
+        expires_in: parseInt(expiresIn, 10),
+        session_id: sessionId,
+      });
+      window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
+    } else {
+      elements.authStatus.textContent = 'Ready to sign in';
+      elements.signInBtn.style.display = 'block';
+      elements.signOutBtn.style.display = 'none';
+      currentEvaluator = null;
+      vacancies = [];
+      candidates = [];
+      compeCodes = [];
+      competencies = [];
+      resetDropdowns([]);
+    }
+  }
 }
 
-function triggerChange(element) {
-    return new Promise(resolve => {
-        element.addEventListener('change', resolve, { once: true });
-        element.dispatchEvent(new Event('change'));
-    });
-}
-
-
-
+fetch(`${API_BASE_URL}/config`)
+  .then((response) => {
+    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+    return response.json();
+  })
+  .then((config) => {
+    CLIENT_ID = config.CLIENT_ID;
+    API_KEY = config.API_KEY;
+    SHEET_ID = config.SHEET_ID;
+    SCOPES = config.SCOPES;
+    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
+    SHEET_RANGES = config.SHEET_RANGES;
+    initializeApp();
+  })
+  .catch((error) => {
+    console.error("Error fetching config:", error);
+    elements.authStatus.textContent = 'Error loading configuration';
+  });
 
 function initializeApp() {
-    gapi.load('client', async () => {
-        await initializeGapiClient();
-        gapiInitialized = true;
-        console.log('GAPI client initialized');
-        maybeEnableButtons();
-        createEvaluatorSelector();
-        restoreState();
-        console.log('App initialized, checking UI elements');
-        const ratingForm = document.querySelector('.rating-form');
-        console.log('Rating form exists:', !!ratingForm);
-        console.log('Assignment dropdown options:', elements.assignmentDropdown.options.length);
-    });
+  gapi.load('client', async () => {
+    await initializeGapiClient();
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
+    maybeEnableButtons();
+    createEvaluatorSelector();
+    restoreState();
+  });
 }
 
 async function initializeGapiClient() {
@@ -312,7 +289,9 @@ function handleTokenCallback(tokenResponse) {
   } else {
     saveAuthState(tokenResponse, currentEvaluator);
     gapi.client.setToken({ access_token: tokenResponse.access_token });
-    updateUI(true);
+    elements.authStatus.textContent = 'Signed in';
+    elements.signInBtn.style.display = 'none';
+    elements.signOutBtn.style.display = 'block';
     fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
       .then(() => {
         createEvaluatorSelector();
@@ -379,7 +358,8 @@ async function handleEvaluatorSelection(event) {
 
   const modalContent = `
     <p>Please enter the password for ${newSelection}:</p>
-    <input type="password" id="evaluatorPassword" class="modal-input">
+    <input type="password" id="evaluatorPassword" class="modal-input" 
+           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
   `;
 
   showModal('Evaluator Authentication', modalContent, () => {
@@ -406,7 +386,9 @@ function handleAuthClick() {
 }
 
 function handleSignOutClick() {
-  const modalContent = `<p>Are you sure you want to sign out?</p>`;
+  const modalContent = `
+    <p>Are you sure you want to sign out?</p>
+  `;
   showModal('Confirm Sign Out', modalContent, () => {
     gapi.client.setToken(null);
     localStorage.clear();
@@ -419,7 +401,9 @@ function handleSignOutClick() {
     competencies = [];
     submissionQueue = [];
     console.log('Global variables reset');
-    updateUI(false);
+    elements.authStatus.textContent = 'Signed out';
+    elements.signInBtn.style.display = 'block';
+    elements.signOutBtn.style.display = 'none';
     resetDropdowns([]);
     elements.competencyContainer.innerHTML = '';
     clearRatings();
@@ -439,38 +423,10 @@ function handleSignOutClick() {
       clearTimeout(refreshTimer);
       refreshTimer = null;
     }
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) {
-      resultsArea.remove();
-    }
-    const container = document.querySelector('.container');
-    container.style.marginTop = '20px';
-    const authSection = document.querySelector('.auth-section');
-    authSection.classList.add('signed-out');
     showToast('success', 'Signed Out', 'You have been successfully signed out.');
   }, () => {
     console.log('Sign out canceled');
   });
-}
-
-function updateUI(isSignedIn) {
-    console.log('Updating UI, isSignedIn:', isSignedIn);
-    elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
-    elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
-    elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
-    const ratingForm = document.querySelector('.rating-form');
-    if (ratingForm) {
-        ratingForm.style.display = isSignedIn ? 'block' : 'none';
-        console.log('Rating form display set to:', ratingForm.style.display);
-    } else {
-        console.warn('Rating form not found, retrying in 500ms');
-        setTimeout(() => updateUI(isSignedIn), 500);
-    }
-    if (!isSignedIn) {
-        elements.competencyContainer.innerHTML = '';
-        const resultsArea = document.querySelector('.results-area');
-        if (resultsArea) resultsArea.classList.remove('active');
-    }
 }
 
 async function loadSheetData(maxRetries = 3) {
@@ -494,7 +450,7 @@ async function loadSheetData(maxRetries = 3) {
       competencies = data[3]?.result?.values || [];
       console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
       initializeDropdowns(vacancies);
-      updateUI(true);
+      elements.authStatus.textContent = 'Signed in';
       return;
     } catch (error) {
       console.error(`Attempt ${attempt} failed:`, error);
@@ -524,136 +480,128 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
 }
 
 function initializeDropdowns(vacancies) {
-    console.log('Initializing dropdowns with vacancies:', vacancies);
-    function setDropdownState(dropdown, enabled) {
-        dropdown.disabled = !enabled;
-        if (!enabled) {
-            dropdown.value = '';
-            dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+  function setDropdownState(dropdown, enabled) {
+    dropdown.disabled = !enabled;
+    if (!enabled) {
+      dropdown.value = '';
+      dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+    }
+  }
+
+  elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
+  elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
+  elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
+  elements.nameDropdown.setAttribute('data-placeholder', 'Select Name');
+
+  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+  updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
+
+  setDropdownState(elements.positionDropdown, false);
+  setDropdownState(elements.itemDropdown, false);
+  setDropdownState(elements.nameDropdown, false);
+
+  elements.assignmentDropdown.addEventListener('change', async () => {
+    const assignment = elements.assignmentDropdown.value;
+    const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
+    let isAuthorized = true;
+
+    if (assignment && requiresPassword) {
+      const authKey = `currentAssignmentAuth_${currentEvaluator}`;
+      const storedAssignment = localStorage.getItem(authKey);
+
+      if (storedAssignment !== assignment) {
+        const modalContent = `
+          <p>Please enter the password to access assignment "${assignment}":</p>
+          <input type="password" id="assignmentPassword" class="modal-input" 
+                 style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
+        `;
+        isAuthorized = await new Promise((resolve) => {
+          showModal('Assignment Authentication', modalContent, () => {
+            const passwordInput = document.getElementById('assignmentPassword');
+            const password = passwordInput.value.trim();
+            const isValid = password === "admindan";
+            if (isValid) localStorage.setItem(authKey, assignment);
+            resolve(isValid);
+          });
+        });
+
+        if (!isAuthorized) {
+          showToast('error', 'Error', 'Incorrect password for assignment');
+          elements.assignmentDropdown.value = storedAssignment || '';
+          setDropdownState(elements.positionDropdown, false);
+          setDropdownState(elements.itemDropdown, false);
+          setDropdownState(elements.nameDropdown, false);
+          saveDropdownState();
+          return;
         }
+      }
     }
 
-    elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
-    elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
-    elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
-    elements.nameDropdown.setAttribute('data-placeholder', 'Select Name');
-
-    const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]))];
-    updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
-
-    setDropdownState(elements.positionDropdown, false);
+    if (assignment && isAuthorized) {
+      const positions = vacancies
+        .filter((row) => row[2] === assignment)
+        .map((row) => row[1]);
+      updateDropdown(elements.positionDropdown, [...new Set(positions)], 'Select Position');
+      setDropdownState(elements.positionDropdown, true);
+    } else {
+      setDropdownState(elements.positionDropdown, false);
+    }
     setDropdownState(elements.itemDropdown, false);
     setDropdownState(elements.nameDropdown, false);
+    saveDropdownState();
+  });
 
-    elements.assignmentDropdown.addEventListener('change', async () => {
-        const assignment = elements.assignmentDropdown.value;
-        const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
-        let isAuthorized = true;
+  elements.positionDropdown.addEventListener('change', () => {
+    const assignment = elements.assignmentDropdown.value;
+    const position = elements.positionDropdown.value;
+    if (assignment && position) {
+      const items = vacancies
+        .filter((row) => row[2] === assignment && row[1] === position)
+        .map((row) => row[0]);
+      updateDropdown(elements.itemDropdown, [...new Set(items)], 'Select Item');
+      setDropdownState(elements.itemDropdown, true);
+    } else {
+      setDropdownState(elements.itemDropdown, false);
+    }
+    setDropdownState(elements.nameDropdown, false);
+    saveDropdownState();
+  });
 
-        if (assignment && requiresPassword) {
-            const authKey = `currentAssignmentAuth_${currentEvaluator}`;
-            const storedAssignment = localStorage.getItem(authKey);
+  elements.itemDropdown.addEventListener('change', () => {
+    const item = elements.itemDropdown.value;
+    if (item) {
+      const names = candidates
+        .filter((row) => row[1] === item)
+        .map((row) => row[0]);
+      updateDropdown(elements.nameDropdown, [...new Set(names)], 'Select Name');
+      setDropdownState(elements.nameDropdown, true);
+    } else {
+      setDropdownState(elements.nameDropdown, false);
+    }
+    saveDropdownState();
+  });
 
-            if (storedAssignment !== assignment) {
-                const modalContent = `
-                    <p>Please enter the password to access assignment "${assignment}":</p>
-                    <input type="password" id="assignmentPassword" class="modal-input">
-                `;
-                isAuthorized = await new Promise(resolve => {
-                    showModal('Assignment Authentication', modalContent, () => {
-                        const passwordInput = document.getElementById('assignmentPassword');
-                        const password = passwordInput.value.trim();
-                        const isValid = password === "admindan";
-                        if (isValid) localStorage.setItem(authKey, assignment);
-                        resolve(isValid);
-                    });
-                });
-
-                if (!isAuthorized) {
-                    showToast('error', 'Error', 'Incorrect password for assignment');
-                    elements.assignmentDropdown.value = storedAssignment || '';
-                    setDropdownState(elements.positionDropdown, false);
-                    setDropdownState(elements.itemDropdown, false);
-                    setDropdownState(elements.nameDropdown, false);
-                    saveDropdownState();
-                    return;
-                }
-            }
-        }
-
-        if (assignment && isAuthorized) {
-            const positions = vacancies
-                .filter(row => row[2] === assignment)
-                .map(row => row[1]);
-            updateDropdown(elements.positionDropdown, [...new Set(positions)], 'Select Position');
-            setDropdownState(elements.positionDropdown, true);
-        } else {
-            setDropdownState(elements.positionDropdown, false);
-        }
-        setDropdownState(elements.itemDropdown, false);
-        setDropdownState(elements.nameDropdown, false);
-        saveDropdownState();
-        console.log('Assignment dropdown updated');
-    });
-
-    elements.positionDropdown.addEventListener('change', () => {
-        const assignment = elements.assignmentDropdown.value;
-        const position = elements.positionDropdown.value;
-        if (assignment && position) {
-            const items = vacancies
-                .filter(row => row[2] === assignment && row[1] === position)
-                .map(row => row[0]);
-            updateDropdown(elements.itemDropdown, [...new Set(items)], 'Select Item');
-            setDropdownState(elements.itemDropdown, true);
-        } else {
-            setDropdownState(elements.itemDropdown, false);
-        }
-        setDropdownState(elements.nameDropdown, false);
-        saveDropdownState();
-        console.log('Position dropdown updated');
-    });
-
-    elements.itemDropdown.addEventListener('change', () => {
-        const item = elements.itemDropdown.value;
-        if (item) {
-            const names = candidates
-                .filter(row => row[1] === item)
-                .map(row => row[0]);
-            updateDropdown(elements.nameDropdown, [...new Set(names)], 'Select Name');
-            setDropdownState(elements.nameDropdown, true);
-        } else {
-            setDropdownState(elements.nameDropdown, false);
-        }
-        saveDropdownState();
-        console.log('Item dropdown updated');
-    });
-
-    elements.nameDropdown.addEventListener('change', async () => {
-        const item = elements.itemDropdown.value;
-        const name = elements.nameDropdown.value;
-        if (item && name) {
-            displayCandidatesTable(name, item);
-            const selectedCodes = compeCodes
-                .filter(row => row[0] === item)
-                .flatMap(row => row[1].split(','));
-            const relatedCompetencies = competencies
-                .filter(row => row[0] && selectedCodes.includes(row[0]))
-                .map(row => row[1]);
-            await displayCompetencies(name, relatedCompetencies);
-            if (currentEvaluator && name && item) {
-                clearRatings();
-                fetchSubmittedRatings();
-            }
-        } else {
-            clearRatings();
-        }
-        saveDropdownState();
-        console.log('Name dropdown updated');
-    });
-
-    // Force DOM update
-    elements.ratingForm.style.display = 'block';
-    console.log('Dropdowns initialized, rating form displayed');
+  elements.nameDropdown.addEventListener('change', async () => {
+    const item = elements.itemDropdown.value;
+    const name = elements.nameDropdown.value;
+    if (item && name) {
+      displayCandidatesTable(name, item);
+      const selectedCodes = compeCodes
+        .filter((row) => row[0] === item)
+        .flatMap((row) => row[1].split(','));
+      const relatedCompetencies = competencies
+        .filter((row) => row[0] && selectedCodes.includes(row[0]))
+        .map((row) => row[1]);
+      await displayCompetencies(name, relatedCompetencies);
+      if (currentEvaluator && name && item) {
+        clearRatings();
+        fetchSubmittedRatings();
+      }
+    } else {
+      clearRatings();
+    }
+    saveDropdownState();
+  });
 }
 
 function resetDropdowns(vacancies) {
@@ -809,21 +757,13 @@ async function submitRatings() {
     const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
     const isUpdate = existingRatings.length > 0;
 
-    let tempRatings = {};
     if (isUpdate) {
-      const isVerified = await verifyEvaluatorPassword(existingRatings);
+      const isVerified = await verifyEvaluatorPassword();
       if (!isVerified) {
         revertToExistingRatings(existingRatings);
-        showToast('warning', 'Update Canceled', 'Ratings reverted to original values');
+        showToast('warning', 'Update Canceled', 'Ratings reverted');
         return;
       }
-      // Store current ratings before update
-      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-      Array.from(competencyItems).forEach(item => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
-        if (rating) tempRatings[competencyName] = rating;
-      });
     }
 
     const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
@@ -832,61 +772,42 @@ async function submitRatings() {
       return;
     }
 
-    const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
-    const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
+    // Fetch summary ratings from the results tiles
+    const basicRating = document.getElementById('basic-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const orgRating = document.getElementById('organizational-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const minRating = document.getElementById('minimum-rating-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const psychoSocialRating = document.getElementById('psychosocial-tile')?.querySelector('.tile-value')?.textContent || '0.00';
+    const potentialRating = document.getElementById('potential-tile')?.querySelector('.tile-value')?.textContent || '0.00';
 
-    let modalContent = `
-      <div class="modal-body">
-        <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
-        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
-        <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
-        <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${candidateName}</span></div>
-        <div class="modal-section">
-          <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
-          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
-          <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
-    `;
-
-    if (isUpdate) {
-      modalContent += '<h4>CHANGES:</h4>';
-      ratings.forEach(row => {
-        const competencyName = row[3];
-        const newRating = row[4];
-        const oldRating = existingRatings.find(r => r[3] === competencyName)?.[4] || 'N/A';
-        if (oldRating !== newRating) {
-          modalContent += `
-            <div class="modal-field">
-              <span class="modal-label">${competencyName}:</span>
-              <span class="modal-value rating-value">${oldRating} → ${newRating}</span>
-            </div>
-          `;
-        }
-      });
-    }
-
-    modalContent += `
-        </div>
-      </div>
+    // Build modal content with dropdowns and summary ratings
+    const modalContent = `
+      <p><strong>Evaluator:</strong> ${currentEvaluator}</p>
+      <p><strong>Assignment:</strong> ${elements.assignmentDropdown.value}</p>
+      <p><strong>Position:</strong> ${elements.positionDropdown.value}</p>
+      <p><strong>Item:</strong> ${item}</p>
+      <p><strong>Name:</strong> ${candidateName}</p>
+      <h4>Summary Ratings to ${isUpdate ? 'Update' : 'Submit'}:</h4>
+      <ul style="list-style: none; padding: 0;">
+        <li><strong>Basic Competencies:</strong> ${basicRating}</li>
+        <li><strong>Organizational Competencies:</strong> ${orgRating}</li>
+        <li><strong>Minimum Competencies:</strong> ${minRating}</li>
+        <li><strong>Psycho-Social Attributes:</strong> ${psychoSocialRating}</li>
+        <li><strong>Potential:</strong> ${potentialRating}</li>
+      </ul>
     `;
 
     showModal(
-      `CONFIRM ${isUpdate ? 'UPDATE' : 'SUBMISSION'}`,
+      `Confirm ${isUpdate ? 'Update' : 'Submission'}`,
       modalContent,
       () => {
+        // On confirm, queue the submission
         submissionQueue.push(ratings);
         showSubmittingIndicator();
         processSubmissionQueue();
       },
       () => {
-        if (isUpdate) {
-          revertToExistingRatings(existingRatings);
-          showToast('info', 'Canceled', 'Ratings reverted to original values');
-        } else {
-          console.log('Submission canceled');
-          showToast('info', 'Canceled', 'Ratings submission aborted');
-        }
+        console.log('Submission canceled');
+        showToast('info', 'Canceled', 'Ratings submission aborted');
       }
     );
   } catch (error) {
@@ -901,14 +822,32 @@ function showSubmittingIndicator() {
   if (!indicator) {
     indicator = document.createElement('div');
     indicator.id = 'submittingIndicator';
-    indicator.className = 'submitting-indicator';
     indicator.innerHTML = `
-      <div class="submitting-content">
+      <div style="display: flex; align-items: center; gap: 10px; color: #555;">
         <span class="spinner"></span>
-        <span>SUBMITTING...</span>
+        <span>Submitting...</span>
       </div>
     `;
+    indicator.style.cssText = 'position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background: #f0f0f0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2);';
     document.body.appendChild(indicator);
+
+    // Add spinner CSS
+    const style = document.createElement('style');
+    style.innerHTML = `
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 3px solid #ccc;
+        border-top: 3px solid #333;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
   }
 }
 
@@ -929,26 +868,18 @@ async function processSubmissionQueue() {
       const candidateName = ratings[0][2];
       const item = ratings[0][1];
       localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showModal(
-        'Submission Successful',
-        `<p>${result.message}</p>`,
-        () => {
-          console.log('Success modal closed');
-          fetchSubmittedRatings();
-        },
-        null,
-        false
-      );
+      showToast('success', 'Success', result.message, 5000, 'center');
+      fetchSubmittedRatings();
     }
   } catch (error) {
     console.error('Queue submission failed:', error);
     showToast('error', 'Error', error.message);
-    submissionQueue.unshift(ratings);
-    setTimeout(processSubmissionQueue, 5000);
+    submissionQueue.unshift(ratings); // Re-queue on failure
+    setTimeout(processSubmissionQueue, 5000); // Retry after 5s
   } finally {
     isSubmitting = false;
     hideSubmittingIndicator();
-    processSubmissionQueue();
+    processSubmissionQueue(); // Next in line
   }
 }
 
@@ -975,36 +906,24 @@ function revertToExistingRatings(existingRatings) {
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
   Array.from(competencyItems).forEach(item => {
     const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
+    const existingRating = existingRatings.find(row => row[3] === competencyName);
     if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
-    } else {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => radio.checked = false);
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating[4]}"]`);
+      if (radio) radio.checked = true;
     }
   });
 }
 
-async function verifyEvaluatorPassword(existingRatings) {
+async function verifyEvaluatorPassword() {
   return new Promise((resolve) => {
     const modalContent = `
-      <p>Please verify password for ${currentEvaluator} to update ratings:</p>
-      <input type="password" id="verificationPassword" class="modal-input">
+      <p>Please verify password for ${currentEvaluator}:</p>
+      <input type="password" id="verificationPassword" class="modal-input" 
+             style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;">
     `;
     showModal('Password Verification', modalContent, () => {
       const password = document.getElementById('verificationPassword').value;
-      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    }, () => {
-      revertToExistingRatings(existingRatings);
-      resolve(false);
+      resolve(password === EVALUATOR_PASSWORDS[currentEvaluator]);
     });
   });
 }
@@ -1042,8 +961,8 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
 }
 
 async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:I1";
-  const LOCK_TIMEOUT = 15000;
+  const lockRange = "RATELOG!G1:I1"; // Extended for owner
+  const LOCK_TIMEOUT = 15000; // 15s
   let retryCount = 0;
   let lockAcquired = false;
 
@@ -1184,6 +1103,13 @@ async function displayCandidatesTable(name, itemNumber) {
   const container = document.getElementById('candidates-table');
   container.innerHTML = '';
 
+  const headerSection = document.createElement('div');
+  headerSection.innerHTML = `
+    <h2 style="font-size: 22px; text-align: center;">YOU ARE RATING</h2>
+    <h2 style="font-size: 36px; text-align: center;">${name}</h2>
+  `;
+  container.appendChild(headerSection);
+
   const candidateRow = candidates.find(row => row[0] === name && row[1] === itemNumber);
   if (candidateRow) {
     const tilesContainer = document.createElement('div');
@@ -1218,11 +1144,9 @@ async function displayCandidatesTable(name, itemNumber) {
       } else {
         const button = document.createElement('button');
         button.classList.add('open-link-button');
-        button.textContent = value ? 'View Document' : 'NONE';
+        button.textContent = value ? 'Open Link' : 'NONE';
         if (value) {
-          button.addEventListener('click', () => {
-            window.open(value, '_blank'); // Open the original Google Drive link in a new tab
-          });
+          button.addEventListener('click', () => window.open(value, '_blank'));
         } else {
           button.disabled = true;
         }
@@ -1233,6 +1157,23 @@ async function displayCandidatesTable(name, itemNumber) {
     });
 
     container.appendChild(tilesContainer);
+
+    const existingStyle = document.getElementById('candidates-table-styles');
+    if (!existingStyle) {
+      const style = document.createElement('style');
+      style.id = 'candidates-table-styles';
+      style.innerHTML = `
+        .tiles-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; justify-items: center; padding: 20px; }
+        .tile { border: 1px solid #ccc; border-radius: 8px; padding: 10px; background-color: #f9f9f9; width: 100%; text-align: center; word-wrap: break-word; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; max-height: 200px; }
+        .tile h4 { font-size: 14px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+        .tile-content p { font-size: 12px; font-weight: bold; color: #333; word-wrap: break-word; overflow: hidden; text-overflow: ellipsis; white-space: normal; margin: 5px 0; }
+        .tile-content p.no-data { color: #888; font-style: italic; }
+        .open-link-button { background-color: rgb(65, 65, 65); color: white; border: none; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 10px; }
+        .open-link-button:hover { background-color: rgb(0, 0, 0); }
+        .open-link-button:disabled { background-color: #ccc; cursor: not-allowed; }
+      `;
+      document.head.appendChild(style);
+    }
   } else {
     container.innerHTML = '<p>No matching data found.</p>';
   }
@@ -1265,12 +1206,12 @@ async function displayCompetencies(name, competencies) {
 
   elements.competencyContainer.innerHTML = `
     <div class="competency-section" id="basic-competencies">
-      <h3 class="section-title">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
+      <h3 style="font-size: 32px;">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
       <h3>BASIC COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
     <div class="competency-section" id="organizational-competencies">
-      <h3 class="section-title">POTENTIAL</h3>
+      <h3 style="font-size: 32px;">POTENTIAL</h3>
       <h3>ORGANIZATIONAL COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
@@ -1278,45 +1219,53 @@ async function displayCompetencies(name, competencies) {
       <h3>MINIMUM COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
+    <div class="results-area">
+      <h3 style="font-size: 32px;">RATING RESULTS</h3>
+      <div class="row">
+        <div class="result-tile small-tile" id="basic-rating-tile">
+          <span class="tile-label">BASIC COMPETENCIES:</span>
+          <span class="tile-value">0.00</span>
+        </div>
+        <div class="result-tile small-tile" id="organizational-rating-tile">
+          <span class="tile-label">ORGANIZATIONAL COMPETENCIES:</span>
+          <span class="tile-value">0.00</span>
+        </div>
+        <div class="result-tile small-tile" id="minimum-rating-tile">
+          <span class="tile-label">MINIMUM COMPETENCIES:</span>
+          <span class="tile-value">0.00</span>
+        </div>
+      </div>
+      <div class="row">
+        <div class="result-tile large-tile" id="psychosocial-tile">
+          <span class="tile-label">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS:</span>
+          <span class="tile-value">0.00</span>
+        </div>
+        <div class="result-tile large-tile" id="potential-tile">
+          <span class="tile-label">POTENTIAL:</span>
+          <span class="tile-value">0.00</span>
+        </div>
+      </div>
+    </div>
     <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
   `;
 
-  let resultsArea = document.querySelector('.results-area');
-  const pageWrapper = document.querySelector('.page-wrapper');
-  if (!resultsArea) {
-    resultsArea = document.createElement('div');
-    resultsArea.className = 'results-area';
-    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild);
-  }
-  resultsArea.classList.add('active');
-  resultsArea.innerHTML = `
-    <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
-    <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
-    <div class="grid-container">
-      <div class="dropdown-info">
-        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
-      </div>
-    </div>
-    <div class="prominent-ratings">
-      <div><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
-      <div><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
-    </div>
+  const style = document.createElement("style");
+  style.innerHTML = `
+    .results-area { display: flex; flex-direction: column; align-items: center; gap: 20px; margin: 30px 0; text-align: center; }
+    .row { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; width: 100%; }
+    .result-tile { padding: 30px; border-radius: 12px; border: 1px solid #666; background-color: #f9f9f9; color: #222; text-transform: uppercase; display: flex; flex-direction: column; gap: 20px; justify-content: center; align-items: center; text-align: center; min-height: 140px; font-weight: bold; flex: 1 1 200px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1); transition: transform 0.2s; }
+    .result-tile:hover { transform: scale(1.05); }
+    .tile-label { font-size: clamp(1rem, 2.5vw, 1.5rem); width: 100%; color: #555; }
+    .tile-value { font-size: clamp(2.2rem, 5vw, 3.2rem); color: #111; font-weight: 900; }
+    .small-tile { flex: 1 1 200px; background-color: #ffffff; }
+    .large-tile { flex: 1 1 350px; background-color: #eaf4f4; }
+    .large-tile .tile-label { font-size: clamp(1.3rem, 2.8vw, 1.8rem); }
+    .large-tile .tile-value { font-size: clamp(2.8rem, 5.5vw, 3.8rem); }
+    .btn-reset { margin-top: 25px; padding: 10px 20px; font-size: 1rem; color: #333; background-color: #fff; border: 1px solid #666; border-radius: 6px; cursor: pointer; }
+    .btn-reset:hover { background-color: #d9534f; color: white; }
+    @media (max-width: 768px) { .row { flex-direction: column; } .result-tile { padding: 20px; min-height: 100px; flex: 1 1 90%; } }
   `;
-
-  const container = document.querySelector('.container');
-  const updateMarginTop = () => {
-    const resultsHeight = resultsArea.offsetHeight + 20;
-    container.style.marginTop = `${resultsHeight}px`;
-  };
-  
-  updateMarginTop();
-  window.addEventListener('resize', updateMarginTop);
+  document.head.appendChild(style);
 
   const basicCompetencyRatings = Array(competenciesColumn1.length).fill(0);
   const organizationalCompetencyRatings = Array(competenciesColumn2.length).fill(0);
@@ -1369,212 +1318,118 @@ async function displayCompetencies(name, competencies) {
 
   function computeTotalBasicRating() {
     const totalRating = basicCompetencyRatings.filter(r => r > 0).reduce((sum, r) => sum + (r / 5) * 2, 0);
-    document.getElementById("basic-rating-value").textContent = totalRating.toFixed(2);
+    document.getElementById("basic-rating-tile").querySelector('.tile-value').textContent = totalRating.toFixed(2);
   }
 
   function computeOrganizationalRating() {
     const totalRating = organizationalCompetencyRatings.filter(r => r > 0).reduce((sum, r) => sum + r / 5, 0);
-    document.getElementById("organizational-rating-value").textContent = totalRating.toFixed(2);
+    document.getElementById("organizational-rating-tile").querySelector('.tile-value').textContent = totalRating.toFixed(2);
   }
 
   function computeMinimumRating() {
     const totalRating = minimumCompetencyRatings.filter(r => r > 0).reduce((sum, r) => sum + r / minimumCompetencyRatings.length, 0);
-    document.getElementById("minimum-rating-value").textContent = totalRating.toFixed(2);
+    document.getElementById("minimum-rating-tile").querySelector('.tile-value').textContent = totalRating.toFixed(2);
   }
 
   function computePsychosocial() {
-    const basicTotal = parseFloat(document.getElementById("basic-rating-value").textContent) || 0;
-    document.getElementById("psychosocial-rating-value").textContent = basicTotal.toFixed(2);
+    const basicTotal = parseFloat(document.getElementById("basic-rating-tile").querySelector('.tile-value').textContent) || 0;
+    document.getElementById("psychosocial-tile").querySelector('.tile-value').textContent = basicTotal.toFixed(2);
   }
 
   function computePotential() {
-    const organizationalTotal = parseFloat(document.getElementById("organizational-rating-value").textContent) || 0;
-    const minimumTotal = parseFloat(document.getElementById("minimum-rating-value").textContent) || 0;
+    const organizationalTotal = parseFloat(document.getElementById("organizational-rating-tile").querySelector('.tile-value').textContent) || 0;
+    const minimumTotal = parseFloat(document.getElementById("minimum-rating-tile").querySelector('.tile-value').textContent) || 0;
     const potential = ((organizationalTotal + minimumTotal) / 2) * 2;
-    document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
+    document.getElementById("potential-tile").querySelector('.tile-value').textContent = potential.toFixed(2);
   }
 
-  document.getElementById('reset-ratings').addEventListener('click', () => {
-    showModal(
-      'CONFIRM RESET',
-      '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
-      () => {
-        clearRatings();
-        computeTotalBasicRating();
-        computeOrganizationalRating();
-        computeMinimumRating();
-        computePsychosocial();
-        computePotential();
-        localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
-        elements.submitRatings.disabled = true;
-        showToast('success', 'Reset Complete', 'All ratings have been cleared.');
-      }
-    );
+  document.getElementById("reset-ratings").addEventListener("click", () => {
+    document.querySelectorAll(".competency-item input[type='radio']").forEach(input => {
+      input.checked = false;
+    });
+    basicCompetencyRatings.fill(0);
+    organizationalCompetencyRatings.fill(0);
+    minimumCompetencyRatings.fill(0);
+    const radioStateKey = `radioState_${name}_${elements.itemDropdown.value}`;
+    localStorage.removeItem(radioStateKey);
+    computeTotalBasicRating();
+    computeOrganizationalRating();
+    computeMinimumRating();
+    computePsychosocial();
+    computePotential();
   });
-
-  loadRadioState(name, elements.itemDropdown.value);
 }
 
-function saveRadioState(competencyName, value, candidateName, item) {
-  const key = `radioState_${candidateName}_${item}`;
-  const state = JSON.parse(localStorage.getItem(key)) || {};
-  state[competencyName] = value;
-  localStorage.setItem(key, JSON.stringify(state));
+function saveRadioState(competency, value, name, item) {
+  const radioStateKey = `radioState_${name}_${item}`;
+  const radioState = JSON.parse(localStorage.getItem(radioStateKey) || '{}');
+  radioState[competency] = value;
+  localStorage.setItem(radioStateKey, JSON.stringify(radioState));
+  console.log(`Saved radio state for ${name} (${item}):`, radioState);
 }
 
-function loadRadioState(candidateName, item) {
-  const key = `radioState_${candidateName}_${item}`;
-  const state = JSON.parse(localStorage.getItem(key)) || {};
+function loadRadioState(name, item) {
+  const radioStateKey = `radioState_${name}_${item}`;
+  const radioState = JSON.parse(localStorage.getItem(radioStateKey) || '{}');
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-
   Array.from(competencyItems).forEach(item => {
     const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const savedValue = state[competencyName];
+    const savedValue = radioState[competencyName];
     if (savedValue) {
-      const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
+      const radio = item.querySelector(`input[value="${savedValue}"]`);
       if (radio) {
         radio.checked = true;
         radio.dispatchEvent(new Event('change'));
+        console.log(`Loaded session state for ${competencyName} (${name}, ${item}): ${savedValue}`);
       }
     }
   });
 }
 
-function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
-    document.body.appendChild(modalOverlay);
-  }
-
-  modalOverlay.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
-      </div>
-      <div class="modal-content">${contentHTML}</div>
-      <div class="modal-actions">
-        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
-        <button id="modalConfirm" class="modal-confirm">Confirm</button>
-      </div>
-    </div>
-  `;
-
-  return new Promise((resolve) => {
-    modalOverlay.classList.add('active');
-    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
-    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
-
-    const closeHandler = (result) => {
-      modalOverlay.classList.remove('active');
-      resolve(result);
-      modalOverlay.removeEventListener('click', outsideClickHandler);
-    };
-
-    confirmBtn.onclick = () => {
-      if (onConfirm) onConfirm();
-      closeHandler(true);
-    };
-
-    if (cancelBtn) {
-      cancelBtn.onclick = () => {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      };
-    }
-
-    const outsideClickHandler = (event) => {
-      if (event.target === modalOverlay) {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      }
-    };
-    modalOverlay.addEventListener('click', outsideClickHandler);
-  });
-}
-
-function showFullScreenModal(title, contentHTML) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
-    document.body.appendChild(modalOverlay);
-  }
-
-  modalOverlay.innerHTML = `
-    <div class="modal full-screen-modal">
-      <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
-      </div>
-      <div class="modal-content full-screen-content">${contentHTML}</div>
-    </div>
-  `;
-
-  modalOverlay.classList.add('active');
-  modalOverlay.addEventListener('click', (event) => {
-    if (event.target === modalOverlay) {
-      modalOverlay.classList.remove('active');
-    }
-  });
-}
-
-function showToast(type, title, message) {
-  const toastContainer = document.createElement('div');
-  toastContainer.className = 'toast-container';
-  document.body.appendChild(toastContainer);
-
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
-    <div class="toast-content">
-      <div class="toast-title">${title}</div>
-      <div class="toast-message">${message}</div>
-    </div>
-    <span class="toast-close">×</span>
-  `;
-  toastContainer.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.animation = 'slideOut 0.3s ease-out forwards';
-    setTimeout(() => toastContainer.remove(), 300);
-  }, 5000);
-
-  toast.querySelector('.toast-close').addEventListener('click', () => {
-    toast.style.animation = 'slideOut 0.3s ease-out forwards';
-    setTimeout(() => toastContainer.remove(), 300);
-  });
-}
-
+// Event Listeners
 elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
-elements.submitRatings.addEventListener('click', submitRatings);
+if (elements.submitRatings) {
+  elements.submitRatings.removeEventListener('click', submitRatings);
+  elements.submitRatings.addEventListener('click', submitRatings);
+  console.log('Submit ratings listener attached');
+}
 
-// Replace existing DOMContentLoaded listener
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM fully loaded');
-    fetch(`${API_BASE_URL}/config`)
-        .then(response => {
-            if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-            return response.json();
-        })
-        .then(config => {
-            CLIENT_ID = config.CLIENT_ID;
-            API_KEY = config.API_KEY;
-            SHEET_ID = config.SHEET_ID;
-            SCOPES = config.SCOPES;
-            EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
-            SHEET_RANGES = config.SHEET_RANGES;
-            initializeApp();
-        })
-        .catch(error => {
-            console.error('Error fetching config:', error);
-            elements.authStatus.textContent = 'Error loading configuration';
-            showToast('error', 'Config Error', 'Failed to load configuration');
-        });
-});
+// Enhanced Modal and Toast (basic implementations)
+function showModal(title, content, onConfirm, onCancel) {
+  const modal = document.createElement('div');
+  modal.className = 'custom-modal';
+  modal.innerHTML = `
+    <div class="modal-content" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); max-width: 500px; width: 90%;">
+      <h3>${title}</h3>
+      <div>${content}</div>
+      <div style="margin-top: 20px; text-align: right;">
+        <button id="modalConfirm" style="padding: 8px 16px; margin-right: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Confirm</button>
+        <button id="modalCancel" style="padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+      </div>
+    </div>
+  `;
+  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;';
+  document.body.appendChild(modal);
+
+  document.getElementById('modalConfirm').onclick = () => {
+    document.body.removeChild(modal);
+    onConfirm();
+  };
+  document.getElementById('modalCancel').onclick = () => {
+    document.body.removeChild(modal);
+    if (onCancel) onCancel();
+  };
+}
+
+function showToast(type, title, message, duration = 3000, position = 'top-right') {
+  const toast = document.createElement('div');
+  toast.innerHTML = `<strong>${title}</strong>: ${message}`;
+  toast.style.cssText = `
+    position: fixed; ${position.includes('top') ? 'top: 20px;' : 'bottom: 20px;'} ${position.includes('right') ? 'right: 20px;' : 'left: 20px;'}
+    padding: 10px 20px; background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#ffc107'};
+    color: white; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 1000;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => document.body.removeChild(toast), duration);
+}
