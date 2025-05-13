@@ -496,14 +496,6 @@ function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
   });
 }
 
-function setDropdownState(dropdown, enabled) {
-    dropdown.disabled = !enabled;
-    if (!enabled) {
-      dropdown.value = '';
-      dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
-    }
-  }
-
 function initializeDropdowns(vacancies) {
   elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
   elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
@@ -634,6 +626,14 @@ function initializeDropdowns(vacancies) {
 
   saveDropdownState();
 });
+
+function setDropdownState(dropdown, enabled) {
+  dropdown.disabled = !enabled;
+  if (!enabled) {
+    dropdown.value = '';
+    dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+  }
+}
 
 
 function resetDropdowns(vacancies) {
