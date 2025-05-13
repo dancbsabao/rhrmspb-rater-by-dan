@@ -1,122 +1,138 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DENR CALABARZON COMPETENCY RATING SYSTEM</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
-    <link rel="stylesheet" href="frontend/styles.css?v=4">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DENR CALABARZON COMPETENCY RATING SYSTEM</title>
+  <link rel="stylesheet" href="frontend/styles.css?v=4">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js" defer></script>
+  <script src="https://apis.google.com/js/api.js" defer></script>
 </head>
 <body>
-    <div class="page-wrapper">
-        <div class="results-area" id="resultsArea">
-            <!-- Placeholder for dynamically generated content -->
-        </div>
-        <div class="container">
-            <div class="auth-section">
-                <h1>
-                    DENR CALABARZON<br>
-                    COMPETENCY RATING SYSTEM
-                </h1>
-                <p id="authStatus">Initializing...</p>
-                <button id="signInBtn">Sign in with Google</button>
-                <button id="signOutBtn">Sign Out</button>
-            </div>
-            <div class="rating-form">
-                <div class="form-group">
-                    <label for="assignmentDropdown">Assignment:</label>
-                    <select id="assignmentDropdown" required>
-                        <option value="">Select Assignment</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="positionDropdown">Position:</label>
-                    <select id="positionDropdown" required>
-                        <option value="">Select Position</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="itemDropdown">Item:</label>
-                    <select id="itemDropdown" required>
-                        <option value="">Select Item</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="nameDropdown">Name:</label>
-                    <select id="nameDropdown" required>
-                        <option value="">Select Name</option>
-                    </select>
-                </div>
-                <div id="candidates-table"></div>
-                <div id="competencyContainer"></div>
-                <div class="actions">
-                    <button id="submitRatings" disabled>SUBMIT RATINGS</button>
-                </div>
-            </div>
-        </div>
+  <div class="page-wrapper">
+    <div class="results-area" id="resultsArea">
+      <!-- Placeholder for dynamic candidate & rating summary -->
     </div>
-    <div class="toast-container" id="toastContainer"></div>
 
-    <script src="https://apis.google.com/js/api.js"></script>
-    <script src="frontend/script.js"></script>
+    <div class="container">
+      <div class="auth-section signed-out">
+        <h1>
+          DENR CALABARZON<br>
+          COMPETENCY RATING SYSTEM
+        </h1>
+        <p id="authStatus">Initializing...</p>
+        <button id="signInBtn" style="display: none;">Sign in with Google</button>
+        <button id="signOutBtn" style="display: none;">Sign Out</button>
+      </div>
 
-    <script>
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'childList' || mutation.type === 'characterData') {
-                    const authStatus = document.getElementById('authStatus').textContent;
-                    const ratingForm = document.querySelector('.rating-form');
-                    if (authStatus === 'Signed in') {
-                        ratingForm.style.display = 'block';
-                    } else {
-                        ratingForm.style.display = 'none';
-                    }
-                }
-            });
-        });
-        observer.observe(document.getElementById('authStatus'), {
-            childList: true,
-            characterData: true,
-            subtree: true
-        });
+      <div class="rating-form" style="display: none;">
+        <!-- Evaluator select will be dynamically injected here -->
 
-        function showToast(type, title, message, duration = 5000, position = 'top-right') {
-            const toastContainer = document.getElementById('toastContainer');
-            toastContainer.className = `toast-container ${position}`;
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            let icon;
-            switch(type) {
-                case 'success': icon = 'fa-check-circle'; break;
-                case 'error': icon = 'fa-exclamation-circle'; break;
-                case 'info': icon = 'fa-info-circle'; break;
-                case 'warning': icon = 'fa-exclamation-triangle'; break;
-            }
-            toast.innerHTML = `
-                <i class="fas ${icon} toast-icon"></i>
-                <div class="toast-content">
-                    <div class="toast-title">${title}</div>
-                    <div class="toast-message">${message}</div>
-                </div>
-                <div class="toast-close" onclick="this.parentElement.remove()">×</div>
-            `;
-            toastContainer.appendChild(toast);
-            requestAnimationFrame(() => { toast.style.opacity = '1'; });
-            setTimeout(() => {
-                if (position === 'center') {
-                    toast.style.animation = 'fadeScaleOut 0.3s ease-out forwards';
-                } else {
-                    toast.style.animation = 'slideOut 0.3s ease-out forwards';
-                }
-                setTimeout(() => toast.remove(), 300);
-            }, duration);
+        <div class="form-group">
+          <label for="assignmentDropdown">Assignment:</label>
+          <select id="assignmentDropdown" required>
+            <option value="">Select Assignment</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="positionDropdown">Position:</label>
+          <select id="positionDropdown" required>
+            <option value="">Select Position</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="itemDropdown">Item:</label>
+          <select id="itemDropdown" required>
+            <option value="">Select Item</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="nameDropdown">Name:</label>
+          <select id="nameDropdown" required>
+            <option value="">Select Name</option>
+          </select>
+        </div>
+
+        <div id="candidates-table"></div>
+        <div id="competencyContainer"></div>
+
+        <div class="actions">
+          <button id="submitRatings" disabled>SUBMIT RATINGS</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast and modal containers -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <footer class="site-footer">
+    <p>© 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.</p>
+  </footer>
+
+  <!-- Load main app logic at the end, when DOM is ready -->
+  <script src="frontend/script.js"></script>
+
+  <!-- Optional DOM observer script to show/hide rating form -->
+  <script>
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          const authStatus = document.getElementById('authStatus').textContent;
+          const ratingForm = document.querySelector('.rating-form');
+          if (authStatus.toUpperCase().includes('SIGNED IN')) {
+            ratingForm.style.display = 'block';
+          } else {
+            ratingForm.style.display = 'none';
+          }
         }
+      });
+    });
+    observer.observe(document.getElementById('authStatus'), {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
 
-        window.alert = function(message) { showToast('info', 'Notice', message); };
-    </script>
+    // Toast fallback override
+    function showToast(type, title, message, duration = 5000, position = 'top-right') {
+      const toastContainer = document.getElementById('toastContainer');
+      toastContainer.className = `toast-container ${position}`;
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      let icon;
+      switch(type) {
+        case 'success': icon = 'fa-check-circle'; break;
+        case 'error': icon = 'fa-exclamation-circle'; break;
+        case 'info': icon = 'fa-info-circle'; break;
+        case 'warning': icon = 'fa-exclamation-triangle'; break;
+      }
+      toast.innerHTML = `
+        <i class="fas ${icon} toast-icon"></i>
+        <div class="toast-content">
+          <div class="toast-title">${title}</div>
+          <div class="toast-message">${message}</div>
+        </div>
+        <div class="toast-close" onclick="this.parentElement.remove()">×</div>
+      `;
+      toastContainer.appendChild(toast);
+      requestAnimationFrame(() => { toast.style.opacity = '1'; });
+      setTimeout(() => {
+        if (position === 'center') {
+          toast.style.animation = 'fadeScaleOut 0.3s ease-out forwards';
+        } else {
+          toast.style.animation = 'slideOut 0.3s ease-out forwards';
+        }
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
 
-    <footer class="site-footer">
-        <p>© 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.</p>
-    </footer>
+    window.alert = function(message) {
+      showToast('info', 'Notice', message);
+    };
+  </script>
 </body>
 </html>
