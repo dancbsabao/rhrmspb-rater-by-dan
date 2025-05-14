@@ -10,6 +10,7 @@ let submissionQueue = []; // Queue for pending submissions
 let currentTab = 'rater'; // Track current tab ('rater' or 'secretariat')
 let generalList = [];
 let disqualified = [];
+let rateLog = [];
 let SECRETARIAT_PASSWORD = '';
 
 let CLIENT_ID;
@@ -168,19 +169,34 @@ fetch(`${API_BASE_URL}/config`)
     return response.json();
   })
   .then((config) => {
-    CLIENT_ID = config.CLIENT_ID;
-    API_KEY = config.API_KEY;
-    SHEET_ID = config.SHEET_ID;
-    SCOPES = config.SCOPES;
-    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
-    SHEET_RANGES = config.SHEET_RANGES;
-    SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD;
+    console.log('Config loaded:', config); // Debug log
+    CLIENT_ID = config.CLIENT_ID || '';
+    API_KEY = config.API_KEY || '';
+    SHEET_ID = config.SHEET_ID || '';
+    SCOPES = config.SCOPES || '';
+    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS || [];
+    SHEET_RANGES = config.SHEET_RANGES || {
+      VACANCIES: 'VACANCIES!A:D',
+      CANDIDATES: 'CANDIDATES!A:P',
+      COMPECODE: 'COMPECODE!A:B',
+      COMPETENCY: 'COMPETENCY!A:B',
+      RATELOG: 'RATELOG!A:H',
+      GENERAL_LIST: 'GENERAL_LIST!A:P',
+      DISQUALIFIED: 'DISQUALIFIED!A:D'
+    };
+    SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD || '';
+    if (!SHEET_RANGES.VACANCIES || !SHEET_RANGES.CANDIDATES || !SHEET_RANGES.COMPECODE || !SHEET_RANGES.COMPETENCY) {
+      throw new Error('Incomplete SHEET_RANGES configuration');
+    }
     initializeApp();
   })
   .catch((error) => {
-    console.error("Error fetching config:", error);
+    console.error('Error fetching config:', error);
     elements.authStatus.textContent = 'Error loading configuration';
   });
+
+
+
 
 function initializeApp() {
   gapi.load('client', async () => {
@@ -811,14 +827,11 @@ async function loadSheetData(maxRetries = 3) {
       if (!await isTokenValid()) {
         console.log('Token invalid, refreshed in attempt', attempt);
       }
-      const ranges = [
-        SHEET_RANGES.VACANCIES,
-        SHEET_RANGES.CANDIDATES,
-        SHEET_RANGES.COMPECODE,
-        SHEET_RANGES.ALLCOMPE,
-        'GENERAL_LIST!A:O',
-        'DISQUALIFIED!A:D'
-      ];
+      const ranges = Object.values(SHEET_RANGES).filter(range => range !== undefined); // Skip undefined ranges
+      if (ranges.length === 0) {
+        throw new Error('No valid ranges defined in SHEET_RANGES');
+      }
+      console.log('Fetching ranges:', ranges); // Debug log
       const data = await Promise.all(
         ranges.map((range) =>
           gapi.client.sheets.spreadsheets.values.get({
@@ -827,13 +840,20 @@ async function loadSheetData(maxRetries = 3) {
           })
         )
       );
-      vacancies = data[0]?.result?.values || [];
-      candidates = data[1]?.result?.values || [];
-      compeCodes = data[2]?.result?.values || [];
-      competencies = data[3]?.result?.values || [];
-      generalList = data[4]?.result?.values || [];
-      disqualified = data[5]?.result?.values || [];
-      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies, generalList, disqualified });
+      // Assign data based on SHEET_RANGES keys
+      const rangeKeys = Object.keys(SHEET_RANGES);
+      const dataMap = {};
+      ranges.forEach((range, index) => {
+        dataMap[rangeKeys[index]] = data[index]?.result?.values || [];
+      });
+      vacancies = dataMap.VACANCIES || [];
+      candidates = dataMap.CANDIDATES || [];
+      compeCodes = dataMap.COMPECODE || [];
+      competencies = dataMap.COMPETENCY || [];
+      rateLog = dataMap.RATELOG || [];
+      generalList = dataMap.GENERAL_LIST || [];
+      disqualified = dataMap.DISQUALIFIED || [];
+      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies, rateLog, generalList, disqualified });
       initializeDropdowns(vacancies);
       updateUI(true);
       return;
