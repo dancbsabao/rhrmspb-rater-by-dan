@@ -337,7 +337,6 @@ function maybeEnableButtons() {
 function setupTabNavigation() {
   const raterTab = document.getElementById('raterTab');
   const secretariatTab = document.getElementById('secretariatTab');
-  const submitSecretariatActionsBtn = document.getElementById('submitSecretariatActions');
 
   raterTab.addEventListener('click', () => switchTab('rater'));
   secretariatTab.addEventListener('click', () => {
@@ -346,46 +345,53 @@ function setupTabNavigation() {
       `
         <p>Please enter the Secretariat password:</p>
         <input type="password" id="secretariatPassword" class="modal-input">
+        <p>Select Member ID (1-5):</p>
+        <select id="secretariatMemberId" class="modal-input">
+          <option value="">Select Member</option>
+          <option value="1">Member 1</option>
+          <option value="2">Member 2</option>
+          <option value="3">Member 3</option>
+          <option value="4">Member 4</option>
+          <option value="5">Member 5</option>
+        </select>
       `,
       () => {
         const password = document.getElementById('secretariatPassword').value.trim();
-        if (password === SECRETARIAT_PASSWORD) {
+        const memberId = document.getElementById('secretariatMemberId').value;
+        if (password === SECRETARIAT_PASSWORD && memberId) {
+          secretariatMemberId = memberId;
+          localStorage.setItem('secretariatAuthenticated', 'true');
           switchTab('secretariat');
-          showToast('success', 'Success', 'Logged in as Secretariat');
+          showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
         } else {
-          showToast('error', 'Error', 'Incorrect password');
+          showToast('error', 'Error', 'Incorrect password or missing Member ID');
         }
       }
     );
   });
-
-  // Ensure the submit button has a click listener
-  submitSecretariatActionsBtn.addEventListener('click', submitSecretariatActions);
 }
 
 
 function switchTab(tab) {
   currentTab = tab;
-  const raterTab = document.getElementById('raterTab');
-  const secretariatTab = document.getElementById('secretariatTab');
-  const raterContent = document.getElementById('raterContent');
-  const secretariatContent = document.getElementById('secretariatContent');
-
-  raterTab.classList.toggle('active', tab === 'rater');
-  secretariatTab.classList.toggle('active', tab === 'secretariat');
-  raterContent.style.display = tab === 'rater' ? 'block' : 'none';
-  secretariatContent.style.display = tab === 'secretariat' ? 'block' : 'none';
-
+  localStorage.setItem('currentTab', tab); // Save tab to localStorage
+  document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
+  document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
+  document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
+  document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
   if (tab === 'secretariat') {
     initializeSecretariatDropdowns();
-    displaySecretariatCandidatesTable([], null, null); // Clear table initially
-  } else {
-    resetDropdowns(vacancies);
-    elements.competencyContainer.innerHTML = '';
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) resultsArea.classList.remove('active');
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const savedTab = localStorage.getItem('currentTab');
+  if (savedTab === 'secretariat' && localStorage.getItem('secretariatAuthenticated')) {
+    switchTab('secretariat');
+  } else {
+    switchTab('rater');
+  }
+});
 
 
 function initializeSecretariatDropdowns() {
@@ -450,13 +456,47 @@ function initializeSecretariatDropdowns() {
 async function fetchSecretariatCandidates(itemNumber) {
   try {
     if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: 'GENERAL_LIST!A:Q', // Updated to include column Q for comments
+    const [generalResponse, candidatesResponse, disqualifiedResponse] = await Promise.all([
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'GENERAL_LIST!A:Q',
+      }),
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'CANDIDATES!A:S', // Extended to include Member ID
+      }),
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'DISQUALIFIED!A:E', // Extended to include Member ID
+      }),
+    ]);
+
+    const candidatesData = generalResponse.result.values || [];
+    const candidatesSheet = candidatesResponse.result.values || [];
+    const disqualifiedSheet = disqualifiedResponse.result.values || [];
+
+    // Map submissions by name, item number, and member ID
+    const submissions = new Map();
+    candidatesSheet.forEach(row => {
+      if (row[0] && row[1] && row[18]) { // Name, Item Number, Member ID
+        submissions.set(`${row[0]}|${row[1]}|${row[18]}`, 'CANDIDATES');
+      }
+    });
+    disqualifiedSheet.forEach(row => {
+      if (row[0] && row[1] && row[4]) { // Name, Item Number, Member ID
+        submissions.set(`${row[0]}|${row[1]}|${row[4]}`, 'DISQUALIFIED');
+      }
     });
 
-    const candidatesData = response.result.values || [];
-    const filteredCandidates = candidatesData.filter(row => row[1] === itemNumber);
+    const filteredCandidates = candidatesData
+      .filter(row => row[1] === itemNumber)
+      .map(row => ({
+        data: row,
+        submitted: submissions.has(`${row[0]}|${itemNumber}|${secretariatMemberId}`)
+          ? submissions.get(`${row[0]}|${itemNumber}|${secretariatMemberId}`)
+          : null,
+      }));
+
     displaySecretariatCandidatesTable(filteredCandidates, itemNumber);
   } catch (error) {
     console.error('Error fetching secretariat candidates:', error);
@@ -466,11 +506,11 @@ async function fetchSecretariatCandidates(itemNumber) {
 }
 
 
-async function displaySecretariatCandidatesTable(candidatesData, itemNumber) {
+function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
   container.innerHTML = '';
 
-  if (candidatesData.length > 0) {
+  if (candidates.length > 0) {
     const table = document.createElement('table');
     table.className = 'secretariat-table';
 
@@ -479,15 +519,19 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber) {
       <tr>
         <th>Name</th>
         <th>Documents</th>
-        <th>Comment</th>
         <th>Action</th>
+        <th>Comment</th>
+        <th>Submit</th>
+        <th>Status</th>
       </tr>
     `;
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    candidatesData.forEach(row => {
+    candidates.forEach(candidate => {
+      const row = candidate.data;
       const name = row[0];
+      const sex = row[2]; // Sex from GENERAL_LIST!C
       const tr = document.createElement('tr');
       const documentLinks = [
         { label: 'Letter of Intent', url: row[7] },
@@ -498,7 +542,7 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber) {
         { label: 'IPCR', url: row[12] },
         { label: 'Certificate of Employment', url: row[13] },
         { label: 'Diploma', url: row[14] },
-        { label: 'Transcript of Records', url: row[15] }
+        { label: 'Transcript of Records', url: row[15] },
       ];
       const linksHtml = documentLinks
         .map(link => {
@@ -508,17 +552,27 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber) {
           return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
         })
         .join('');
+      const submittedStatus = candidate.submitted
+        ? `<span class="submitted-indicator">Submitted (${candidate.submitted})</span>`
+        : '';
+      const commentValue = row[16] || '';
       tr.innerHTML = `
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
-        <td><input type="text" class="comment-input" value="${row[16] || ''}"></td>
         <td>
-          <select class="action-dropdown">
+          <select class="action-dropdown" onchange="toggleCommentInput(this)">
             <option value="">Select Action</option>
             <option value="FOR DISQUALIFICATION">FOR DISQUALIFICATION</option>
             <option value="FOR LONG LIST">FOR LONG LIST</option>
           </select>
         </td>
+        <td class="comment-cell">
+          <input type="text" class="comment-input" value="${commentValue}" style="display: none;">
+        </td>
+        <td>
+          <button class="submit-candidate-button" onclick="submitCandidateAction(this, '${name}', '${itemNumber}', '${sex}')">Submit</button>
+        </td>
+        <td>${submittedStatus}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -527,6 +581,108 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber) {
   } else {
     container.innerHTML = '<p>No candidates found.</p>';
   }
+}
+
+// Toggle comment input based on action selection
+function toggleCommentInput(selectElement) {
+  const commentCell = selectElement.parentElement.nextElementSibling;
+  const commentInput = commentCell.querySelector('.comment-input');
+  commentInput.style.display = selectElement.value === 'FOR DISQUALIFICATION' ? 'block' : 'none';
+}
+
+
+async function submitCandidateAction(button, name, itemNumber, sex) {
+  console.log('submitCandidateAction triggered:', { name, itemNumber, sex }); // Debug log
+  const row = button.closest('tr');
+  const action = row.querySelector('.action-dropdown').value;
+  const comment = action === 'FOR DISQUALIFICATION' ? row.querySelector('.comment-input').value : '';
+  console.log('Action:', action, 'Comment:', comment); // Debug log
+
+  if (!action) {
+    showToast('error', 'Error', 'Please select an action');
+    return;
+  }
+
+  const modalContent = `
+    <div class="modal-body">
+      <p>Are you sure you want to submit the following action for ${name}?</p>
+      <div class="modal-section">
+        <h4>ACTION:</h4>
+        <div class="modal-field">
+          <span class="modal-label">Action:</span>
+          <span class="modal-value">${action}</span>
+        </div>
+        <div class="modal-field">
+          <span class="modal-label">Comment:</span>
+          <span class="modal-value">${comment || 'None'}</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  showModal('CONFIRM SUBMISSION', modalContent, async () => {
+    try {
+      console.log('Submitting action:', { name, itemNumber, sex, action, comment }); // Debug log
+      if (!await isTokenValid()) {
+        console.log('Refreshing token'); // Debug log
+        await refreshAccessToken();
+      }
+
+      if (action === 'FOR DISQUALIFICATION') {
+        const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
+        console.log('Appending to DISQUALIFIED:', values); // Debug log
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: 'DISQUALIFIED!A:E', // Include Member ID
+          valueInputOption: 'RAW',
+          resource: { values },
+        });
+      } else if (action === 'FOR LONG LIST') {
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: `GENERAL_LIST!A:Q`,
+          valueRenderOption: 'FORMATTED_VALUE',
+        });
+        const candidate = response.result.values.find(row => row[0] === name && row[1] === itemNumber);
+        if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
+        candidate.push(secretariatMemberId); // Add Member ID
+        console.log('Appending to CANDIDATES:', [candidate]); // Debug log
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: 'CANDIDATES!A:S', // Include Member ID
+          valueInputOption: 'RAW',
+          resource: { values: [candidate] },
+        });
+      }
+
+      if (comment && action === 'FOR DISQUALIFICATION') {
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: `GENERAL_LIST!A:Q`,
+        });
+        const values = response.result.values || [];
+        const updatedValues = values.map(row => {
+          if (row[0] === name && row[1] === itemNumber) {
+            row[16] = comment; // Update comment in column Q
+          }
+          return row;
+        });
+        console.log('Updating GENERAL_LIST with comment:', updatedValues); // Debug log
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `GENERAL_LIST!A:Q`,
+          valueInputOption: 'RAW',
+          resource: { values: updatedValues },
+        });
+      }
+
+      showToast('success', 'Success', 'Action submitted successfully');
+      fetchSecretariatCandidates(itemNumber); // Refresh table
+    } catch (error) {
+      console.error('Error submitting action:', error);
+      showToast('error', 'Error', 'Failed to submit action: ' + error.message);
+    }
+  });
 }
 
 
@@ -884,11 +1040,11 @@ async function loadSheetData(maxRetries = 3) {
       if (!await isTokenValid()) {
         console.log('Token invalid, refreshed in attempt', attempt);
       }
-      const ranges = Object.values(SHEET_RANGES).filter(range => range !== undefined); // Skip undefined ranges
+      const ranges = Object.values(SHEET_RANGES).filter(range => range !== undefined);
       if (ranges.length === 0) {
         throw new Error('No valid ranges defined in SHEET_RANGES');
       }
-      console.log('Fetching ranges:', ranges); // Debug log
+      console.log('Fetching ranges:', ranges);
       const data = await Promise.all(
         ranges.map((range) =>
           gapi.client.sheets.spreadsheets.values.get({
@@ -897,7 +1053,6 @@ async function loadSheetData(maxRetries = 3) {
           })
         )
       );
-      // Assign data based on SHEET_RANGES keys
       const rangeKeys = Object.keys(SHEET_RANGES);
       const dataMap = {};
       ranges.forEach((range, index) => {
