@@ -50,6 +50,7 @@ app.get('/config', (req, res) => {
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
       CLIENT_SECRET: process.env.CLIENT_SECRET || '',
+      SECRETARIAT_PASSWORD: process.env.SECRETARIAT_PASSWORD || '',
     });
   } catch (error) {
     console.error('Error in /config:', error);
