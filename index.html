@@ -1,71 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rater Application</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DENR CALABARZON COMPETENCY RATING SYSTEM</title>
+  <link rel="stylesheet" href="frontend/styles.css" />
   <script src="https://apis.google.com/js/api.js"></script>
-  <link rel="stylesheet" href="styles.css">
 </head>
-<body class="bg-gray-100 font-sans">
-  <div class="page-wrapper max-w-7xl mx-auto p-4">
-    <div class="auth-section signed-out bg-white shadow rounded-lg p-6 mb-4">
-      <div id="authStatus" class="text-lg font-semibold mb-4">You are not signed in</div>
-      <button id="signInBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 hidden">Sign In</button>
-      <button id="signOutBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 hidden">Sign Out</button>
+<body>
+  <div class="page-wrapper">
+    <div class="auth-section signed-out">
+      <h1>DENR CALABARZON<br />COMPETENCY RATING SYSTEM</h1>
+      <div id="authStatus">Initializing...</div>
+      <button id="signInBtn">Sign in with Google</button>
+      <button id="signOutBtn">Sign Out</button>
     </div>
 
-    <div class="container bg-white shadow rounded-lg p-6">
-      <div class="tabs mb-4">
-        <button class="tab-button px-4 py-2 bg-gray-200 rounded-t-lg active" data-tab="rater">Rater</button>
-        <button class="tab-button px-4 py-2 bg-gray-200 rounded-t-lg" data-tab="secretariat">Secretariat</button>
-      </div>
+    <div class="tabs">
+      <button class="tab-button active" data-tab="rater">RHRMPSB RATER</button>
+      <button class="tab-button" data-tab="secretariat">SECRETARIAT</button>
+    </div>
 
+    <div class="container">
       <div id="rater" class="tab-content active">
-        <form class="rating-form mb-4">
-          <div class="form-group mb-4">
-            <label for="assignmentDropdown" class="block text-sm font-medium text-gray-700">Assignment:</label>
-            <select id="assignmentDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"></select>
+        <form class="rating-form">
+          <div class="form-group">
+            <label for="assignmentDropdown">Assignment:</label>
+            <select id="assignmentDropdown"></select>
           </div>
-          <div class="form-group mb-4">
-            <label for="positionDropdown" class="block text-sm font-medium text-gray-700">Position:</label>
-            <select id="positionDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" disabled></select>
+          <div class="form-group">
+            <label for="positionDropdown">Position:</label>
+            <select id="positionDropdown" disabled></select>
           </div>
-          <div class="form-group mb-4">
-            <label for="itemDropdown" class="block text-sm font-medium text-gray-700">Item:</label>
-            <select id="itemDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" disabled></select>
+          <div class="form-group">
+            <label for="itemDropdown">Item:</label>
+            <select id="itemDropdown" disabled></select>
           </div>
-          <div class="form-group mb-4">
-            <label for="nameDropdown" class="block text-sm font-medium text-gray-700">Name:</label>
-            <select id="nameDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" disabled></select>
+          <div class="form-group">
+            <label for="nameDropdown">Name:</label>
+            <select id="nameDropdown" disabled></select>
           </div>
+          <div id="candidates-table"></div>
+          <div id="competencyContainer"></div>
+          <button id="submitRatings" disabled>SUBMIT RATINGS</button>
         </form>
-        <div id="candidates-table" class="mb-4"></div>
-        <div id="competencyContainer" class="mb-4"></div>
-        <button id="submitRatings" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-gray-400" disabled>Submit Ratings</button>
       </div>
 
-      <div id="secretariat" class="tab-content hidden">
-        <form class="secretariat-form mb-4">
-          <div class="form-group mb-4">
-            <label for="secretariatAssignmentDropdown" class="block text-sm font-medium text-gray-700">Assignment:</label>
-            <select id="secretariatAssignmentDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm"></select>
+      <div id="secretariat" class="tab-content">
+        <form class="secretariat-form">
+          <div class="form-group">
+            <label for="secretariatAssignmentDropdown">Assignment:</label>
+            <select id="secretariatAssignmentDropdown"></select>
           </div>
-          <div class="form-group mb-4">
-            <label for="secretariatPositionDropdown" class="block text-sm font-medium text-gray-700">Position:</label>
-            <select id="secretariatPositionDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" disabled></select>
+          <div class="form-group">
+            <label for="secretariatPositionDropdown">Position:</label>
+            <select id="secretariatPositionDropdown" disabled></select>
           </div>
-          <div class="form-group mb-4">
-            <label for="secretariatItemDropdown" class="block text-sm font-medium text-gray-700">Item:</label>
-            <select id="secretariatItemDropdown" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm" disabled></select>
+          <div class="form-group">
+            <label for="secretariatItemDropdown">Item:</label>
+            <select id="secretariatItemDropdown" disabled></select>
           </div>
+          <div id="secretariat-candidates-table"></div>
+          <div id="secretariat-names-table"></div>
+          <button id="submitSecretariat" disabled>SUBMIT SELECTION</button>
         </form>
-        <div id="secretariat-candidates-table" class="mb-4"></div>
-        <div id="secretariat-names-table" class="mb-4"></div>
-        <button id="submitSecretariat" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-gray-400" disabled>Submit Selections</button>
       </div>
     </div>
+
+    <footer class="site-footer">
+      © 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All
+      rights reserved.
+    </footer>
   </div>
 
   <script src="script.js"></script>
