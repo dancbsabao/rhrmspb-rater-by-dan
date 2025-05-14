@@ -6,6 +6,15 @@
   <title>DENR CALABARZON Competency Rating System</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://apis.google.com/js/api.js"></script>
+  <!-- Toast Fallback Override -->
+  <script>
+    if (!window.Toast) {
+      window.Toast = function (options) {
+        alert(options.title + ": " + options.message);
+      };
+      window.Toast.prototype.hide = function () {};
+    }
+  </script>
 </head>
 <body>
   <div class="page-wrapper">
