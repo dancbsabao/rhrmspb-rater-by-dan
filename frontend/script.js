@@ -81,7 +81,7 @@ function loadAuthState() {
     console.log('No auth state found');
     return null;
   }
-  console.log('Loaded auth state:', authState);
+  console.log('Loaded auth state:', sanitizedAuthState);
   return authState;
 }
 
@@ -328,7 +328,7 @@ fetch(`${API_BASE_URL}/config`)
     return response.json();
   })
   .then((config) => {
-    console.log('Config loaded:', config); // Debug log
+    console.log('Config loaded:', sanitizedConfig); // Debug log
     CLIENT_ID = config.CLIENT_ID || '';
     API_KEY = config.API_KEY || '';
     SHEET_ID = config.SHEET_ID || '';
