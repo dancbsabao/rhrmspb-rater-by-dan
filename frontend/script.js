@@ -337,6 +337,7 @@ function maybeEnableButtons() {
 function setupTabNavigation() {
   const raterTab = document.getElementById('raterTab');
   const secretariatTab = document.getElementById('secretariatTab');
+  const submitSecretariatActionsBtn = document.getElementById('submitSecretariatActions');
 
   raterTab.addEventListener('click', () => switchTab('rater'));
   secretariatTab.addEventListener('click', () => {
@@ -357,6 +358,9 @@ function setupTabNavigation() {
       }
     );
   });
+
+  // Ensure the submit button has a click listener
+  submitSecretariatActionsBtn.addEventListener('click', submitSecretariatActions);
 }
 
 
@@ -597,7 +601,9 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
 
 
 async function submitSecretariatActions() {
+  console.log('submitSecretariatActions triggered'); // Debug log
   const itemNumber = document.getElementById('secretariatItemDropdown').value;
+  console.log('Item Number:', itemNumber); // Debug log
   if (!itemNumber) {
     showToast('error', 'Error', 'Please select an item');
     return;
@@ -605,16 +611,19 @@ async function submitSecretariatActions() {
 
   const table = document.querySelector('.secretariat-table');
   if (!table) {
-    showToast('error', 'Error', 'No candidates selected');
+    showToast('error', 'Error', 'No candidates table found');
+    console.log('Table not found'); // Debug log
     return;
   }
 
   const rows = table.querySelectorAll('tbody tr');
+  console.log('Number of rows:', rows.length); // Debug log
   const actions = [];
-  rows.forEach(row => {
+  rows.forEach((row, index) => {
     const name = row.cells[0].textContent;
     const comment = row.querySelector('.comment-input').value;
     const action = row.querySelector('.action-dropdown').value;
+    console.log(`Row ${index}:`, { name, comment, action }); // Debug log
     if (action) {
       actions.push({ name, comment, action, itemNumber });
     }
@@ -622,6 +631,7 @@ async function submitSecretariatActions() {
 
   if (actions.length === 0) {
     showToast('error', 'Error', 'No actions selected');
+    console.log('No actions to submit'); // Debug log
     return;
   }
 
@@ -642,16 +652,23 @@ async function submitSecretariatActions() {
 
   showModal('CONFIRM SUBMISSION', modalContent, async () => {
     try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      
+      console.log('Submitting actions:', actions); // Debug log
+      if (!await isTokenValid()) {
+        console.log('Refreshing token'); // Debug log
+        await refreshAccessToken();
+      }
+
       const disqualified = actions.filter(a => a.action === 'FOR DISQUALIFICATION');
       const longList = actions.filter(a => a.action === 'FOR LONG LIST');
+      console.log('Disqualified:', disqualified); // Debug log
+      console.log('Long List:', longList); // Debug log
 
       if (disqualified.length > 0) {
         const disqualifiedValues = disqualified.map(a => [a.name, a.itemNumber, a.comment]);
+        console.log('Appending to DISQUALIFIED:', disqualifiedValues); // Debug log
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:C', // Adjusted to A:C since only Name, Item Number, Comment
+          range: 'DISQUALIFIED!A:C',
           valueInputOption: 'RAW',
           resource: { values: disqualifiedValues },
         });
@@ -665,8 +682,10 @@ async function submitSecretariatActions() {
             valueRenderOption: 'FORMATTED_VALUE'
           });
           const candidate = response.result.values.find(row => row[0] === a.name && row[1] === a.itemNumber);
+          console.log('Candidate for long list:', candidate); // Debug log
           return candidate;
         }));
+        console.log('Appending to CANDIDATES:', longListValues); // Debug log
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
           range: 'CANDIDATES!A:Q',
@@ -676,11 +695,7 @@ async function submitSecretariatActions() {
       }
 
       // Update comments in GENERAL_LIST
-      const commentUpdates = actions.map(a => ({
-        name: a.name,
-        itemNumber: a.itemNumber,
-        comment: a.comment
-      }));
+      const commentUpdates = actions.filter(a => a.comment); // Only update if comment exists
       if (commentUpdates.length > 0) {
         const response = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
@@ -694,6 +709,7 @@ async function submitSecretariatActions() {
           }
           return row;
         });
+        console.log('Updating GENERAL_LIST with comments:', updatedValues); // Debug log
         await gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: SHEET_ID,
           range: `GENERAL_LIST!A:Q`,
@@ -706,7 +722,7 @@ async function submitSecretariatActions() {
       fetchSecretariatCandidates(itemNumber); // Refresh table
     } catch (error) {
       console.error('Error submitting actions:', error);
-      showToast('error', 'Error', 'Failed to submit actions');
+      showToast('error', 'Error', 'Failed to submit actions: ' + error.message);
     }
   });
 }
