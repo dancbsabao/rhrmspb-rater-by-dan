@@ -5,8 +5,12 @@ let currentEvaluator = null;
 let fetchTimeout;
 let isSubmitting = false;
 let refreshTimer = null;
-let sessionId = null; // To track server session
-let submissionQueue = []; // Queue for pending submissions
+let sessionId = null;
+let submissionQueue = [];
+let isSecretariat = false; // Track if Secretariat tab is active
+let secretariatPassword = '';
+let generalList = []; // Data from GENERAL_LIST sheet
+let selectedCandidate = null; // Track selected candidate in Secretariat table
 
 let CLIENT_ID;
 let API_KEY;
@@ -23,9 +27,16 @@ const elements = {
   positionDropdown: document.getElementById('positionDropdown'),
   itemDropdown: document.getElementById('itemDropdown'),
   nameDropdown: document.getElementById('nameDropdown'),
+  assignmentDropdownSecretariat: document.getElementById('assignmentDropdownSecretariat'),
+  positionDropdownSecretariat: document.getElementById('positionDropdownSecretariat'),
+  itemDropdownSecretariat: document.getElementById('itemDropdownSecretariat'),
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
+  submitSecretariat: document.getElementById('submitSecretariat'),
   ratingForm: document.querySelector('.rating-form'),
+  secretariatForm: document.querySelector('.secretariat-form'),
+  secretariatTable: document.getElementById('secretariat-table'),
+  candidatesTableSecretariat: document.getElementById('candidates-table-secretariat'),
 };
 
 let vacancies = [];
@@ -35,16 +46,18 @@ let competencies = [];
 
 const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 
-function saveAuthState(tokenResponse, evaluator) {
-  const authState = {
-    access_token: tokenResponse.access_token,
-    session_id: tokenResponse.session_id || sessionId,
-    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
-    evaluator: evaluator || null,
-  };
-  localStorage.setItem('authState', JSON.stringify(authState));
-  console.log('Auth state saved:', authState);
-  scheduleTokenRefresh();
+function saveAuthState(token, evaluator) {
+  if (token && sessionId) {
+    const authState = {
+      access_token: token.access_token,
+      expires_in: token.expires_in,
+      expires_at: Date.now() + (token.expires_in * 1000),
+      session_id: sessionId,
+      evaluator: evaluator,
+    };
+    localStorage.setItem('authState', JSON.stringify(authState));
+    console.log('Auth state saved:', authState);
+  }
 }
 
 function saveDropdownState() {
@@ -54,25 +67,22 @@ function saveDropdownState() {
     position: elements.positionDropdown.value,
     item: elements.itemDropdown.value,
     name: elements.nameDropdown.value,
+    assignmentSecretariat: elements.assignmentDropdownSecretariat.value,
+    positionSecretariat: elements.positionDropdownSecretariat.value,
+    itemSecretariat: elements.itemDropdownSecretariat.value,
   };
   localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
   console.log('Dropdown state saved:', dropdownState);
 }
 
 function loadAuthState() {
-  const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState || !authState.access_token) {
-    console.log('No auth state found');
-    return null;
-  }
-  console.log('Loaded auth state:', authState);
-  return authState;
+  const authState = localStorage.getItem('authState');
+  return authState ? JSON.parse(authState) : null;
 }
 
 function loadDropdownState() {
-  const dropdownState = JSON.parse(localStorage.getItem('dropdownState'));
-  console.log('Loaded dropdown state:', dropdownState);
-  return dropdownState || {};
+  const dropdownState = localStorage.getItem('dropdownState');
+  return dropdownState ? JSON.parse(dropdownState) : {};
 }
 
 async function restoreState() {
@@ -96,39 +106,67 @@ async function restoreState() {
       currentEvaluator = dropdownState.evaluator;
     }
 
-    const changePromises = [];
+    // Restore Rater tab dropdowns
+    const raterPromises = [];
     if (dropdownState.assignment) {
       elements.assignmentDropdown.value = dropdownState.assignment;
-      changePromises.push(new Promise(resolve => {
+      raterPromises.push(new Promise(resolve => {
         elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
         elements.assignmentDropdown.dispatchEvent(new Event('change'));
       }));
     }
     if (dropdownState.position) {
       elements.positionDropdown.value = dropdownState.position;
-      changePromises.push(new Promise(resolve => {
+      raterPromises.push(new Promise(resolve => {
         elements.positionDropdown.addEventListener('change', resolve, { once: true });
         elements.positionDropdown.dispatchEvent(new Event('change'));
       }));
     }
     if (dropdownState.item) {
       elements.itemDropdown.value = dropdownState.item;
-      changePromises.push(new Promise(resolve => {
+      raterPromises.push(new Promise(resolve => {
         elements.itemDropdown.addEventListener('change', resolve, { once: true });
         elements.itemDropdown.dispatchEvent(new Event('change'));
       }));
     }
     if (dropdownState.name) {
       elements.nameDropdown.value = dropdownState.name;
-      changePromises.push(new Promise(resolve => {
+      raterPromises.push(new Promise(resolve => {
         elements.nameDropdown.addEventListener('change', resolve, { once: true });
         elements.nameDropdown.dispatchEvent(new Event('change'));
       }));
     }
 
-    await Promise.all(changePromises);
-    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
+    // Restore Secretariat tab dropdowns
+    const secretariatPromises = [];
+    if (dropdownState.assignmentSecretariat) {
+      elements.assignmentDropdownSecretariat.value = dropdownState.assignmentSecretariat;
+      secretariatPromises.push(new Promise(resolve => {
+        elements.assignmentDropdownSecretariat.addEventListener('change', resolve, { once: true });
+        elements.assignmentDropdownSecretariat.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.positionSecretariat) {
+      elements.positionDropdownSecretariat.value = dropdownState.positionSecretariat;
+      secretariatPromises.push(new Promise(resolve => {
+        elements.positionDropdownSecretariat.addEventListener('change', resolve, { once: true });
+        elements.positionDropdownSecretariat.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.itemSecretariat) {
+      elements.itemDropdownSecretariat.value = dropdownState.itemSecretariat;
+      secretariatPromises.push(new Promise(resolve => {
+        elements.itemDropdownSecretariat.addEventListener('change', resolve, { once: true });
+        elements.itemDropdownSecretariat.dispatchEvent(new Event('change'));
+      }));
+    }
+
+    await Promise.all([...raterPromises, ...secretariatPromises]);
+    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && !isSecretariat) {
       fetchSubmittedRatings();
+    }
+    if (isSecretariat && elements.itemDropdownSecretariat.value) {
+      displaySecretariatTable();
     }
   } else {
     const urlParams = new URLSearchParams(window.location.search);
@@ -147,9 +185,11 @@ async function restoreState() {
       currentEvaluator = null;
       vacancies = [];
       candidates = [];
+      generalList = [];
       compeCodes = [];
       competencies = [];
       resetDropdowns([]);
+      resetSecretariatDropdowns([]);
       container.style.marginTop = '20px';
       authSection.classList.add('signed-out');
       const resultsArea = document.querySelector('.results-area');
@@ -169,6 +209,7 @@ fetch(`${API_BASE_URL}/config`)
     SHEET_ID = config.SHEET_ID;
     SCOPES = config.SCOPES;
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
+    secretariatPassword = config.SECRETARIAT_PASSWORD;
     SHEET_RANGES = config.SHEET_RANGES;
     initializeApp();
   })
@@ -178,14 +219,7 @@ fetch(`${API_BASE_URL}/config`)
   });
 
 function initializeApp() {
-  gapi.load('client', async () => {
-    await initializeGapiClient();
-    gapiInitialized = true;
-    console.log('GAPI client initialized');
-    maybeEnableButtons();
-    createEvaluatorSelector();
-    restoreState();
-  });
+  gapi.load('client', initializeGapiClient);
 }
 
 async function initializeGapiClient() {
@@ -194,121 +228,74 @@ async function initializeGapiClient() {
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
-    const token = gapi.client.getToken();
-    if (token && !await isTokenValid()) await refreshAccessToken();
     gapiInitialized = true;
     console.log('GAPI client initialized');
+    await restoreState();
+    createEvaluatorSelector();
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
+    elements.authStatus.textContent = 'Error initializing Google API';
   }
 }
 
 async function isTokenValid() {
-  const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.access_token) return false;
-
-  const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft <= 0) {
-    console.log('Token expired, refreshing');
-    return await refreshAccessToken();
-  }
-
+  const authState = loadAuthState();
+  if (!authState || !authState.access_token) return false;
+  if (Date.now() >= authState.expires_at - 60000) return false;
   try {
-    await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.VACANCIES,
+    });
     return true;
   } catch (error) {
-    console.log('Token validation failed:', error);
-    if (timeLeft < 300000) {
-      return await refreshAccessToken();
-    }
+    console.error('Token validation failed:', error);
     return false;
   }
 }
 
 async function refreshAccessToken() {
-  const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.session_id) {
-    console.warn('No session ID available');
-    localStorage.clear();
-    handleAuthClick();
-    return false;
-  }
   try {
-    console.log('Attempting token refresh with session_id:', authState.session_id);
-    const response = await fetch(`${API_BASE_URL}/refresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ session_id: authState.session_id }),
-    });
-    const newToken = await response.json();
-    console.log('Refresh response:', newToken);
-    if (!response.ok || newToken.error) {
-      throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
-    }
-    authState.access_token = newToken.access_token;
-    authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
-    localStorage.setItem('authState', JSON.stringify(authState));
-    gapi.client.setToken({ access_token: newToken.access_token });
-    console.log('Token refreshed successfully');
-    scheduleTokenRefresh();
+    const response = await fetch(`${API_BASE_URL}/auth/refresh?session_id=${sessionId}`);
+    if (!response.ok) throw new Error('Failed to refresh token');
+    const data = await response.json();
+    gapi.client.setToken({ access_token: data.access_token });
+    saveAuthState({ access_token: data.access_token, expires_in: data.expires_in }, currentEvaluator);
+    scheduleTokenRefresh(data.expires_in);
     return true;
   } catch (error) {
-    console.error('Token refresh failed:', error.message);
-    showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
-    localStorage.clear();
-    handleAuthClick();
+    console.error('Error refreshing token:', error);
     return false;
   }
 }
 
-function scheduleTokenRefresh() {
+function scheduleTokenRefresh(expiresIn) {
   if (refreshTimer) clearTimeout(refreshTimer);
-
-  const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.expires_at || !authState.session_id) {
-    console.log('No valid auth state for scheduling refresh');
-    return;
-  }
-
-  const timeToExpiry = authState.expires_at - Date.now();
-  const refreshInterval = Math.max(300000, timeToExpiry - 900000); // 15 min before expiry
-
   refreshTimer = setTimeout(async () => {
-    console.log('Scheduled token refresh triggered');
-    const success = await refreshAccessToken();
-    if (!success) {
-      console.warn('Refresh failed, retrying in 1 minute');
-      refreshTimer = setTimeout(scheduleTokenRefresh, 60000);
-    }
-  }, refreshInterval);
-
-  console.log(`Token refresh scheduled in ${refreshInterval / 60000} minutes`);
+    await refreshAccessToken();
+  }, (expiresIn - 60) * 1000);
 }
 
-function handleTokenCallback(tokenResponse) {
-  if (tokenResponse.error) {
-    console.error('Token error:', tokenResponse.error);
-    elements.authStatus.textContent = 'Error during sign-in';
-  } else {
-    saveAuthState(tokenResponse, currentEvaluator);
-    gapi.client.setToken({ access_token: tokenResponse.access_token });
+function handleTokenCallback(response) {
+  if (response.access_token && response.session_id) {
+    sessionId = response.session_id;
+    gapi.client.setToken({ access_token: response.access_token });
+    saveAuthState(response, currentEvaluator);
+    scheduleTokenRefresh(response.expires_in);
     updateUI(true);
-    fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
-      .then(() => {
-        createEvaluatorSelector();
-        loadSheetData();
-        showToast('success', 'Welcome!', 'Successfully signed in.');
-        localStorage.setItem('hasWelcomed', 'true');
-      });
+    loadSheetData();
+    createEvaluatorSelector();
+  } else {
+    console.error('Invalid token response:', response);
+    elements.authStatus.textContent = 'Authentication failed';
   }
 }
 
 function maybeEnableButtons() {
-  if (gapiInitialized) {
-    elements.signInBtn.style.display = 'inline-block';
-    elements.signOutBtn.style.display = 'inline-block';
-  }
+  const allRated = Array.from(document.querySelectorAll('input[type="radio"]'))
+    .filter(radio => radio.name.startsWith('rating_'))
+    .every(radio => document.querySelector(`input[name="${radio.name}"]:checked`));
+  elements.submitRatings.disabled = !allRated;
 }
 
 function createEvaluatorSelector() {
@@ -352,9 +339,11 @@ async function handleEvaluatorSelection(event) {
 
   if (!newSelection) {
     currentEvaluator = null;
+    isSecretariat = false;
     saveAuthState(gapi.client.getToken(), null);
     saveDropdownState();
     resetDropdowns(vacancies);
+    resetSecretariatDropdowns(vacancies);
     return;
   }
 
@@ -369,11 +358,13 @@ async function handleEvaluatorSelection(event) {
 
     if (password === EVALUATOR_PASSWORDS[newSelection]) {
       currentEvaluator = newSelection;
+      isSecretariat = false;
       selectElement.value = newSelection;
       saveAuthState(gapi.client.getToken(), currentEvaluator);
       saveDropdownState();
       showToast('success', 'Success', `Logged in as ${newSelection}`);
       resetDropdowns(vacancies);
+      resetSecretariatDropdowns(vacancies);
       fetchSubmittedRatings();
     } else {
       showToast('error', 'Error', 'Incorrect password');
@@ -393,17 +384,21 @@ function handleSignOutClick() {
     localStorage.clear();
     console.log('All localStorage cleared');
     currentEvaluator = null;
+    isSecretariat = false;
     sessionId = null;
     vacancies = [];
     candidates = [];
+    generalList = [];
     compeCodes = [];
     competencies = [];
     submissionQueue = [];
     console.log('Global variables reset');
     updateUI(false);
     resetDropdowns([]);
+    resetSecretariatDropdowns([]);
     elements.competencyContainer.innerHTML = '';
     clearRatings();
+    elements.secretariatTable.innerHTML = '';
     const evaluatorSelect = document.getElementById('evaluatorSelect');
     if (evaluatorSelect) {
       evaluatorSelect.value = '';
@@ -411,6 +406,9 @@ function handleSignOutClick() {
     }
     if (elements.submitRatings) {
       elements.submitRatings.disabled = true;
+    }
+    if (elements.submitSecretariat) {
+      elements.submitSecretariat.disabled = true;
     }
     if (fetchTimeout) {
       clearTimeout(fetchTimeout);
@@ -438,9 +436,11 @@ function updateUI(isSignedIn) {
   elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
   elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
   elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
-  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
+  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn && !isSecretariat ? 'block' : 'none';
+  if (elements.secretariatForm) elements.secretariatForm.style.display = isSignedIn && isSecretariat ? 'block' : 'none';
   if (!isSignedIn) {
     elements.competencyContainer.innerHTML = '';
+    elements.secretariatTable.innerHTML = '';
     const resultsArea = document.querySelector('.results-area');
     if (resultsArea) resultsArea.classList.remove('active');
   }
@@ -465,8 +465,10 @@ async function loadSheetData(maxRetries = 3) {
       candidates = data[1]?.result?.values || [];
       compeCodes = data[2]?.result?.values || [];
       competencies = data[3]?.result?.values || [];
-      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
+      generalList = data[5]?.result?.values || []; // GENERAL_LIST
+      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies, generalList });
       initializeDropdowns(vacancies);
+      initializeSecretariatDropdowns(vacancies);
       updateUI(true);
       return;
     } catch (error) {
@@ -486,34 +488,24 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
-  dropdown.innerHTML = `<option value="">${defaultOptionText}</option>`;
-  options.forEach((opt) => {
-    const option = document.createElement('option');
-    option.value = opt;
-    option.textContent = opt;
-    dropdown.appendChild(option);
+function updateDropdown(dropdown, options, placeholder) {
+  const currentValue = dropdown.value;
+  dropdown.innerHTML = `<option value="">${placeholder}</option>`;
+  options.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option;
+    opt.textContent = option;
+    dropdown.appendChild(opt);
   });
+  dropdown.value = options.includes(currentValue) ? currentValue : '';
 }
 
 function setDropdownState(dropdown, enabled) {
   dropdown.disabled = !enabled;
-  if (!enabled) {
-    dropdown.value = '';
-    dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
-  }
+  dropdown.classList.toggle('disabled', !enabled);
 }
 
-
 function initializeDropdowns(vacancies) {
-  function setDropdownState(dropdown, enabled) {
-    dropdown.disabled = !enabled;
-    if (!enabled) {
-      dropdown.value = '';
-      dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
-    }
-  }
-
   elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
   elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
   elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
@@ -644,6 +636,66 @@ function initializeDropdowns(vacancies) {
   });
 }
 
+function initializeSecretariatDropdowns(vacancies) {
+  elements.assignmentDropdownSecretariat.setAttribute('data-placeholder', 'Select Assignment');
+  elements.positionDropdownSecretariat.setAttribute('data-placeholder', 'Select Position');
+  elements.itemDropdownSecretariat.setAttribute('data-placeholder', 'Select Item');
+
+  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+  updateDropdown(elements.assignmentDropdownSecretariat, uniqueAssignments, 'Select Assignment');
+
+  setDropdownState(elements.positionDropdownSecretariat, false);
+  setDropdownState(elements.itemDropdownSecretariat, false);
+
+  elements.assignmentDropdownSecretariat.addEventListener('change', () => {
+    const assignment = elements.assignmentDropdownSecretariat.value;
+    if (assignment) {
+      const positions = vacancies
+        .filter((row) => row[2] === assignment)
+        .map((row) => row[1]);
+      updateDropdown(elements.positionDropdownSecretariat, [...new Set(positions)], 'Select Position');
+      setDropdownState(elements.positionDropdownSecretariat, true);
+    } else {
+      setDropdownState(elements.positionDropdownSecretariat, false);
+    }
+    setDropdownState(elements.itemDropdownSecretariat, false);
+    elements.secretariatTable.innerHTML = '';
+    elements.candidatesTableSecretariat.innerHTML = '';
+    elements.submitSecretariat.disabled = true;
+    saveDropdownState();
+  });
+
+  elements.positionDropdownSecretariat.addEventListener('change', () => {
+    const assignment = elements.assignmentDropdownSecretariat.value;
+    const position = elements.positionDropdownSecretariat.value;
+    if (assignment && position) {
+      const items = vacancies
+        .filter((row) => row[2] === assignment && row[1] === position)
+        .map((row) => row[0]);
+      updateDropdown(elements.itemDropdownSecretariat, [...new Set(items)], 'Select Item');
+      setDropdownState(elements.itemDropdownSecretariat, true);
+    } else {
+      setDropdownState(elements.itemDropdownSecretariat, false);
+    }
+    elements.secretariatTable.innerHTML = '';
+    elements.candidatesTableSecretariat.innerHTML = '';
+    elements.submitSecretariat.disabled = true;
+    saveDropdownState();
+  });
+
+  elements.itemDropdownSecretariat.addEventListener('change', () => {
+    const item = elements.itemDropdownSecretariat.value;
+    if (item) {
+      displaySecretariatTable();
+    } else {
+      elements.secretariatTable.innerHTML = '';
+      elements.candidatesTableSecretariat.innerHTML = '';
+      elements.submitSecretariat.disabled = true;
+    }
+    saveDropdownState();
+  });
+}
+
 function resetDropdowns(vacancies) {
   const uniqueAssignments = vacancies.length ? [...new Set(vacancies.slice(1).map((row) => row[2]))] : [];
   updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
@@ -660,108 +712,63 @@ function resetDropdowns(vacancies) {
   elements.nameDropdown.disabled = true;
 }
 
+function resetSecretariatDropdowns(vacancies) {
+  const uniqueAssignments = vacancies.length ? [...new Set(vacancies.slice(1).map((row) => row[2]))] : [];
+  updateDropdown(elements.assignmentDropdownSecretariat, uniqueAssignments, 'Select Assignment');
+  updateDropdown(elements.positionDropdownSecretariat, [], 'Select Position');
+  updateDropdown(elements.itemDropdownSecretariat, [], 'Select Item');
+  elements.assignmentDropdownSecretariat.value = '';
+  elements.positionDropdownSecretariat.value = '';
+  elements.itemDropdownSecretariat.value = '';
+  elements.assignmentDropdownSecretariat.disabled = !vacancies.length;
+  elements.positionDropdownSecretariat.disabled = true;
+  elements.itemDropdownSecretariat.disabled = true;
+  elements.secretariatTable.innerHTML = '';
+  elements.candidatesTableSecretariat.innerHTML = '';
+  elements.submitSecretariat.disabled = true;
+}
+
 async function fetchSubmittedRatings() {
-  if (fetchTimeout) clearTimeout(fetchTimeout);
+  const name = elements.nameDropdown.value;
+  const item = elements.itemDropdown.value;
+  if (!name || !item || !currentEvaluator) return;
 
-  fetchTimeout = setTimeout(async () => {
-    const name = elements.nameDropdown.value;
-    const item = elements.itemDropdown.value;
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
 
-    if (!currentEvaluator || !name || !item) {
-      console.warn('Missing evaluator, name, or item');
-      elements.submitRatings.disabled = true;
-      clearRatings();
-      return;
+    const values = response.result.values || [];
+    const submittedRatings = values.find(row =>
+      row[0] === name &&
+      row[1] === item &&
+      row[3] === currentEvaluator
+    );
+
+    if (submittedRatings) {
+      prefillRatings(submittedRatings.slice(5));
     }
-
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-      });
-
-      const data = response.result.values || [];
-      const filteredRows = data.slice(1).filter(row =>
-        row[2] === name && row[1] === item && row[5] === currentEvaluator
-      );
-
-      const competencyRatings = {};
-      filteredRows.forEach(row => {
-        const competencyName = row[3];
-        if (!competencyRatings[competencyName]) competencyRatings[competencyName] = {};
-        competencyRatings[competencyName][currentEvaluator] = row[4];
-      });
-
-      console.log(`Fetched ratings for ${name} (${item}):`, competencyRatings);
-      prefillRatings(competencyRatings, filteredRows.length === 0, name, item);
-    } catch (error) {
-      console.error('Error fetching ratings:', error);
-      showToast('error', 'Error', 'Failed to fetch ratings');
-      clearRatings();
-      prefillRatings({}, true, name, item);
-    }
-  }, 300);
+  } catch (error) {
+    console.error('Error fetching submitted ratings:', error);
+  }
 }
 
 function clearRatings() {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const radios = item.querySelectorAll('input[type="radio"]');
-    radios.forEach(radio => (radio.checked = false));
-  });
-  console.log('Radio buttons cleared');
+  elements.competencyContainer.innerHTML = '';
+  const resultsArea = document.querySelector('.results-area');
+  if (resultsArea) resultsArea.remove();
+  elements.submitRatings.disabled = true;
 }
 
-let originalRatings = {};
-function prefillRatings(competencyRatings, noFetchedData, name, item) {
-  originalRatings = {};
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-
-  clearRatings();
-
-  if (Object.keys(competencyRatings).length > 0) {
-    Array.from(competencyItems).forEach(item => {
-      const competencyName = item.querySelector('label').textContent.split('. ')[1];
-      const rating = competencyRatings[competencyName]?.[currentEvaluator];
-
-      if (rating) {
-        originalRatings[competencyName] = rating;
-        const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
-        if (radio) {
-          radio.checked = true;
-          radio.dispatchEvent(new Event('change'));
-          console.log(`Prefilled ${competencyName} with rating ${rating} for ${name} (${item})`);
-        }
-      }
-    });
-  } else if (noFetchedData) {
-    loadRadioState(name, item);
-  }
-
-  function checkAllRatingsSelected() {
-    const allItems = Array.from(competencyItems);
-    const allRated = allItems.every(item =>
-      Array.from(item.getElementsByTagName('input')).some(input => input.checked)
-    );
-    elements.submitRatings.disabled = !allRated;
-  }
-
-  Array.from(competencyItems).forEach(item => {
-    const inputs = item.querySelectorAll('input[type="radio"]');
-    inputs.forEach(input => {
-      input.removeEventListener('change', input.onchange);
-      input.onchange = () => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        originalRatings[competencyName] = input.value;
-        checkAllRatingsSelected();
-        saveRadioState(competencyName, input.value, name, item);
-      };
-      input.addEventListener('change', input.onchange);
-    });
+function prefillRatings(ratings) {
+  ratings.forEach((rating, index) => {
+    const radio = document.querySelector(`input[name="rating_${index}"][value="${rating}"]`);
+    if (radio) {
+      radio.checked = true;
+    }
   });
-
-  checkAllRatingsSelected();
+  maybeEnableButtons();
 }
 
 async function submitRatings() {
@@ -770,402 +777,172 @@ async function submitRatings() {
     return;
   }
 
-  try {
-    const token = gapi.client.getToken();
-    if (!token || !await isTokenValid()) {
-      await refreshAccessToken();
-      if (!gapi.client.getToken()) {
-        showToast('error', 'Error', 'Authentication failed. Please sign in again.');
-        handleAuthClick();
-        return;
-      }
-    }
+  const ratings = Array.from(document.querySelectorAll('input[type="radio"]:checked'))
+    .filter(radio => radio.name.startsWith('rating_'))
+    .map(radio => radio.value);
 
-    if (!currentEvaluator) {
-      showToast('warning', 'Warning', 'Please select an evaluator');
-      return;
-    }
-
-    const item = elements.itemDropdown.value;
-    const candidateName = elements.nameDropdown.value;
-
-    if (!item || !candidateName) {
-      showToast('error', 'Error', 'Please select both item and candidate');
-      return;
-    }
-
-    const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
-    const isUpdate = existingRatings.length > 0;
-
-    let tempRatings = {};
-    if (isUpdate) {
-      const isVerified = await verifyEvaluatorPassword(existingRatings);
-      if (!isVerified) {
-        revertToExistingRatings(existingRatings);
-        showToast('warning', 'Update Canceled', 'Ratings reverted to original values');
-        return;
-      }
-      // Store current ratings before update
-      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-      Array.from(competencyItems).forEach(item => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
-        if (rating) tempRatings[competencyName] = rating;
-      });
-    }
-
-    const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
-    if (error) {
-      showToast('error', 'Error', error);
-      return;
-    }
-
-    const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
-    const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
-
-    let modalContent = `
-      <div class="modal-body">
-        <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
-        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
-        <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
-        <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${candidateName}</span></div>
-        <div class="modal-section">
-          <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
-          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
-          <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
-    `;
-
-    if (isUpdate) {
-      modalContent += '<h4>CHANGES:</h4>';
-      ratings.forEach(row => {
-        const competencyName = row[3];
-        const newRating = row[4];
-        const oldRating = existingRatings.find(r => r[3] === competencyName)?.[4] || 'N/A';
-        if (oldRating !== newRating) {
-          modalContent += `
-            <div class="modal-field">
-              <span class="modal-label">${competencyName}:</span>
-              <span class="modal-value rating-value">${oldRating} → ${newRating}</span>
-            </div>
-          `;
-        }
-      });
-    }
-
-    modalContent += `
-        </div>
-      </div>
-    `;
-
-    showModal(
-      `CONFIRM ${isUpdate ? 'UPDATE' : 'SUBMISSION'}`,
-      modalContent,
-      () => {
-        submissionQueue.push(ratings);
-        showSubmittingIndicator();
-        processSubmissionQueue();
-      },
-      () => {
-        if (isUpdate) {
-          revertToExistingRatings(existingRatings);
-          showToast('info', 'Canceled', 'Ratings reverted to original values');
-        } else {
-          console.log('Submission canceled');
-          showToast('info', 'Canceled', 'Ratings submission aborted');
-        }
-      }
-    );
-  } catch (error) {
-    console.error('Submission error:', error);
-    showToast('error', 'Error', `Failed to submit: ${error.message}`);
-    if (error.status === 401 || error.status === 403) handleAuthClick();
+  if (ratings.length === 0) {
+    showToast('error', 'Error', 'No ratings selected');
+    return;
   }
+
+  const name = elements.nameDropdown.value;
+  const item = elements.itemDropdown.value;
+  const assignment = elements.assignmentDropdown.value;
+  const position = elements.positionDropdown.value;
+
+  const modalContent = `
+    <div class="modal-body">
+      <p>Are you sure you want to submit the following ratings?</p>
+      <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${name}</span></div>
+      <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
+      <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${position}</span></div>
+      <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${assignment}</span></div>
+      <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
+      <div class="modal-field"><span class="modal-label">RATINGS:</span> <span class="modal-value">${ratings.join(', ')}</span></div>
+    </div>
+  `;
+
+  showModal('Confirm Submission', modalContent, async () => {
+    isSubmitting = true;
+    showSubmittingIndicator();
+    try {
+      const lockAcquired = await acquireLock(name, item);
+      if (!lockAcquired) {
+        showToast('error', 'Error', 'Another user is submitting ratings for this candidate. Please try again later.');
+        return;
+      }
+
+      const existingRatings = await checkExistingRatings(name, item);
+      if (existingRatings && existingRatings[3] !== currentEvaluator) {
+        showToast('error', 'Error', 'Ratings already submitted by another evaluator.');
+        await revertToExistingRatings(existingRatings);
+        return;
+      }
+
+      const data = await prepareRatingsData(name, item, ratings);
+      await processRatings(data);
+
+      showToast('success', 'Success', 'Ratings submitted successfully');
+      clearRatings();
+      elements.nameDropdown.value = '';
+      setDropdownState(elements.nameDropdown, false);
+      saveDropdownState();
+    } catch (error) {
+      console.error('Submission error:', error);
+      showToast('error', 'Error', 'Failed to submit ratings');
+    } finally {
+      await releaseLock(name, item);
+      isSubmitting = false;
+      hideSubmittingIndicator();
+      processSubmissionQueue();
+    }
+  });
 }
 
 function showSubmittingIndicator() {
-  let indicator = document.getElementById('submittingIndicator');
-  if (!indicator) {
-    indicator = document.createElement('div');
-    indicator.id = 'submittingIndicator';
-    indicator.className = 'submitting-indicator';
-    indicator.innerHTML = `
-      <div class="submitting-content">
-        <span class="spinner"></span>
-        <span>SUBMITTING...</span>
-      </div>
-    `;
-    document.body.appendChild(indicator);
-  }
+  elements.submitRatings.disabled = true;
+  elements.submitRatings.textContent = 'Submitting...';
 }
 
 function hideSubmittingIndicator() {
-  const indicator = document.getElementById('submittingIndicator');
-  if (indicator) indicator.remove();
+  elements.submitRatings.disabled = false;
+  elements.submitRatings.textContent = 'SUBMIT RATINGS';
 }
 
-async function processSubmissionQueue() {
-  if (isSubmitting || !submissionQueue.length) return;
-  isSubmitting = true;
-
-  const ratings = submissionQueue.shift();
-
-  try {
-    const result = await submitRatingsWithLock(ratings);
-    if (result.success) {
-      const candidateName = ratings[0][2];
-      const item = ratings[0][1];
-      localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showModal(
-        'Submission Successful',
-        `<p>${result.message}</p>`,
-        () => {
-          console.log('Success modal closed');
-          fetchSubmittedRatings();
-        },
-        null,
-        false
-      );
-    }
-  } catch (error) {
-    console.error('Queue submission failed:', error);
-    showToast('error', 'Error', error.message);
-    submissionQueue.unshift(ratings);
-    setTimeout(processSubmissionQueue, 5000);
-  } finally {
-    isSubmitting = false;
-    hideSubmittingIndicator();
-    processSubmissionQueue();
+function processSubmissionQueue() {
+  if (submissionQueue.length > 0 && !isSubmitting) {
+    const nextSubmission = submissionQueue.shift();
+    submitRatings(nextSubmission);
   }
 }
 
-async function checkExistingRatings(item, candidateName, evaluator) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const existingData = response.result.values || [];
-    const candidateInitials = getInitials(candidateName);
-    return existingData.filter(row =>
-      row[0].startsWith(`${item}-${candidateInitials}`) && row[5] === evaluator
-    );
-  } catch (error) {
-    console.error('Error checking ratings:', error);
-    return [];
-  }
-}
-
-function revertToExistingRatings(existingRatings) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
-    if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
-    } else {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => radio.checked = false);
-    }
-  });
-}
-
-async function verifyEvaluatorPassword(existingRatings) {
-  return new Promise((resolve) => {
-    const modalContent = `
-      <p>Please verify password for ${currentEvaluator} to update ratings:</p>
-      <input type="password" id="verificationPassword" class="modal-input">
-    `;
-    showModal('Password Verification', modalContent, () => {
-      const password = document.getElementById('verificationPassword').value;
-      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    }, () => {
-      revertToExistingRatings(existingRatings);
-      resolve(false);
-    });
-  });
-}
-
-function prepareRatingsData(item, candidateName, currentEvaluator) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  const ratings = [];
-
-  for (let itemElement of competencyItems) {
-    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
-    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
-      .find(radio => radio.checked)?.value;
-
-    if (!rating) {
-      return { error: 'Please rate all competencies' };
-    }
-
-    const competencyCode = getCompetencyCode(competencyName);
-    const candidateInitials = getInitials(candidateName);
-    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
-    
-    ratings.push([
-      ratingCode,
-      item,
-      candidateName,
-      competencyName,
-      rating,
-      currentEvaluator,
-      '',
-      ''
-    ]);
-  }
-  console.log('Ratings to submit:', ratings);
-  return { ratings };
-}
-
-async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:I1";
-  const LOCK_TIMEOUT = 15000;
-  let retryCount = 0;
-  let lockAcquired = false;
-
-  while (retryCount < maxRetries) {
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const { acquired, owner } = await acquireLock(sessionId);
-      if (!acquired) {
-        showToast('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
-        await delay(Math.pow(2, retryCount) * 1000);
-        retryCount++;
-        continue;
-      }
-      lockAcquired = true;
-
-      const result = await processRatings(ratings);
-      await releaseLock(sessionId);
-      return result;
-    } catch (error) {
-      console.error('Error in submitRatingsWithLock:', error);
-      retryCount++;
-      if (lockAcquired) await releaseLock(sessionId);
-      if (retryCount === maxRetries) {
-        throw new Error('Submission failed after retries—queued for later');
-      }
-      await delay(Math.pow(2, retryCount) * 1000);
-    }
-  }
-}
-
-async function acquireLock(sessionId) {
-  const lockRange = "RATELOG!G1:I1";
-  try {
-    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-    });
-    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
-    
-    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < 15000) {
-      return { acquired: false, owner: lockOwner || 'unknown' };
-    }
-
-    const timestamp = new Date().toISOString();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-      valueInputOption: 'RAW',
-      resource: { values: [['locked', timestamp, sessionId]] },
-    });
-    return { acquired: true };
-  } catch (error) {
-    console.error('Lock acquisition failed:', error);
-    return { acquired: false, owner: 'error' };
-  }
-}
-
-async function releaseLock(sessionId) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: "RATELOG!G1:I1",
-      valueInputOption: 'RAW',
-      resource: { values: [['', '', '']] },
-    });
-  } catch (error) {
-    console.error('Failed to release lock:', error);
-    showToast('error', 'Lock Error', 'Lock release failed—may resolve in 15s');
-  }
-}
-
-async function processRatings(ratings) {
-  if (!await isTokenValid()) await refreshAccessToken();
+async function checkExistingRatings(name, item) {
   const response = await gapi.client.sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
     range: SHEET_RANGES.RATELOG,
   });
+  const values = response.result.values || [];
+  return values.find(row => row[0] === name && row[1] === item);
+}
 
-  let existingData = response.result.values || [];
-  const newRatings = [];
-  let isUpdated = false;
+async function revertToExistingRatings(existingRatings) {
+  prefillRatings(existingRatings.slice(5));
+}
 
-  const existingRatingsMap = new Map();
-  existingData.forEach((row, index) => {
-    if (row[0]) existingRatingsMap.set(row[0], { row, index });
+async function verifyEvaluatorPassword(evaluator, password) {
+  return EVALUATOR_PASSWORDS[evaluator] === password;
+}
+
+async function prepareRatingsData(name, item, ratings) {
+  const timestamp = new Date().toISOString();
+  const initials = getInitials(currentEvaluator);
+  const competencyCodes = compeCodes
+    .filter(row => row[0] === item)
+    .flatMap(row => row[1].split(','));
+
+  return [
+    name,
+    item,
+    timestamp,
+    currentEvaluator,
+    initials,
+    ...ratings,
+  ];
+}
+
+async function submitRatingsWithLock(data) {
+  await gapi.client.sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: SHEET_RANGES.RATELOG,
+    valueInputOption: 'RAW',
+    resource: {
+      values: [data],
+    },
   });
+}
 
-  ratings.forEach(newRating => {
-    const ratingCode = newRating[0];
-    if (existingRatingsMap.has(ratingCode)) {
-      const { index } = existingRatingsMap.get(ratingCode);
-      existingData[index] = newRating;
-      isUpdated = true;
-    } else {
-      newRatings.push(newRating);
-    }
-  });
-
-  const batchUpdates = [];
-  if (isUpdated) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: existingData },
-      })
-    );
+async function acquireLock(name, item) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/lock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, item, sessionId }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Error acquiring lock:', error);
+    return false;
   }
-  if (newRatings.length > 0) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: newRatings },
-      })
-    );
-  }
+}
 
-  await Promise.all(batchUpdates);
-  return {
-    success: true,
-    message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
-  };
+async function releaseLock(name, item) {
+  try {
+    await fetch(`${API_BASE_URL}/lock`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, item, sessionId }),
+    });
+  } catch (error) {
+    console.error('Error releasing lock:', error);
+  }
+}
+
+async function processRatings(data) {
+  await submitRatingsWithLock(data);
 }
 
 function getInitials(name) {
-  return name.split(' ').map(word => word.slice(0, 3)).join('');
+  return name
+    .split(' ')
+    .map(word => word[0])
+    .join('')
+    .toUpperCase();
 }
 
-function getCompetencyCode(competencyName) {
-  return competencyName.split(' ').map(word => word.charAt(0).replace(/[^A-Za-z]/g, '')).join('');
+function getCompetencyCode(competency) {
+  const comp = competencies.find(row => row[1] === competency);
+  return comp ? comp[0] : '';
 }
 
 async function displayCandidatesTable(name, itemNumber) {
@@ -1209,7 +986,7 @@ async function displayCandidatesTable(name, itemNumber) {
         button.textContent = value ? 'View Document' : 'NONE';
         if (value) {
           button.addEventListener('click', () => {
-            window.open(value, '_blank'); // Open the original Google Drive link in a new tab
+            window.open(value, '_blank');
           });
         } else {
           button.disabled = true;
@@ -1226,342 +1003,428 @@ async function displayCandidatesTable(name, itemNumber) {
   }
 }
 
-async function fetchCompetenciesFromSheet() {
+async function displayGeneralCandidatesTable(name, itemNumber) {
+  const container = elements.candidatesTableSecretariat;
+  container.innerHTML = '';
+
+  const candidateRow = generalList.find(row => row[0] === name && row[1] === itemNumber);
+  if (candidateRow) {
+    const tilesContainer = document.createElement('div');
+    tilesContainer.classList.add('tiles-container');
+
+    const headers = [
+      'SEX', 'DATE OF BIRTH', 'AGE', 'ELIGIBILITY/PROFESSION', 'PROFESSIONAL LICENSE',
+      'LETTER OF INTENT (PDF FILE)', 'PERSONAL DATA SHEET (SPREADSHEET FILE)',
+      'WORK EXPERIENCE SHEET (WORD FILE)', 'PROOF OF ELIGIBILITY (PDF FILE)', 
+      'CERTIFICATES (PDF FILE)', 'INDIVIDUAL PERFORMANCE COMMITMENT REVIEW (PDF FILE)',
+      'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)', 
+      'TRANSCRIPT OF RECORDS (PDF FILE)'
+    ];
+
+    const columnsCtoP = candidateRow.slice(2, 16);
+    columnsCtoP.forEach((value, index) => {
+      const tile = document.createElement('div');
+      tile.classList.add('tile');
+
+      const header = document.createElement('h4');
+      header.textContent = headers[index];
+      tile.appendChild(header);
+
+      const content = document.createElement('div');
+      content.classList.add('tile-content');
+
+      if (index < 4) {
+        const textContent = document.createElement('p');
+        textContent.textContent = value || 'No Data';
+        if (!value) textContent.classList.add('no-data');
+        content.appendChild(textContent);
+      } else {
+        const button = document.createElement('button');
+        button.classList.add('open-link-button');
+        button.textContent = value ? 'View Document' : 'NONE';
+        if (value) {
+          button.addEventListener('click', () => {
+            window.open(value, '_blank');
+          });
+        } else {
+          button.disabled = true;
+        }
+        content.appendChild(button);
+      }
+      tile.appendChild(content);
+      tilesContainer.appendChild(tile);
+    });
+
+    container.appendChild(tilesContainer);
+  } else {
+    container.innerHTML = '<p>No matching data found.</p>';
+  }
+}
+
+async function displaySecretariatTable() {
+  const item = elements.itemDropdownSecretariat.value;
+  if (!item) return;
+
+  const names = generalList
+    .filter((row) => row[1] === item)
+    .map((row) => ({ name: row[0], sex: row[2] || '' }));
+
+  elements.secretariatTable.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>NAME</th>
+          <th>COMMENT</th>
+          <th>ACTION</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${names.map((candidate, index) => `
+          <tr data-name="${candidate.name}">
+            <td>${candidate.name}</td>
+            <td><input type="text" id="comment-${index}" value=""></td>
+            <td>
+              <select id="action-${index}">
+                <option value="">Select Action</option>
+                <option value="disqualify">For Disqualification</option>
+                <option value="longlist">For Long List</option>
+              </select>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  const rows = elements.secretariatTable.querySelectorAll('tr[data-name]');
+  rows.forEach((row, index) => {
+    row.addEventListener('click', () => {
+      rows.forEach(r => r.classList.remove('selected'));
+      row.classList.add('selected');
+      selectedCandidate = {
+        name: row.dataset.name,
+        item: item,
+        comment: document.getElementById(`comment-${index}`).value,
+        action: document.getElementById(`action-${index}`).value,
+        sex: names[index].sex,
+      };
+      displayGeneralCandidatesTable(selectedCandidate.name, item);
+      updateSubmitButtonState();
+    });
+
+    const commentInput = document.getElementById(`comment-${index}`);
+    const actionSelect = document.getElementById(`action-${index}`);
+    commentInput.addEventListener('input', () => {
+      if (selectedCandidate && selectedCandidate.name === row.dataset.name) {
+        selectedCandidate.comment = commentInput.value;
+        updateSubmitButtonState();
+      }
+    });
+    actionSelect.addEventListener('change', () => {
+      if (selectedCandidate && selectedCandidate.name === row.dataset.name) {
+        selectedCandidate.action = actionSelect.value;
+        updateSubmitButtonState();
+      }
+    });
+  });
+
+  updateSubmitButtonState();
+}
+
+function updateSubmitButtonState() {
+  elements.submitSecretariat.disabled = !selectedCandidate || !selectedCandidate.action;
+}
+
+async function fetchCompetenciesFromSheet(itemNumber) {
   try {
-    if (!await isTokenValid()) await refreshAccessToken();
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: 'ALLCOMPE!A:C',
+      range: SHEET_RANGES.COMPECODES,
+    });
+    const codes = response.result.values.find(row => row[0] === itemNumber);
+    if (!codes) return [];
+
+    const competencyCodes = codes[1].split(',');
+    const compResponse = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.COMPETENCIES,
     });
 
-    const values = response.result.values || [];
-    const competenciesColumn1 = values.map(row => row[0]).filter(value => value);
-    const competenciesColumn2 = values.map(row => row[1]).filter(value => value);
-    const competenciesColumn3 = values.map(row => row[2]).filter(value => value);
-
-    return { competenciesColumn1, competenciesColumn2, competenciesColumn3 };
+    return compResponse.result.values
+      .filter(row => competencyCodes.includes(row[0]))
+      .map(row => row[1]);
   } catch (error) {
     console.error('Error fetching competencies:', error);
-    return { competenciesColumn1: [], competenciesColumn2: [], competenciesColumn3: [] };
+    return [];
   }
 }
 
+async function displayCompetencies(name, relatedCompetencies, salaryGrade) {
+  elements.competencyContainer.innerHTML = '';
+  const maxRating = salaryGrade >= 24 ? 5 : 4;
 
-async function displayCompetencies(name, competencies, salaryGrade = 0) {
-  const { competenciesColumn1, competenciesColumn2, competenciesColumn3 } = await fetchCompetenciesFromSheet();
+  relatedCompetencies.forEach((competency, index) => {
+    const compDiv = document.createElement('div');
+    compDiv.className = 'competency';
 
-  elements.competencyContainer.innerHTML = `
-    <div class="competency-section" id="basic-competencies">
-      <h3 class="section-title">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
-      <h3>BASIC COMPETENCIES</h3>
-      <div class="competency-grid"></div>
-    </div>
-    <div class="competency-section" id="organizational-competencies">
-      <h3 class="section-title">POTENTIAL</h3>
-      <h3>ORGANIZATIONAL COMPETENCIES</h3>
-      <div class="competency-grid"></div>
-    </div>
-    ${salaryGrade >= 24 ? `
-      <div class="competency-section" id="leadership-competencies">
-        <h3>LEADERSHIP COMPETENCIES</h3>
-        <div class="competency-grid"></div>
-      </div>
-    ` : ''}
-    <div class="competency-section" id="minimum-competencies">
-      <h3>MINIMUM COMPETENCIES</h3>
-      <div class="competency-grid"></div>
-    </div>
-    <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
-  `;
+    const compTitle = document.createElement('h3');
+    compTitle.textContent = competency;
+    compDiv.appendChild(compTitle);
 
-  let resultsArea = document.querySelector('.results-area');
-  const pageWrapper = document.querySelector('.page-wrapper');
-  if (!resultsArea) {
-    resultsArea = document.createElement('div');
-    resultsArea.className = 'results-area';
-    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild);
-  }
-  resultsArea.classList.add('active');
-  resultsArea.innerHTML = `
-    <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
-    <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
-    <div class="grid-container">
-      <div class="dropdown-info">
-        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
-        <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
-        <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
-        ${salaryGrade >= 24 ? `<div class="data-row"><span class="data-label">LEADERSHIP:</span> <span class="data-value" id="leadership-rating-value">0.00</span></div>` : ''}
-        <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
-      </div>
-    </div>
-    <div class="prominent-ratings">
-      <div><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
-      <div><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
-    </div>
-  `;
+    const ratingDiv = document.createElement('div');
+    ratingDiv.className = 'rating';
 
-  const container = document.querySelector('.container');
-  const updateMarginTop = () => {
-    const resultsHeight = resultsArea.offsetHeight + 20;
-    container.style.marginTop = `${resultsHeight}px`;
-  };
-  
-  updateMarginTop();
-  window.addEventListener('resize', updateMarginTop);
-
-  const basicRatings = Array(competenciesColumn1.length).fill(0);
-  const orgRatings = Array(competenciesColumn2.length).fill(0);
-  const leadershipRatings = Array(competenciesColumn3.length).fill(0);
-  const minimumRatings = Array(competencies.length).fill(0);
-
-  function createCompetencyItem(comp, idx, ratings, updateFunction) {
-    const div = document.createElement("div");
-    div.className = "competency-item";
-    div.innerHTML = `
-      <label>${idx + 1}. ${comp}</label>
-      <div class="rating-container">
-        ${[1, 2, 3, 4, 5].map(val => `
-          <input type="radio" id="${comp}-${val}" name="${comp}" value="${val}">
-          <label for="${comp}-${val}">${val}</label>
-        `).join('')}
-      </div>
-    `;
-    div.querySelectorAll('input[type="radio"]').forEach((radio) => {
-      radio.addEventListener("change", () => {
-        ratings[idx] = parseInt(radio.value, 10);
-        updateFunction();
-        computePsychosocial();
-        computePotential();
-        saveRadioState(comp, radio.value, name, elements.itemDropdown.value);
+    for (let i = 1; i <= maxRating; i++) {
+      const label = document.createElement('label');
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = `rating_${index}`;
+      radio.value = i;
+      radio.addEventListener('change', () => {
+        saveRadioState();
+        maybeEnableButtons();
       });
-    });
-    return div;
-  }
 
-  const basicGrid = document.querySelector("#basic-competencies .competency-grid");
-  competenciesColumn1.forEach((comp, idx) => {
-    basicGrid.appendChild(createCompetencyItem(comp, idx, basicRatings, computeBasicRating));
+      label.appendChild(radio);
+      label.appendChild(document.createTextNode(i));
+      ratingDiv.appendChild(label);
+    }
+
+    compDiv.appendChild(ratingDiv);
+    elements.competencyContainer.appendChild(compDiv);
   });
 
-  const orgGrid = document.querySelector("#organizational-competencies .competency-grid");
-  competenciesColumn2.forEach((comp, idx) => {
-    orgGrid.appendChild(createCompetencyItem(comp, idx, orgRatings, computeOrgRating));
-  });
-
-  if (salaryGrade >= 24) {
-    const leadGrid = document.querySelector("#leadership-competencies .competency-grid");
-    competenciesColumn3.forEach((comp, idx) => {
-      leadGrid.appendChild(createCompetencyItem(comp, idx, leadershipRatings, computeLeadershipRating));
-    });
-  }
-
-  const minGrid = document.querySelector("#minimum-competencies .competency-grid");
-  competencies.forEach((comp, idx) => {
-    minGrid.appendChild(createCompetencyItem(comp, idx, minimumRatings, computeMinimumRating));
-  });
-
-  function computeBasicRating() {
-    const total = basicRatings.filter(r => r).reduce((a, b) => a + (b / 5) * 2, 0);
-    document.getElementById("basic-rating-value").textContent = total.toFixed(2);
-  }
-
-  function computeOrgRating() {
-    const total = orgRatings.filter(r => r).reduce((a, b) => a + b / 5, 0);
-    document.getElementById("organizational-rating-value").textContent = total.toFixed(2);
-  }
-
-  function computeLeadershipRating() {
-    const leadTotal = leadershipRatings.filter(r => r).reduce((a, b) => a + b / 5, 0);
-    const el = document.getElementById("leadership-rating-value");
-    if (el) el.textContent = leadTotal.toFixed(2);
-  }
-
-  function computeMinimumRating() {
-    const total = minimumRatings.filter(r => r).reduce((a, b) => a + (b / minimumRatings.length), 0);
-    document.getElementById("minimum-rating-value").textContent = total.toFixed(2);
-  }
-
-  function computePsychosocial() {
-    const basicTotal = parseFloat(document.getElementById("basic-rating-value").textContent) || 0;
-    document.getElementById("psychosocial-rating-value").textContent = basicTotal.toFixed(2);
-  }
-
-  function computePotential() {
-    const orgTotal = parseFloat(document.getElementById("organizational-rating-value").textContent) || 0;
-    const minTotal = parseFloat(document.getElementById("minimum-rating-value").textContent) || 0;
-    const leadTotal = salaryGrade >= 24 ? (parseFloat(document.getElementById("leadership-rating-value").textContent) || 0) : 0;
-    const divisor = salaryGrade >= 24 ? 3 : 2;
-    const potential = ((orgTotal + minTotal + leadTotal) / divisor) * 2;
-    document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
-  }
-
-  document.getElementById('reset-ratings').addEventListener('click', () => {
-    showModal(
-      'CONFIRM RESET',
-      '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
-      () => {
-        clearRatings();
-        computeBasicRating();
-        computeOrgRating();
-        computeLeadershipRating();
-        computeMinimumRating();
-        computePsychosocial();
-        computePotential();
-        localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
-        elements.submitRatings.disabled = true;
-        showToast('success', 'Reset Complete', 'All ratings have been cleared.');
-      }
-    );
-  });
-
-  loadRadioState(name, elements.itemDropdown.value);
+  loadRadioState();
+  maybeEnableButtons();
 }
 
-
-function saveRadioState(competencyName, value, candidateName, item) {
-  const key = `radioState_${candidateName}_${item}`;
-  const state = JSON.parse(localStorage.getItem(key)) || {};
-  state[competencyName] = value;
-  localStorage.setItem(key, JSON.stringify(state));
+function saveRadioState() {
+  const ratings = {};
+  document.querySelectorAll('input[type="radio"]:checked').forEach(radio => {
+    ratings[radio.name] = radio.value;
+  });
+  localStorage.setItem('radioState', JSON.stringify(ratings));
 }
 
-function loadRadioState(candidateName, item) {
-  const key = `radioState_${candidateName}_${item}`;
-  const state = JSON.parse(localStorage.getItem(key)) || {};
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+function loadRadioState() {
+  const ratings = JSON.parse(localStorage.getItem('radioState') || '{}');
+  Object.keys(ratings).forEach(name => {
+    const radio = document.querySelector(`input[name="${name}"][value="${ratings[name]}"]`);
+    if (radio) radio.checked = true;
+  });
+}
 
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const savedValue = state[competencyName];
-    if (savedValue) {
-      const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
+async function submitSecretariat() {
+  if (isSubmitting) {
+    console.log('Submission already in progress');
+    return;
+  }
+
+  if (!selectedCandidate || !selectedCandidate.action) {
+    showToast('error', 'Error', 'Please select a candidate and an action');
+    return;
+  }
+
+  const modalContent = `
+    <div class="modal-body">
+      <p>Are you sure you want to submit the following action?</p>
+      <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${selectedCandidate.name}</span></div>
+      <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${selectedCandidate.item}</span></div>
+      <div class="modal-field"><span class="modal-label">ACTION:</span> <span class="modal-value">${selectedCandidate.action === 'disqualify' ? 'For Disqualification' : 'For Long List'}</span></div>
+      <div class="modal-field"><span class="modal-label">COMMENT:</span> <span class="modal-value">${selectedCandidate.comment || 'N/A'}</span></div>
+    </div>
+  `;
+
+  showModal('Confirm Submission', modalContent, async () => {
+    isSubmitting = true;
+    showSubmittingIndicatorSecretariat();
+    try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      if (selectedCandidate.action === 'disqualify') {
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: SHEET_RANGES.DISQUALIFIED,
+          valueInputOption: 'RAW',
+          resource: {
+            values: [[
+              selectedCandidate.name,
+              selectedCandidate.item,
+              selectedCandidate.sex,
+              selectedCandidate.comment
+            ]]
+          }
+        });
+      } else if (selectedCandidate.action === 'longlist') {
+        const candidateRow = generalList.find(row => row[0] === selectedCandidate.name && row[1] === selectedCandidate.item);
+        if (candidateRow) {
+          await gapi.client.sheets.spreadsheets.values.append({
+            spreadsheetId: SHEET_ID,
+            range: SHEET_RANGES.CANDIDATES,
+            valueInputOption: 'RAW',
+            resource: { values: [candidateRow] }
+          });
+        }
       }
+
+      // Remove from generalList and update table
+      generalList = generalList.filter(row => row[0] !== selectedCandidate.name || row[1] !== selectedCandidate.item);
+      if (selectedCandidate.action === 'longlist') {
+        const candidateRow = generalList.find(row => row[0] === selectedCandidate.name && row[1] === selectedCandidate.item);
+        if (candidateRow) candidates.push(candidateRow);
+      }
+      selectedCandidate = null;
+      displaySecretariatTable();
+      elements.candidatesTableSecretariat.innerHTML = '';
+      showToast('success', 'Success', 'Action submitted successfully');
+    } catch (error) {
+      console.error('Secretariat submission error:', error);
+      showToast('error', 'Error', 'Failed to submit action');
+    } finally {
+      isSubmitting = false;
+      hideSubmittingIndicatorSecretariat();
     }
   });
 }
 
-function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
-    document.body.appendChild(modalOverlay);
-  }
+function showSubmittingIndicatorSecretariat() {
+  elements.submitSecretariat.disabled = true;
+  elements.submitSecretariat.textContent = 'Submitting...';
+}
 
-  modalOverlay.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
-      </div>
-      <div class="modal-content">${contentHTML}</div>
+function hideSubmittingIndicatorSecretariat() {
+  elements.submitSecretariat.disabled = false;
+  elements.submitSecretariat.textContent = 'SUBMIT';
+}
+
+function initializeTabs() {
+  const tabButtons = document.querySelectorAll('.tab-button');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  tabButtons.forEach(button => {
+    button.addEventListener('click', async () => {
+      const tab = button.dataset.tab;
+      if (tab === 'secretariat' && !isSecretariat) {
+        const modalContent = `
+          <p>Please enter the Secretariat password:</p>
+          <input type="password" id="secretariatPassword" class="modal-input">
+        `;
+        const isAuthenticated = await new Promise((resolve) => {
+          showModal('Secretariat Authentication', modalContent, () => {
+            const passwordInput = document.getElementById('secretariatPassword');
+            resolve(passwordInput.value === secretariatPassword);
+          }, () => resolve(false));
+        });
+
+        if (!isAuthenticated) {
+          showToast('error', 'Error', 'Incorrect Secretariat password');
+          return;
+        }
+      }
+
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+
+      tabContents.forEach(content => content.style.display = 'none');
+      document.getElementById(tab).style.display = 'block';
+
+      isSecretariat = tab === 'secretariat';
+      updateUI(true);
+
+      if (isSecretariat) {
+        elements.competencyContainer.innerHTML = '';
+        const resultsArea = document.querySelector('.results-area');
+        if (resultsArea) resultsArea.remove();
+        if (elements.itemDropdownSecretariat.value) {
+          displaySecretariatTable();
+        }
+      } else {
+        if (elements.nameDropdown.value && elements.itemDropdown.value) {
+          const item = elements.itemDropdown.value;
+          const name = elements.nameDropdown.value;
+          const assignment = elements.assignmentDropdown.value;
+          const position = elements.positionDropdown.value;
+          const vacancy = vacancies.find(row => row[0] === item && row[2] === assignment && row[1] === position);
+          const salaryGrade = vacancy && vacancy[3] ? parseInt(vacancy[3], 10) : 0;
+          const selectedCodes = compeCodes
+            .filter((row) => row[0] === item)
+            .flatMap((row) => row[1].split(','));
+          const relatedCompetencies = competencies
+            .filter((row) => row[0] && selectedCodes.includes(row[0]))
+            .map((row) => row[1]);
+          await displayCompetencies(name, relatedCompetencies, salaryGrade);
+          fetchSubmittedRatings();
+        }
+      }
+    });
+  });
+}
+
+function showModal(title, content, onConfirm, onCancel) {
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>${title}</h2>
+      ${content}
       <div class="modal-actions">
-        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
-        <button id="modalConfirm" class="modal-confirm">Confirm</button>
+        <button class="modal-confirm">Confirm</button>
+        <button class="modal-cancel">Cancel</button>
       </div>
     </div>
   `;
+  document.body.appendChild(modal);
 
-  return new Promise((resolve) => {
-    modalOverlay.classList.add('active');
-    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
-    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+  const confirmBtn = modal.querySelector('.modal-confirm');
+  const cancelBtn = modal.querySelector('.modal-cancel');
 
-    const closeHandler = (result) => {
-      modalOverlay.classList.remove('active');
-      resolve(result);
-      modalOverlay.removeEventListener('click', outsideClickHandler);
-    };
+  confirmBtn.addEventListener('click', () => {
+    onConfirm();
+    modal.remove();
+  });
 
-    confirmBtn.onclick = () => {
-      if (onConfirm) onConfirm();
-      closeHandler(true);
-    };
-
-    if (cancelBtn) {
-      cancelBtn.onclick = () => {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      };
-    }
-
-    const outsideClickHandler = (event) => {
-      if (event.target === modalOverlay) {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      }
-    };
-    modalOverlay.addEventListener('click', outsideClickHandler);
+  cancelBtn.addEventListener('click', () => {
+    if (onCancel) onCancel();
+    modal.remove();
   });
 }
 
-function showFullScreenModal(title, contentHTML) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
-    document.body.appendChild(modalOverlay);
-  }
-
-  modalOverlay.innerHTML = `
-    <div class="modal full-screen-modal">
-      <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+function showFullScreenModal(title, content, onConfirm) {
+  const modal = document.createElement('div');
+  modal.className = 'modal full-screen';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>${title}</h2>
+      ${content}
+      <div class="modal-actions">
+        <button class="modal-confirm">Close</button>
       </div>
-      <div class="modal-content full-screen-content">${contentHTML}</div>
     </div>
   `;
+  document.body.appendChild(modal);
 
-  modalOverlay.classList.add('active');
-  modalOverlay.addEventListener('click', (event) => {
-    if (event.target === modalOverlay) {
-      modalOverlay.classList.remove('active');
-    }
+  const confirmBtn = modal.querySelector('.modal-confirm');
+  confirmBtn.addEventListener('click', () => {
+    onConfirm();
+    modal.remove();
   });
 }
 
 function showToast(type, title, message) {
-  const toastContainer = document.createElement('div');
-  toastContainer.className = 'toast-container';
-  document.body.appendChild(toastContainer);
-
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `
-    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
-    <div class="toast-content">
-      <div class="toast-title">${title}</div>
-      <div class="toast-message">${message}</div>
-    </div>
-    <span class="toast-close">×</span>
-  `;
-  toastContainer.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.animation = 'slideOut 0.3s ease-out forwards';
-    setTimeout(() => toastContainer.remove(), 300);
-  }, 5000);
-
-  toast.querySelector('.toast-close').addEventListener('click', () => {
-    toast.style.animation = 'slideOut 0.3s ease-out forwards';
-    setTimeout(() => toastContainer.remove(), 300);
+  const toast = new Toast({
+    title: title,
+    message: message,
+    type: type,
+    duration: 3000,
   });
+  toast.show();
 }
 
 elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
 elements.submitRatings.addEventListener('click', submitRatings);
+elements.submitSecretariat.addEventListener('click', submitSecretariat);
 
-// Fix: Properly close DOMContentLoaded wrapper
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
+  initializeTabs();
 });
