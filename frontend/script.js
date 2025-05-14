@@ -7,9 +7,6 @@ let isSubmitting = false;
 let refreshTimer = null;
 let sessionId = null; // To track server session
 let submissionQueue = []; // Queue for pending submissions
-let isSecretariatAuthenticated = false; // Track secretariat access
-let passwordAttempts = {}; // Track password attempts
-const MAX_ATTEMPTS = 3;
 
 let CLIENT_ID;
 let API_KEY;
@@ -17,7 +14,6 @@ let SHEET_ID;
 let SCOPES;
 let EVALUATOR_PASSWORDS;
 let SHEET_RANGES;
-let SECRETARIAT_PASSWORD; // Added for secretariat authentication
 
 const elements = {
   authStatus: document.getElementById('authStatus'),
@@ -30,13 +26,6 @@ const elements = {
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
   ratingForm: document.querySelector('.rating-form'),
-  secretariatAssignmentDropdown: document.getElementById('secretariatAssignmentDropdown'),
-  secretariatPositionDropdown: document.getElementById('secretariatPositionDropdown'),
-  secretariatItemDropdown: document.getElementById('secretariatItemDropdown'),
-  secretariatCandidatesTable: document.getElementById('secretariat-candidates-table'),
-  secretariatNamesTable: document.getElementById('secretariat-names-table'),
-  submitSecretariat: document.getElementById('submitSecretariat'),
-  secretariatForm: document.querySelector('.secretariat-form'),
 };
 
 let vacancies = [];
@@ -52,7 +41,6 @@ function saveAuthState(tokenResponse, evaluator) {
     session_id: tokenResponse.session_id || sessionId,
     expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
-    isSecretariatAuthenticated: isSecretariatAuthenticated, // Save secretariat auth state
   };
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
@@ -66,9 +54,6 @@ function saveDropdownState() {
     position: elements.positionDropdown.value,
     item: elements.itemDropdown.value,
     name: elements.nameDropdown.value,
-    secretariatAssignment: elements.secretariatAssignmentDropdown.value,
-    secretariatPosition: elements.secretariatPositionDropdown.value,
-    secretariatItem: elements.secretariatItemDropdown.value,
   };
   localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
   console.log('Dropdown state saved:', dropdownState);
@@ -81,7 +66,6 @@ function loadAuthState() {
     return null;
   }
   console.log('Loaded auth state:', authState);
-  isSecretariatAuthenticated = authState.isSecretariatAuthenticated || false; // Restore secretariat auth
   return authState;
 }
 
@@ -141,28 +125,6 @@ async function restoreState() {
         elements.nameDropdown.dispatchEvent(new Event('change'));
       }));
     }
-    // Restore secretariat dropdowns
-    if (isSecretariatAuthenticated && dropdownState.secretariatAssignment) {
-      elements.secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-      changePromises.push(new Promise(resolve => {
-        elements.secretariatAssignmentDropdown.addEventListener('change', resolve, { once: true });
-        elements.secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
-    if (isSecretariatAuthenticated && dropdownState.secretariatPosition) {
-      elements.secretariatPositionDropdown.value = dropdownState.secretariatPosition;
-      changePromises.push(new Promise(resolve => {
-        elements.secretariatPositionDropdown.addEventListener('change', resolve, { once: true });
-        elements.secretariatPositionDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
-    if (isSecretariatAuthenticated && dropdownState.secretariatItem) {
-      elements.secretariatItemDropdown.value = dropdownState.secretariatItem;
-      changePromises.push(new Promise(resolve => {
-        elements.secretariatItemDropdown.addEventListener('change', resolve, { once: true });
-        elements.secretariatItemDropdown.dispatchEvent(new Event('change'));
-      }));
-    }
 
     await Promise.all(changePromises);
     if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
@@ -207,7 +169,6 @@ fetch(`${API_BASE_URL}/config`)
     SHEET_ID = config.SHEET_ID;
     SCOPES = config.SCOPES;
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
-    SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD || 'secretariat123'; // Fallback password
     SHEET_RANGES = config.SHEET_RANGES;
     initializeApp();
   })
@@ -223,12 +184,7 @@ function initializeApp() {
     console.log('GAPI client initialized');
     maybeEnableButtons();
     createEvaluatorSelector();
-    initializeSecretariatDropdowns();
     restoreState();
-    // Add tab event listeners
-    document.querySelectorAll('.tab-button').forEach(button => {
-      button.addEventListener('click', () => switchTab(button.dataset.tab));
-    });
   });
 }
 
@@ -426,16 +382,65 @@ async function handleEvaluatorSelection(event) {
   });
 }
 
+function handleAuthClick() {
+  window.location.href = `${API_BASE_URL}/auth/google`;
+}
+
+function handleSignOutClick() {
+  const modalContent = `<p>Are you sure you want to sign out?</p>`;
+  showModal('Confirm Sign Out', modalContent, () => {
+    gapi.client.setToken(null);
+    localStorage.clear();
+    console.log('All localStorage cleared');
+    currentEvaluator = null;
+    sessionId = null;
+    vacancies = [];
+    candidates = [];
+    compeCodes = [];
+    competencies = [];
+    submissionQueue = [];
+    console.log('Global variables reset');
+    updateUI(false);
+    resetDropdowns([]);
+    elements.competencyContainer.innerHTML = '';
+    clearRatings();
+    const evaluatorSelect = document.getElementById('evaluatorSelect');
+    if (evaluatorSelect) {
+      evaluatorSelect.value = '';
+      evaluatorSelect.parentElement.remove();
+    }
+    if (elements.submitRatings) {
+      elements.submitRatings.disabled = true;
+    }
+    if (fetchTimeout) {
+      clearTimeout(fetchTimeout);
+      fetchTimeout = null;
+    }
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) {
+      resultsArea.remove();
+    }
+    const container = document.querySelector('.container');
+    container.style.marginTop = '20px';
+    const authSection = document.querySelector('.auth-section');
+    authSection.classList.add('signed-out');
+    showToast('success', 'Signed Out', 'You have been successfully signed out.');
+  }, () => {
+    console.log('Sign out canceled');
+  });
+}
+
 function updateUI(isSignedIn) {
   elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
   elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
   elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
-  elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
-  elements.secretariatForm.style.display = isSignedIn && isSecretariatAuthenticated ? 'block' : 'none';
+  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
   if (!isSignedIn) {
     elements.competencyContainer.innerHTML = '';
-    elements.secretariatNamesTable.innerHTML = '';
-    elements.secretariatCandidatesTable.innerHTML = '';
     const resultsArea = document.querySelector('.results-area');
     if (resultsArea) resultsArea.classList.remove('active');
   }
@@ -462,7 +467,6 @@ async function loadSheetData(maxRetries = 3) {
       competencies = data[3]?.result?.values || [];
       console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
       initializeDropdowns(vacancies);
-      if (isSecretariatAuthenticated) fetchSecretariatAssignments();
       updateUI(true);
       return;
     } catch (error) {
@@ -500,7 +504,16 @@ function setDropdownState(dropdown, enabled) {
   }
 }
 
+
 function initializeDropdowns(vacancies) {
+  function setDropdownState(dropdown, enabled) {
+    dropdown.disabled = !enabled;
+    if (!enabled) {
+      dropdown.value = '';
+      dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+    }
+  }
+
   elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
   elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
   elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
@@ -637,396 +650,14 @@ function resetDropdowns(vacancies) {
   updateDropdown(elements.positionDropdown, [], 'Select Position');
   updateDropdown(elements.itemDropdown, [], 'Select Item');
   updateDropdown(elements.nameDropdown, [], 'Select Name');
-  updateDropdown(elements.secretariatAssignmentDropdown, uniqueAssignments, 'Select Assignment');
-  updateDropdown(elements.secretariatPositionDropdown, [], 'Select Position');
-  updateDropdown(elements.secretariatItemDropdown, [], 'Select Item');
   elements.assignmentDropdown.value = '';
   elements.positionDropdown.value = '';
   elements.itemDropdown.value = '';
   elements.nameDropdown.value = '';
-  elements.secretariatAssignmentDropdown.value = '';
-  elements.secretariatPositionDropdown.value = '';
-  elements.secretariatItemDropdown.value = '';
   elements.assignmentDropdown.disabled = !vacancies.length;
   elements.positionDropdown.disabled = true;
   elements.itemDropdown.disabled = true;
   elements.nameDropdown.disabled = true;
-  elements.secretariatAssignmentDropdown.disabled = !vacancies.length;
-  elements.secretariatPositionDropdown.disabled = true;
-  elements.secretariatItemDropdown.disabled = true;
-}
-
-function handleAuthClick() {
-  window.location.href = `${API_BASE_URL}/auth/google`;
-}
-
-function handleSignOutClick() {
-  const modalContent = `<p>Are you sure you want to sign out?</p>`;
-  showModal('Confirm Sign Out', modalContent, () => {
-    gapi.client.setToken(null);
-    localStorage.clear();
-    console.log('All localStorage cleared');
-    currentEvaluator = null;
-    sessionId = null;
-    isSecretariatAuthenticated = false;
-    vacancies = [];
-    candidates = [];
-    compeCodes = [];
-    competencies = [];
-    submissionQueue = [];
-    passwordAttempts = {};
-    console.log('Global variables reset');
-    updateUI(false);
-    resetDropdowns([]);
-    elements.competencyContainer.innerHTML = '';
-    clearRatings();
-    const evaluatorSelect = document.getElementById('evaluatorSelect');
-    if (evaluatorSelect) {
-      evaluatorSelect.value = '';
-      evaluatorSelect.parentElement.remove();
-    }
-    if (elements.submitRatings) {
-      elements.submitRatings.disabled = true;
-    }
-    if (fetchTimeout) {
-      clearTimeout(fetchTimeout);
-      fetchTimeout = null;
-    }
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) resultsArea.remove();
-    const container = document.querySelector('.container');
-    container.style.marginTop = '20px';
-    const authSection = document.querySelector('.auth-section');
-    authSection.classList.add('signed-out');
-    showToast('success', 'Signed Out', 'You have been successfully signed out.');
-  }, () => {
-    console.log('Sign out canceled');
-  });
-}
-
-function promptSecretariatPassword() {
-  return new Promise((resolve) => {
-    const modalContent = `
-      <p>Please enter the secretariat password:</p>
-      <input type="password" id="secretariatPassword" class="modal-input">
-    `;
-    showModal('Secretariat Authentication', modalContent, () => {
-      const password = document.getElementById('secretariatPassword').value.trim();
-      if (!passwordAttempts['secretariat']) passwordAttempts['secretariat'] = 0;
-
-      if (password === SECRETARIAT_PASSWORD) {
-        passwordAttempts['secretariat'] = 0;
-        isSecretariatAuthenticated = true;
-        saveAuthState(gapi.client.getToken(), currentEvaluator);
-        updateUI(true);
-        fetchSecretariatAssignments();
-        showToast('success', 'Success', 'Secretariat access granted');
-        resolve(true);
-      } else {
-        passwordAttempts['secretariat']++;
-        if (passwordAttempts['secretariat'] >= MAX_ATTEMPTS) {
-          showToast('error', 'Error', 'Maximum password attempts reached');
-          switchTab('rater');
-          resolve(false);
-        } else {
-          showToast('error', 'Error', 'Incorrect password');
-          promptSecretariatPassword().then(resolve);
-        }
-      }
-    }, () => {
-      switchTab('rater');
-      resolve(false);
-    });
-  });
-}
-
-function switchTab(tabId) {
-  const tabs = document.querySelectorAll('.tab-button');
-  const contents = document.querySelectorAll('.tab-content');
-
-  tabs.forEach(tab => {
-    tab.classList.remove('active');
-    if (tab.dataset.tab === tabId) tab.classList.add('active');
-  });
-
-  contents.forEach(content => {
-    content.classList.remove('active');
-    if (content.id === tabId) content.classList.add('active');
-  });
-
-  if (tabId === 'secretariat' && !isSecretariatAuthenticated) {
-    promptSecretariatPassword();
-  } else {
-    updateUI(tabId === 'rater' || isSecretariatAuthenticated);
-  }
-}
-
-async function fetchSecretariatAssignments() {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.VACANCIES, // Use same range as rater for consistency
-    });
-    vacancies = response.result.values || [];
-    const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
-    updateDropdown(elements.secretariatAssignmentDropdown, uniqueAssignments, 'Select Assignment');
-    setDropdownState(elements.secretariatPositionDropdown, false);
-    setDropdownState(elements.secretariatItemDropdown, false);
-    elements.secretariatCandidatesTable.innerHTML = '';
-    elements.secretariatNamesTable.innerHTML = '';
-    elements.submitSecretariat.disabled = true;
-  } catch (error) {
-    console.error('Error fetching secretariat assignments:', error);
-    showToast('error', 'Error', 'Failed to load secretariat assignments');
-  }
-}
-
-function initializeSecretariatDropdowns() {
-  elements.secretariatAssignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
-  elements.secretariatPositionDropdown.setAttribute('data-placeholder', 'Select Position');
-  elements.secretariatItemDropdown.setAttribute('data-placeholder', 'Select Item');
-
-  elements.secretariatAssignmentDropdown.addEventListener('change', async () => {
-    const assignment = elements.secretariatAssignmentDropdown.value;
-    if (assignment) {
-      const positions = vacancies
-        .filter((row) => row[2] === assignment)
-        .map((row) => row[1]);
-      updateDropdown(elements.secretariatPositionDropdown, [...new Set(positions)], 'Select Position');
-      setDropdownState(elements.secretariatPositionDropdown, true);
-    } else {
-      setDropdownState(elements.secretariatPositionDropdown, false);
-    }
-    setDropdownState(elements.secretariatItemDropdown, false);
-    elements.secretariatCandidatesTable.innerHTML = '';
-    elements.secretariatNamesTable.innerHTML = '';
-    elements.submitSecretariat.disabled = true;
-    saveDropdownState();
-  });
-
-  elements.secretariatPositionDropdown.addEventListener('change', async () => {
-    const assignment = elements.secretariatAssignmentDropdown.value;
-    const position = elements.secretariatPositionDropdown.value;
-    if (assignment && position) {
-      const items = vacancies
-        .filter((row) => row[2] === assignment && row[1] === position)
-        .map((row) => row[0]);
-      updateDropdown(elements.secretariatItemDropdown, [...new Set(items)], 'Select Item');
-      setDropdownState(elements.secretariatItemDropdown, true);
-
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.CANDIDATES,
-      });
-      const candidateData = response.result.values || [];
-      const filteredCandidates = candidateData.slice(1).filter(row => row[2] === position);
-      displayCandidatesTableForSecretariat(filteredCandidates);
-    } else {
-      setDropdownState(elements.secretariatItemDropdown, false);
-      elements.secretariatCandidatesTable.innerHTML = '';
-    }
-    elements.secretariatNamesTable.innerHTML = '';
-    elements.submitSecretariat.disabled = true;
-    saveDropdownState();
-  });
-
-  elements.secretariatItemDropdown.addEventListener('change', async () => {
-    const item = elements.secretariatItemDropdown.value;
-    const position = elements.secretariatPositionDropdown.value;
-    if (item) {
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.CANDIDATES,
-      });
-      const candidateData = response.result.values || [];
-      const names = candidateData
-        .slice(1)
-        .filter(row => row[2] === position && row[1] === item)
-        .map(row => row[0]);
-      populateNamesTable(names);
-      const filteredCandidates = candidateData.slice(1).filter(row => row[2] === position && row[1] === item);
-      displayCandidatesTableForSecretariat(filteredCandidates);
-    } else {
-      elements.secretariatNamesTable.innerHTML = '';
-      elements.secretariatCandidatesTable.innerHTML = '';
-    }
-    elements.submitSecretariat.disabled = true;
-    saveDropdownState();
-  });
-}
-
-function displayCandidatesTableForSecretariat(candidateRows) {
-  const container = elements.secretariatCandidatesTable;
-  container.innerHTML = '';
-
-  if (candidateRows.length === 0) {
-    container.innerHTML = '<p>No candidates available</p>';
-    return;
-  }
-
-  const tilesContainer = document.createElement('div');
-  tilesContainer.classList.add('tiles-container');
-
-  candidateRows.forEach(row => {
-    const name = row[0] || 'No Name';
-    const item = row[1] || 'N/A';
-    const position = row[2] || 'N/A';
-    const fileLink = row[3] || '';
-
-    const tile = document.createElement('div');
-    tile.classList.add('tile');
-    tile.innerHTML = `
-      <h4>${name}</h4>
-      <div class="tile-content">
-        <p><strong>Position:</strong> ${position}</p>
-        <p><strong>Item:</strong> ${item}</p>
-        ${fileLink ? `
-          <button class="open-link-button" onclick="window.open('${fileLink}', '_blank')">
-            View Document
-          </button>
-        ` : '<p class="no-data">No document available</p>'}
-      </div>
-    `;
-    tilesContainer.appendChild(tile);
-  });
-
-  container.appendChild(tilesContainer);
-}
-
-function populateNamesTable(names) {
-  const tableContainer = elements.secretariatNamesTable;
-  tableContainer.innerHTML = '';
-
-  if (names.length === 0) {
-    tableContainer.innerHTML = '<p>No names available</p>';
-    return;
-  }
-
-  const table = document.createElement('table');
-  table.className = 'names-table';
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Comment</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${names.map((name, index) => `
-        <tr>
-          <td>${name}</td>
-          <td><textarea placeholder="Enter comment" rows="2"></textarea></td>
-          <td>
-            <select data-index="${index}">
-              <option value="">Select Action</option>
-              <option value="disqualified">Disqualify</option>
-              <option value="long_list">Long List</option>
-            </select>
-          </td>
-        </tr>
-      `).join('')}
-    </tbody>
-  `;
-
-  tableContainer.appendChild(table);
-
-  table.querySelectorAll('select').forEach(select => {
-    select.addEventListener('change', () => {
-      const row = select.closest('tr');
-      row.classList.toggle('selected', select.value !== '');
-      updateSubmitSecretariatButton();
-    });
-  });
-
-  table.querySelectorAll('textarea').forEach(textarea => {
-    textarea.addEventListener('input', updateSubmitSecretariatButton);
-  });
-}
-
-function updateSubmitSecretariatButton() {
-  const table = elements.secretariatNamesTable.querySelector('.names-table');
-  if (!table) {
-    elements.submitSecretariat.disabled = true;
-    return;
-  }
-
-  const hasSelection = Array.from(table.querySelectorAll('select')).some(select => select.value !== '');
-  elements.submitSecretariat.disabled = !hasSelection;
-}
-
-async function submitSecretariatSelections() {
-  const assignment = elements.secretariatAssignmentDropdown.value;
-  const position = elements.secretariatPositionDropdown.value;
-  const item = elements.secretariatItemDropdown.value;
-
-  if (!assignment || !position || !item) {
-    showToast('warning', 'Warning', 'Please select assignment, position, and item');
-    return;
-  }
-
-  const table = elements.secretariatNamesTable.querySelector('.names-table');
-  const selections = Array.from(table.querySelectorAll('tr')).map(row => {
-    const name = row.cells[0].textContent;
-    const comment = row.querySelector('textarea').value;
-    const action = row.querySelector('select').value;
-    return { name, comment, action };
-  }).filter(sel => sel.action);
-
-  if (selections.length === 0) {
-    showToast('warning', 'Warning', 'No actions selected');
-    return;
-  }
-
-  const modalContent = `
-    <p>Confirm submission of the following selections:</p>
-    <div class="modal-section">
-      ${selections.map(sel => `
-        <div class="modal-field">
-          <span class="modal-label">${sel.name}:</span>
-          <span class="modal-value">${sel.action === 'disqualified' ? 'Disqualify' : 'Long List'} (${sel.comment || 'No comment'})</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
-
-  showModal('Confirm Secretariat Submission', modalContent, async () => {
-    showSubmittingIndicator();
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const values = selections.map(sel => [
-        assignment,
-        position,
-        item,
-        sel.name,
-        sel.action === 'disqualified' ? 'Disqualified' : 'Long List',
-        sel.comment,
-        new Date().toISOString(),
-      ]);
-
-      await gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.SECRETARIAT || 'Secretariat!A:G', // Fallback range
-        valueInputOption: 'RAW',
-        resource: { values },
-      });
-
-      showToast('success', 'Success', 'Selections submitted successfully');
-      elements.secretariatNamesTable.innerHTML = '';
-      elements.submitSecretariat.disabled = true;
-      fetchSecretariatAssignments();
-    } catch (error) {
-      console.error('Error submitting selections:', error);
-      showToast('error', 'Error', 'Failed to submit selections');
-    } finally {
-      hideSubmittingIndicator();
-    }
-  });
 }
 
 async function fetchSubmittedRatings() {
@@ -1174,6 +805,7 @@ async function submitRatings() {
         showToast('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
+      // Store current ratings before update
       const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
       Array.from(competencyItems).forEach(item => {
         const competencyName = item.querySelector('label').textContent.split('. ')[1];
@@ -1399,6 +1031,7 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
 
 async function submitRatingsWithLock(ratings, maxRetries = 5) {
   const lockRange = "RATELOG!G1:I1";
+  const LOCK_TIMEOUT = 15000;
   let retryCount = 0;
   let lockAcquired = false;
 
@@ -1576,7 +1209,7 @@ async function displayCandidatesTable(name, itemNumber) {
         button.textContent = value ? 'View Document' : 'NONE';
         if (value) {
           button.addEventListener('click', () => {
-            window.open(value, '_blank');
+            window.open(value, '_blank'); // Open the original Google Drive link in a new tab
           });
         } else {
           button.disabled = true;
@@ -1612,6 +1245,7 @@ async function fetchCompetenciesFromSheet() {
     return { competenciesColumn1: [], competenciesColumn2: [], competenciesColumn3: [] };
   }
 }
+
 
 async function displayCompetencies(name, competencies, salaryGrade = 0) {
   const { competenciesColumn1, competenciesColumn2, competenciesColumn3 } = await fetchCompetenciesFromSheet();
@@ -1786,6 +1420,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   loadRadioState(name, elements.itemDropdown.value);
 }
 
+
 function saveRadioState(competencyName, value, candidateName, item) {
   const key = `radioState_${candidateName}_${item}`;
   const state = JSON.parse(localStorage.getItem(key)) || {};
@@ -1909,21 +1544,24 @@ function showToast(type, title, message) {
     </div>
     <span class="toast-close">×</span>
   `;
-
   toastContainer.appendChild(toast);
 
   setTimeout(() => {
-    toast.classList.add('show');
-  }, 100);
+    toast.style.animation = 'slideOut 0.3s ease-out forwards';
+    setTimeout(() => toastContainer.remove(), 300);
+  }, 5000);
 
-  const closeToast = () => {
-    toast.classList.remove('show');
-    setTimeout(() => {
-      toastContainer.remove();
-    }, 300);
-  };
-
-  toast.querySelector('.toast-close').addEventListener('click', closeToast);
-
-  setTimeout(closeToast, 5000);
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    toast.style.animation = 'slideOut 0.3s ease-out forwards';
+    setTimeout(() => toastContainer.remove(), 300);
+  });
 }
+
+elements.signInBtn.addEventListener('click', handleAuthClick);
+elements.signOutBtn.addEventListener('click', handleSignOutClick);
+elements.submitRatings.addEventListener('click', submitRatings);
+
+// Fix: Properly close DOMContentLoaded wrapper
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM fully loaded');
+});
