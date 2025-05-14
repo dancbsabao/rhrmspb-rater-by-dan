@@ -81,6 +81,13 @@ function loadAuthState() {
     console.log('No auth state found');
     return null;
   }
+  // Define sanitizedAuthState to exclude access_token
+  const sanitizedAuthState = {
+    session_id: authState.session_id,
+    expires_at: authState.expires_at,
+    evaluator: authState.evaluator,
+    secretariatMemberId: authState.secretariatMemberId
+  };
   console.log('Loaded auth state:', sanitizedAuthState);
   return authState;
 }
@@ -322,12 +329,19 @@ async function initializeSecretariatDropdowns() {
 
 
 
+// Config fetch logic (around line 331)
 fetch(`${API_BASE_URL}/config`)
   .then((response) => {
     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
     return response.json();
   })
   .then((config) => {
+    // Define sanitizedConfig to exclude sensitive fields
+    const sanitizedConfig = {
+      SCOPES: config.SCOPES || '',
+      SHEET_RANGES: Object.keys(config.SHEET_RANGES || {}), // Log only range keys
+      // Exclude CLIENT_ID, API_KEY, SHEET_ID, EVALUATOR_PASSWORDS, SECRETARIAT_PASSWORD
+    };
     console.log('Config loaded:', sanitizedConfig); // Debug log
     CLIENT_ID = config.CLIENT_ID || '';
     API_KEY = config.API_KEY || '';
