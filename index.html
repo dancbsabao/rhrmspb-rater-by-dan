@@ -1,107 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DENR CALABARZON Competency Rating System</title>
-  <link rel="stylesheet" href="frontend/styles.css" />
+  <link rel="stylesheet" href="frontend/styles.css">
   <script src="https://apis.google.com/js/api.js"></script>
-  <!-- Toast Fallback Override -->
-  <script>
-    if (!window.Toast) {
-      window.Toast = function (options) {
-        alert(options.title + ": " + options.message);
-      };
-      window.Toast.prototype.hide = function () {};
-    }
-  </script>
 </head>
 <body>
   <div class="page-wrapper">
-    <div class="container">
-      <div class="auth-section">
-        <h1>DENR CALABARZON</h1>
-        <h1>COMPETENCY RATING SYSTEM</h1>
-        <p id="authStatus">Initializing...</p>
-        <button id="signInBtn" style="display: none;">Sign in with Google</button>
-        <button id="signOutBtn" style="display: none;">Sign Out</button>
-      </div>
+    <div class="auth-section signed-out">
+      <h1>DENR CALABARZON<br>COMPETENCY RATING SYSTEM</h1>
+      <p id="authStatus">Initializing...</p>
+      <button id="signInBtn" style="display: none;">Sign in with Google</button>
+      <button id="signOutBtn" style="display: none;">Sign Out</button>
+    </div>
 
-      <!-- Tab Navigation -->
-      <div class="tab-nav">
-        <button class="tab-button active" data-tab="rater">RHRMPSB RATER</button>
-        <button class="tab-button" data-tab="secretariat">SECRETARIAT</button>
-      </div>
+    <div class="tabs">
+      <button class="tab-button active" data-tab="rater">RHRMPSB RATER</button>
+      <button class="tab-button" data-tab="secretariat">SECRETARIAT</button>
+    </div>
 
-      <!-- Tab Content -->
-      <div class="tab-content" id="rater">
+    <div class="tab-content" id="rater">
+      <div class="container">
         <form class="rating-form">
           <div class="form-group">
             <label for="assignmentDropdown">Assignment:</label>
-            <select id="assignmentDropdown" required>
-              <option value="">Select Assignment</option>
-            </select>
+            <select id="assignmentDropdown" data-placeholder="Select Assignment"></select>
           </div>
+
           <div class="form-group">
             <label for="positionDropdown">Position:</label>
-            <select id="positionDropdown" disabled required>
-              <option value="">Select Position</option>
-            </select>
+            <select id="positionDropdown" data-placeholder="Select Position" disabled></select>
           </div>
+
           <div class="form-group">
             <label for="itemDropdown">Item:</label>
-            <select id="itemDropdown" disabled required>
-              <option value="">Select Item</option>
-            </select>
+            <select id="itemDropdown" data-placeholder="Select Item" disabled></select>
           </div>
+
           <div class="form-group">
             <label for="nameDropdown">Name:</label>
-            <select id="nameDropdown" disabled required>
-              <option value="">Select Name</option>
-            </select>
+            <select id="nameDropdown" data-placeholder="Select Name" disabled></select>
           </div>
-          <div id="candidates-table"></div>
-          <div id="competencyContainer"></div>
-          <div class="actions">
-            <button id="submitRatings" disabled>SUBMIT RATINGS</button>
-          </div>
-        </form>
-      </div>
 
-      <div class="tab-content" id="secretariat" style="display: none;">
-        <form class="secretariat-form">
-          <div class="form-group">
-            <label for="assignmentDropdownSecretariat">Assignment:</label>
-            <select id="assignmentDropdownSecretariat" required>
-              <option value="">Select Assignment</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="positionDropdownSecretariat">Position:</label>
-            <select id="positionDropdownSecretariat" disabled required>
-              <option value="">Select Position</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="itemDropdownSecretariat">Item:</label>
-            <select id="itemDropdownSecretariat" disabled required>
-              <option value="">Select Item</option>
-            </select>
-          </div>
-          <div id="candidates-table-secretariat"></div>
-          <div id="secretariat-table"></div>
+          <div id="candidates-table"></div>
+
+          <div id="competencyContainer"></div>
+
           <div class="actions">
-            <button id="submitSecretariat" disabled>SUBMIT</button>
+            <button type="button" id="submitRatings" disabled>SUBMIT RATINGS</button>
           </div>
         </form>
       </div>
     </div>
 
-    <footer class="site-footer">
-      © 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.
-    </footer>
+    <div class="tab-content" id="secretariat" style="display: none;">
+      <div class="container">
+        <form class="secretariat-form">
+          <div class="form-group">
+            <label for="secretariatAssignmentDropdown">Assignment:</label>
+            <select id="secretariatAssignmentDropdown" data-placeholder="Select Assignment"></select>
+          </div>
+
+          <div class="form-group">
+            <label for="secretariatPositionDropdown">Position:</label>
+            <select id="secretariatPositionDropdown" data-placeholder="Select Position" disabled></select>
+          </div>
+
+          <div class="form-group">
+            <label for="secretariatItemDropdown">Item:</label>
+            <select id="secretariatItemDropdown" data-placeholder="Select Item" disabled></select>
+          </div>
+
+          <div id="secretariat-candidates-table"></div>
+
+          <div id="secretariat-names-table"></div>
+
+          <div class="actions">
+            <button type="button" id="submitSecretariat" disabled>SUBMIT SELECTION</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 
+  <div class="toast-container" id="toastContainer"></div>
+
+  <footer class="site-footer">
+    <p>© 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.</p>
+  </footer>
+
   <script src="frontend/script.js"></script>
+
+  <script>
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          const authStatus = document.getElementById('authStatus').textContent;
+          const ratingForm = document.querySelector('.rating-form');
+          if (authStatus.toUpperCase().includes('SIGNED IN')) {
+            ratingForm.style.display = 'block';
+          } else {
+            ratingForm.style.display = 'none';
+          }
+        }
+      });
+    });
+    observer.observe(document.getElementById('authStatus'), {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+  </script>
 </body>
 </html>
