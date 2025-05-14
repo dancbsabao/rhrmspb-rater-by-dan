@@ -7,6 +7,9 @@ let isSubmitting = false;
 let refreshTimer = null;
 let sessionId = null; // To track server session
 let submissionQueue = []; // Queue for pending submissions
+let currentTab = 'rater'; // Track current tab ('rater' or 'secretariat')
+let generalList = [];
+let disqualified = [];
 
 let CLIENT_ID;
 let API_KEY;
@@ -34,6 +37,7 @@ let compeCodes = [];
 let competencies = [];
 
 const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
+const SECRETARIAT_PASSWORD = 'SECRETARIAT_PASSWORD'; // Will be fetched from config
 
 function saveAuthState(tokenResponse, evaluator) {
   const authState = {
@@ -170,6 +174,7 @@ fetch(`${API_BASE_URL}/config`)
     SCOPES = config.SCOPES;
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
     SHEET_RANGES = config.SHEET_RANGES;
+    SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD;
     initializeApp();
   })
   .catch((error) => {
@@ -184,6 +189,7 @@ function initializeApp() {
     console.log('GAPI client initialized');
     maybeEnableButtons();
     createEvaluatorSelector();
+    setupTabNavigation(); // Add tab navigation
     restoreState();
   });
 }
@@ -310,6 +316,359 @@ function maybeEnableButtons() {
     elements.signOutBtn.style.display = 'inline-block';
   }
 }
+
+
+function setupTabNavigation() {
+  const raterTab = document.getElementById('raterTab');
+  const secretariatTab = document.getElementById('secretariatTab');
+
+  raterTab.addEventListener('click', () => switchTab('rater'));
+  secretariatTab.addEventListener('click', () => {
+    showModal(
+      'Secretariat Authentication',
+      `
+        <p>Please enter the Secretariat password:</p>
+        <input type="password" id="secretariatPassword" class="modal-input">
+      `,
+      () => {
+        const password = document.getElementById('secretariatPassword').value.trim();
+        if (password === SECRETARIAT_PASSWORD) {
+          switchTab('secretariat');
+          showToast('success', 'Success', 'Logged in as Secretariat');
+        } else {
+          showToast('error', 'Error', 'Incorrect password');
+        }
+      }
+    );
+  });
+}
+
+
+function switchTab(tab) {
+  currentTab = tab;
+  const raterTab = document.getElementById('raterTab');
+  const secretariatTab = document.getElementById('secretariatTab');
+  const raterContent = document.getElementById('raterContent');
+  const secretariatContent = document.getElementById('secretariatContent');
+
+  raterTab.classList.toggle('active', tab === 'rater');
+  secretariatTab.classList.toggle('active', tab === 'secretariat');
+  raterContent.style.display = tab === 'rater' ? 'block' : 'none';
+  secretariatContent.style.display = tab === 'secretariat' ? 'block' : 'none';
+
+  if (tab === 'secretariat') {
+    initializeSecretariatDropdowns();
+    displaySecretariatCandidatesTable([], null, null); // Clear table initially
+  } else {
+    resetDropdowns(vacancies);
+    elements.competencyContainer.innerHTML = '';
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) resultsArea.classList.remove('active');
+  }
+}
+
+
+function initializeSecretariatDropdowns() {
+  const assignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+  const positionDropdown = document.getElementById('secretariatPositionDropdown');
+  const itemDropdown = document.getElementById('secretariatItemDropdown');
+
+  assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
+  positionDropdown.setAttribute('data-placeholder', 'Select Position');
+  itemDropdown.setAttribute('data-placeholder', 'Select Item');
+
+  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+  updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
+
+  setDropdownState(positionDropdown, false);
+  setDropdownState(itemDropdown, false);
+
+  assignmentDropdown.addEventListener('change', () => {
+    const assignment = assignmentDropdown.value;
+    if (assignment) {
+      const positions = vacancies
+        .filter((row) => row[2] === assignment)
+        .map((row) => row[1]);
+      updateDropdown(positionDropdown, [...new Set(positions)], 'Select Position');
+      setDropdownState(positionDropdown, true);
+    } else {
+      setDropdownState(positionDropdown, false);
+    }
+    setDropdownState(itemDropdown, false);
+    displaySecretariatCandidatesTable([], null, null);
+    saveDropdownState();
+  });
+
+  positionDropdown.addEventListener('change', () => {
+    const assignment = assignmentDropdown.value;
+    const position = positionDropdown.value;
+    if (assignment && position) {
+      const items = vacancies
+        .filter((row) => row[2] === assignment && row[1] === position)
+        .map((row) => row[0]);
+      updateDropdown(itemDropdown, [...new Set(items)], 'Select Item');
+      setDropdownState(itemDropdown, true);
+    } else {
+      setDropdownState(itemDropdown, false);
+    }
+    displaySecretariatCandidatesTable([], null, null);
+    saveDropdownState();
+  });
+
+  itemDropdown.addEventListener('change', () => {
+    const item = itemDropdown.value;
+    if (item) {
+      fetchSecretariatCandidates(item);
+    } else {
+      displaySecretariatCandidatesTable([], null, null);
+    }
+    saveDropdownState();
+  });
+}
+
+
+async function fetchSecretariatCandidates(itemNumber) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'GENERAL_LIST!A:O',
+    });
+
+    const candidatesData = response.result.values || [];
+    const filteredCandidates = candidatesData.filter(row => row[1] === itemNumber);
+    displaySecretariatCandidatesTable(filteredCandidates, itemNumber, null);
+  } catch (error) {
+    console.error('Error fetching secretariat candidates:', error);
+    showToast('error', 'Error', 'Failed to fetch candidates');
+    displaySecretariatCandidatesTable([], null, null);
+  }
+}
+
+
+async function displaySecretariatCandidatesTable(candidatesData, itemNumber, selectedName) {
+  const container = document.getElementById('secretariat-candidates-table');
+  const candidateDetails = document.getElementById('secretariat-candidate-details');
+  container.innerHTML = '';
+  candidateDetails.innerHTML = '';
+
+  if (candidatesData.length > 0) {
+    const table = document.createElement('table');
+    table.className = 'secretariat-table';
+
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+      <tr>
+        <th>Name</th>
+        <th>Comment</th>
+        <th>Action</th>
+      </tr>
+    `;
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    candidatesData.forEach(row => {
+      const name = row[0];
+      const tr = document.createElement('tr');
+      tr.className = selectedName === name ? 'selected' : '';
+      tr.innerHTML = `
+        <td>${name}</td>
+        <td><input type="text" class="comment-input" value="${row[16] || ''}"></td>
+        <td>
+          <select class="action-dropdown">
+            <option value="">Select Action</option>
+            <option value="FOR DISQUALIFICATION">FOR DISQUALIFICATION</option>
+            <option value="FOR LONG LIST">FOR LONG LIST</option>
+          </select>
+        </td>
+      `;
+      tr.addEventListener('click', () => {
+        displaySecretariatCandidatesTable(candidatesData, itemNumber, name);
+        displaySecretariatCandidateDetails(name, itemNumber);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+  } else {
+    container.innerHTML = '<p>No candidates found.</p>';
+  }
+}
+
+
+async function displaySecretariatCandidateDetails(name, itemNumber) {
+  const container = document.getElementById('secretariat-candidate-details');
+  container.innerHTML = '';
+
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'GENERAL_LIST!A:O',
+    });
+
+    const candidateRow = response.result.values?.find(row => row[0] === name && row[1] === itemNumber);
+    if (candidateRow) {
+      const tilesContainer = document.createElement('div');
+      tilesContainer.classList.add('tiles-container');
+
+      const headers = [
+        'SEX', 'DATE OF BIRTH', 'AGE', 'ELIGIBILITY/PROFESSION', 'PROFESSIONAL LICENSE',
+        'LETTER OF INTENT (PDF FILE)', 'PERSONAL DATA SHEET (SPREADSHEET FILE)',
+        'WORK EXPERIENCE SHEET (WORD FILE)', 'PROOF OF ELIGIBILITY (PDF FILE)', 
+        'CERTIFICATES (PDF FILE)', 'INDIVIDUAL PERFORMANCE COMMITMENT REVIEW (PDF FILE)',
+        'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)', 
+        'TRANSCRIPT OF RECORDS (PDF FILE)'
+      ];
+
+      const columnsCtoP = candidateRow.slice(2, 16);
+      columnsCtoP.forEach((value, index) => {
+        const tile = document.createElement('div');
+        tile.classList.add('tile');
+
+        const header = document.createElement('h4');
+        header.textContent = headers[index];
+        tile.appendChild(header);
+
+        const content = document.createElement('div');
+        content.classList.add('tile-content');
+
+        if (index < 4) {
+          const textContent = document.createElement('p');
+          textContent.textContent = value || 'No Data';
+          if (!value) textContent.classList.add('no-data');
+          content.appendChild(textContent);
+        } else {
+          const button = document.createElement('button');
+          button.classList.add('open-link-button');
+          button.textContent = value ? 'View Document' : 'NONE';
+          if (value) {
+            button.addEventListener('click', () => {
+              window.open(value, '_blank');
+            });
+          } else {
+            button.disabled = true;
+          }
+          content.appendChild(button);
+        }
+        tile.appendChild(content);
+        tilesContainer.appendChild(tile);
+      });
+
+      container.appendChild(tilesContainer);
+    } else {
+      container.innerHTML = '<p>No matching data found.</p>';
+    }
+  } catch (error) {
+    console.error('Error fetching candidate details:', error);
+    container.innerHTML = '<p>Error loading candidate details.</p>';
+  }
+}
+
+
+async function submitSecretariatActions() {
+  const itemNumber = document.getElementById('secretariatItemDropdown').value;
+  if (!itemNumber) {
+    showToast('error', 'Error', 'Please select an item');
+    return;
+  }
+
+  const table = document.querySelector('.secretariat-table');
+  if (!table) {
+    showToast('error', 'Error', 'No candidates selected');
+    return;
+  }
+
+  const rows = table.querySelectorAll('tbody tr');
+  const actions = [];
+  rows.forEach(row => {
+    const name = row.cells[0].textContent;
+    const comment = row.querySelector('.comment-input').value;
+    const action = row.querySelector('.action-dropdown').value;
+    if (action) {
+      actions.push({ name, comment, action, itemNumber });
+    }
+  });
+
+  if (actions.length === 0) {
+    showToast('error', 'Error', 'No actions selected');
+    return;
+  }
+
+  let modalContent = `
+    <div class="modal-body">
+      <p>Are you sure you want to submit the following actions?</p>
+      <div class="modal-section">
+        <h4>ACTIONS TO SUBMIT:</h4>
+        ${actions.map(action => `
+          <div class="modal-field">
+            <span class="modal-label">${action.name}:</span>
+            <span class="modal-value">${action.action} (Comment: ${action.comment || 'None'})</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  showModal('CONFIRM SUBMISSION', modalContent, async () => {
+      try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      
+      const disqualified = actions.filter(a => a.action === 'FOR DISQUALIFICATION');
+      const longList = actions.filter(a => a.action === 'FOR LONG LIST');
+
+      if (disqualified.length > 0) {
+        const disqualifiedValues = disqualified.map(a => [a.name, a.itemNumber, a.sex || '', a.comment]);
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: 'DISQUALIFIED!A:D',
+          valueInputOption: 'RAW',
+          resource: { values: disqualifiedValues },
+        });
+      }
+
+      if (longList.length > 0) {
+        const longListValues = await Promise.all(longList.map(async a => {
+          const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: `GENERAL_LIST!A:O`,
+            valueRenderOption: 'FORMATTED_VALUE'
+          });
+          const candidate = response.result.values.find(row => row[0] === a.name && row[1] === a.itemNumber);
+          return candidate;
+        }));
+        await gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: 'CANDIDATES!A:O',
+          valueInputOption: 'RAW',
+          resource: { values: longListValues },
+        });
+      }
+
+      showToast('success', 'Success', 'Actions submitted successfully');
+      fetchSecretariatCandidates(itemNumber);
+    } catch (error) {
+      console.error('Error submitting actions:', error);
+      showToast('error', 'Error', 'Failed to submit actions');
+    }
+  });
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 function createEvaluatorSelector() {
   if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) return;
@@ -452,7 +811,14 @@ async function loadSheetData(maxRetries = 3) {
       if (!await isTokenValid()) {
         console.log('Token invalid, refreshed in attempt', attempt);
       }
-      const ranges = Object.values(SHEET_RANGES);
+      const ranges = [
+        SHEET_RANGES.VACANCIES,
+        SHEET_RANGES.CANDIDATES,
+        SHEET_RANGES.COMPECODE,
+        SHEET_RANGES.ALLCOMPE,
+        'GENERAL_LIST!A:O',
+        'DISQUALIFIED!A:D'
+      ];
       const data = await Promise.all(
         ranges.map((range) =>
           gapi.client.sheets.spreadsheets.values.get({
@@ -465,7 +831,9 @@ async function loadSheetData(maxRetries = 3) {
       candidates = data[1]?.result?.values || [];
       compeCodes = data[2]?.result?.values || [];
       competencies = data[3]?.result?.values || [];
-      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
+      generalList = data[4]?.result?.values || [];
+      disqualified = data[5]?.result?.values || [];
+      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies, generalList, disqualified });
       initializeDropdowns(vacancies);
       updateUI(true);
       return;
