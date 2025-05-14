@@ -448,25 +448,23 @@ async function fetchSecretariatCandidates(itemNumber) {
     if (!await isTokenValid()) await refreshAccessToken();
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: 'GENERAL_LIST!A:O',
+      range: 'GENERAL_LIST!A:Q', // Updated to include column Q for comments
     });
 
     const candidatesData = response.result.values || [];
     const filteredCandidates = candidatesData.filter(row => row[1] === itemNumber);
-    displaySecretariatCandidatesTable(filteredCandidates, itemNumber, null);
+    displaySecretariatCandidatesTable(filteredCandidates, itemNumber);
   } catch (error) {
     console.error('Error fetching secretariat candidates:', error);
     showToast('error', 'Error', 'Failed to fetch candidates');
-    displaySecretariatCandidatesTable([], null, null);
+    displaySecretariatCandidatesTable([], null);
   }
 }
 
 
-async function displaySecretariatCandidatesTable(candidatesData, itemNumber, selectedName) {
+async function displaySecretariatCandidatesTable(candidatesData, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
-  const candidateDetails = document.getElementById('secretariat-candidate-details');
   container.innerHTML = '';
-  candidateDetails.innerHTML = '';
 
   if (candidatesData.length > 0) {
     const table = document.createElement('table');
@@ -476,6 +474,7 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber, sel
     thead.innerHTML = `
       <tr>
         <th>Name</th>
+        <th>Documents</th>
         <th>Comment</th>
         <th>Action</th>
       </tr>
@@ -486,9 +485,28 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber, sel
     candidatesData.forEach(row => {
       const name = row[0];
       const tr = document.createElement('tr');
-      tr.className = selectedName === name ? 'selected' : '';
+      const documentLinks = [
+        { label: 'Letter of Intent', url: row[7] },
+        { label: 'Personal Data Sheet', url: row[8] },
+        { label: 'Work Experience', url: row[9] },
+        { label: 'Proof of Eligibility', url: row[10] },
+        { label: 'Certificates', url: row[11] },
+        { label: 'IPCR', url: row[12] },
+        { label: 'Certificate of Employment', url: row[13] },
+        { label: 'Diploma', url: row[14] },
+        { label: 'Transcript of Records', url: row[15] }
+      ];
+      const linksHtml = documentLinks
+        .map(link => {
+          if (link.url) {
+            return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
+          }
+          return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
+        })
+        .join('');
       tr.innerHTML = `
         <td>${name}</td>
+        <td class="document-links">${linksHtml}</td>
         <td><input type="text" class="comment-input" value="${row[16] || ''}"></td>
         <td>
           <select class="action-dropdown">
@@ -498,10 +516,6 @@ async function displaySecretariatCandidatesTable(candidatesData, itemNumber, sel
           </select>
         </td>
       `;
-      tr.addEventListener('click', () => {
-        displaySecretariatCandidatesTable(candidatesData, itemNumber, name);
-        displaySecretariatCandidateDetails(name, itemNumber);
-      });
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -627,17 +641,17 @@ async function submitSecretariatActions() {
   `;
 
   showModal('CONFIRM SUBMISSION', modalContent, async () => {
-      try {
+    try {
       if (!await isTokenValid()) await refreshAccessToken();
       
       const disqualified = actions.filter(a => a.action === 'FOR DISQUALIFICATION');
       const longList = actions.filter(a => a.action === 'FOR LONG LIST');
 
       if (disqualified.length > 0) {
-        const disqualifiedValues = disqualified.map(a => [a.name, a.itemNumber, a.sex || '', a.comment]);
+        const disqualifiedValues = disqualified.map(a => [a.name, a.itemNumber, a.comment]);
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:D',
+          range: 'DISQUALIFIED!A:C', // Adjusted to A:C since only Name, Item Number, Comment
           valueInputOption: 'RAW',
           resource: { values: disqualifiedValues },
         });
@@ -647,7 +661,7 @@ async function submitSecretariatActions() {
         const longListValues = await Promise.all(longList.map(async a => {
           const response = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: `GENERAL_LIST!A:O`,
+            range: `GENERAL_LIST!A:Q`,
             valueRenderOption: 'FORMATTED_VALUE'
           });
           const candidate = response.result.values.find(row => row[0] === a.name && row[1] === a.itemNumber);
@@ -655,14 +669,41 @@ async function submitSecretariatActions() {
         }));
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:O',
+          range: 'CANDIDATES!A:Q',
           valueInputOption: 'RAW',
           resource: { values: longListValues },
         });
       }
 
+      // Update comments in GENERAL_LIST
+      const commentUpdates = actions.map(a => ({
+        name: a.name,
+        itemNumber: a.itemNumber,
+        comment: a.comment
+      }));
+      if (commentUpdates.length > 0) {
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: `GENERAL_LIST!A:Q`,
+        });
+        const values = response.result.values || [];
+        const updatedValues = values.map(row => {
+          const matchingAction = commentUpdates.find(a => a.name === row[0] && a.itemNumber === row[1]);
+          if (matchingAction) {
+            row[16] = matchingAction.comment; // Update comment in column Q
+          }
+          return row;
+        });
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `GENERAL_LIST!A:Q`,
+          valueInputOption: 'RAW',
+          resource: { values: updatedValues },
+        });
+      }
+
       showToast('success', 'Success', 'Actions submitted successfully');
-      fetchSecretariatCandidates(itemNumber);
+      fetchSecretariatCandidates(itemNumber); // Refresh table
     } catch (error) {
       console.error('Error submitting actions:', error);
       showToast('error', 'Error', 'Failed to submit actions');
