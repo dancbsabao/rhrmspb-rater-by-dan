@@ -197,44 +197,45 @@ async function restoreState() {
 
     if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
       const setAssignmentValue = async () => {
-        if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
+        // Ensure dropdowns are initialized with vacancy data
+        await initializeSecretariatDropdowns();
+        // Check if the saved assignment value exists in the dropdown options
+        const options = Array.from(secretariatAssignmentDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.secretariatAssignment)) {
           secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-          changePromises.push(new Promise(resolve => {
-            const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
-            secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
-            secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-          }));
+          console.log(`Restored secretariatAssignmentDropdown to: ${dropdownState.secretariatAssignment}`);
+          // Trigger change event to populate dependent dropdowns
+          secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+          changePromises.push(Promise.resolve()); // Add to changePromises for consistency
         } else {
-          console.log('Retrying secretariatAssignmentDropdown population');
-          await initializeSecretariatDropdowns(); // Retry initialization
-          if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
-            secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-            secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-          } else {
-            console.error('Failed to restore secretariatAssignmentDropdown value:', dropdownState.secretariatAssignment);
-          }
+          console.error(`Saved assignment value ${dropdownState.secretariatAssignment} not found in options:`, options);
+          showToast('warning', 'Warning', `Assignment "${dropdownState.secretariatAssignment}" not available`);
         }
       };
       await setAssignmentValue();
     }
+    // Restore position dropdown
     if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
-      if (await waitForDropdownOptions(secretariatPositionDropdown, dropdownState.secretariatPosition)) {
+      const options = Array.from(secretariatPositionDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.secretariatPosition)) {
         secretariatPositionDropdown.value = dropdownState.secretariatPosition;
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); secretariatPositionDropdown.removeEventListener('change', handler); };
-          secretariatPositionDropdown.addEventListener('change', handler, { once: true });
-          secretariatPositionDropdown.dispatchEvent(new Event('change'));
-        }));
+        console.log(`Restored secretariatPositionDropdown to: ${dropdownState.secretariatPosition}`);
+        secretariatPositionDropdown.dispatchEvent(new Event('change'));
+        changePromises.push(Promise.resolve());
+      } else {
+        console.warn(`Saved position value ${dropdownState.secretariatPosition} not found in options:`, options);
       }
     }
+    // Restore item dropdown
     if (dropdownState.secretariatItem && secretariatItemDropdown) {
-      if (await waitForDropdownOptions(secretariatItemDropdown, dropdownState.secretariatItem)) {
+      const options = Array.from(secretariatItemDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.secretariatItem)) {
         secretariatItemDropdown.value = dropdownState.secretariatItem;
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); secretariatItemDropdown.removeEventListener('change', handler); };
-          secretariatItemDropdown.addEventListener('change', handler, { once: true });
-          secretariatItemDropdown.dispatchEvent(new Event('change'));
-        }));
+        console.log(`Restored secretariatItemDropdown to: ${dropdownState.secretariatItem}`);
+        secretariatItemDropdown.dispatchEvent(new Event('change'));
+        changePromises.push(Promise.resolve());
+      } else {
+        console.warn(`Saved item value ${dropdownState.secretariatItem} not found in options:`, options);
       }
     }
 
@@ -1079,150 +1080,6 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
     container.innerHTML = '<p>Error loading candidate details.</p>';
   }
 }
-
-
-async function submitSecretariatActions() {
-  console.log('submitSecretariatActions triggered'); // Debug log
-  const itemNumber = document.getElementById('secretariatItemDropdown').value;
-  console.log('Item Number:', itemNumber); // Debug log
-  if (!itemNumber) {
-    showToast('error', 'Error', 'Please select an item');
-    return;
-  }
-
-  const table = document.querySelector('.secretariat-table');
-  if (!table) {
-    showToast('error', 'Error', 'No candidates table found');
-    console.log('Table not found'); // Debug log
-    return;
-  }
-
-  const rows = table.querySelectorAll('tbody tr');
-  console.log('Number of rows:', rows.length); // Debug log
-  const actions = [];
-  rows.forEach((row, index) => {
-    const name = row.cells[0].textContent;
-    const comment = row.querySelector('.comment-input').value;
-    const action = row.querySelector('.action-dropdown').value;
-    console.log(`Row ${index}:`, { name, comment, action }); // Debug log
-    if (action) {
-      actions.push({ name, comment, action, itemNumber });
-    }
-  });
-
-  if (actions.length === 0) {
-    showToast('error', 'Error', 'No actions selected');
-    console.log('No actions to submit'); // Debug log
-    return;
-  }
-
-  let modalContent = `
-    <div class="modal-body">
-      <p>Are you sure you want to submit the following actions?</p>
-      <div class="modal-section">
-        <h4>ACTIONS TO SUBMIT:</h4>
-        ${actions.map(action => `
-          <div class="modal-field">
-            <span class="modal-label">${action.name}:</span>
-            <span class="modal-value">${action.action} (Comment: ${action.comment || 'None'})</span>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-
-  showModal('CONFIRM SUBMISSION', modalContent, async () => {
-    try {
-      console.log('Submitting actions:', actions); // Debug log
-      if (!await isTokenValid()) {
-        console.log('Refreshing token'); // Debug log
-        await refreshAccessToken();
-      }
-
-      const disqualified = actions.filter(a => a.action === 'FOR DISQUALIFICATION');
-      const longList = actions.filter(a => a.action === 'FOR LONG LIST');
-      console.log('Disqualified:', disqualified); // Debug log
-      console.log('Long List:', longList); // Debug log
-
-      if (disqualified.length > 0) {
-        const disqualifiedValues = disqualified.map(a => [a.name, a.itemNumber, a.comment]);
-        console.log('Appending to DISQUALIFIED:', disqualifiedValues); // Debug log
-        await gapi.client.sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:C',
-          valueInputOption: 'RAW',
-          resource: { values: disqualifiedValues },
-        });
-      }
-
-      if (longList.length > 0) {
-        const longListValues = await Promise.all(longList.map(async a => {
-          const response = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: `GENERAL_LIST!A:Q`,
-            valueRenderOption: 'FORMATTED_VALUE'
-          });
-          const candidate = response.result.values.find(row => row[0] === a.name && row[1] === a.itemNumber);
-          console.log('Candidate for long list:', candidate); // Debug log
-          return candidate;
-        }));
-        console.log('Appending to CANDIDATES:', longListValues); // Debug log
-        await gapi.client.sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:Q',
-          valueInputOption: 'RAW',
-          resource: { values: longListValues },
-        });
-      }
-
-      // Update comments in GENERAL_LIST
-      const commentUpdates = actions.filter(a => a.comment); // Only update if comment exists
-      if (commentUpdates.length > 0) {
-        const response = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: `GENERAL_LIST!A:Q`,
-        });
-        const values = response.result.values || [];
-        const updatedValues = values.map(row => {
-          const matchingAction = commentUpdates.find(a => a.name === row[0] && a.itemNumber === row[1]);
-          if (matchingAction) {
-            row[16] = matchingAction.comment; // Update comment in column Q
-          }
-          return row;
-        });
-        console.log('Updating GENERAL_LIST with comments:', updatedValues); // Debug log
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: `GENERAL_LIST!A:Q`,
-          valueInputOption: 'RAW',
-          resource: { values: updatedValues },
-        });
-      }
-
-      showToast('success', 'Success', 'Actions submitted successfully');
-      fetchSecretariatCandidates(itemNumber); // Refresh table
-    } catch (error) {
-      console.error('Error submitting actions:', error);
-      showToast('error', 'Error', 'Failed to submit actions: ' + error.message);
-    }
-  });
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function createEvaluatorSelector() {
   if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) return;
