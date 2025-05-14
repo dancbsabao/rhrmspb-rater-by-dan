@@ -118,162 +118,172 @@ async function restoreState() {
   const authSection = document.querySelector('.auth-section');
   const container = document.querySelector('.container');
 
-try {
-  if (authState) {
-    gapi.client.setToken({ access_token: authState.access_token });
-    sessionId = authState.session_id;
-    secretariatMemberId = authState.secretariatMemberId;
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    if (!await isTokenValid()) await refreshAccessToken();
-    currentEvaluator = authState.evaluator;
-    updateUI(true);
-    authSection.classList.remove('signed-out');
+  try {
+    if (authState) {
+      gapi.client.setToken({ access_token: authState.access_token });
+      sessionId = authState.session_id;
+      secretariatMemberId = authState.secretariatMemberId;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!await isTokenValid()) await refreshAccessToken();
+      currentEvaluator = authState.evaluator;
+      updateUI(true);
+      authSection.classList.remove('signed-out');
 
-    // Load sheet data
-    await loadSheetData();
-    console.log('Sheet data loaded, initializing dropdowns');
+      // Load sheet data
+      await loadSheetData();
+      console.log('Sheet data loaded, initializing dropdowns');
 
-    // Initialize dropdowns for both tabs
-    initializeDropdowns(vacancies); // Rater tab
-    await initializeSecretariatDropdowns(); // Secretariat tab
+      // Initialize dropdowns for both tabs
+      initializeDropdowns(vacancies); // Rater tab
+      await initializeSecretariatDropdowns(); // Secretariat tab
 
-    const evaluatorSelect = document.getElementById('evaluatorSelect');
-    if (evaluatorSelect && dropdownState.evaluator) {
-      evaluatorSelect.value = dropdownState.evaluator;
-      currentEvaluator = dropdownState.evaluator;
-    }
-
-    const changePromises = [];
-    // Restore Rater dropdowns
-    if (dropdownState.assignment && elements.assignmentDropdown) {
-      const options = Array.from(elements.assignmentDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.assignment)) {
-        elements.assignmentDropdown.value = dropdownState.assignment;
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); elements.assignmentDropdown.removeEventListener('change', handler); };
-          elements.assignmentDropdown.addEventListener('change', handler, { once: true });
-          elements.assignmentDropdown.dispatchEvent(new Event('change'));
-        }));
+      const evaluatorSelect = document.getElementById('evaluatorSelect');
+      if (evaluatorSelect && dropdownState.evaluator) {
+        evaluatorSelect.value = dropdownState.evaluator;
+        currentEvaluator = dropdownState.evaluator;
       }
-    }
-    if (dropdownState.position && elements.positionDropdown) {
-      const options = Array.from(elements.positionDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.position)) {
-        elements.positionDropdown.value = dropdownState.position;
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); elements.positionDropdown.removeEventListener('change', handler); };
-          elements.positionDropdown.addEventListener('change', handler, { once: true });
-          elements.positionDropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-    if (dropdownState.item && elements.itemDropdown) {
-      const options = Array.from(elements.itemDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.item)) {
-        elements.itemDropdown.value = dropdownState.item;
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); elements.itemDropdown.removeEventListener('change', handler); };
-          elements.itemDropdown.addEventListener('change', handler, { once: true });
-          elements.itemDropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-    if (dropdownState.name && elements.nameDropdown) {
-      const options = Array.from(elements.nameDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.name)) {
-        elements.nameDropdown.value = dropdownState.name;
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); elements.nameDropdown.removeEventListener('change', handler); };
-          elements.nameDropdown.addEventListener('change', handler, { once: true });
-          elements.nameDropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
 
-    // Restore Secretariat dropdowns
-    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-    const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
-    const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+      const changePromises = [];
+      // Restore Rater dropdowns
+      if (dropdownState.assignment && elements.assignmentDropdown) {
+        const options = Array.from(elements.assignmentDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.assignment)) {
+          elements.assignmentDropdown.value = dropdownState.assignment;
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); elements.assignmentDropdown.removeEventListener('change', handler); };
+            elements.assignmentDropdown.addEventListener('change', handler, { once: true });
+            elements.assignmentDropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.position && elements.positionDropdown) {
+        const options = Array.from(elements.positionDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.position)) {
+          elements.positionDropdown.value = dropdownState.position;
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); elements.positionDropdown.removeEventListener('change', handler); };
+            elements.positionDropdown.addEventListener('change', handler, { once: true });
+            elements.positionDropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.item && elements.itemDropdown) {
+        const options = Array.from(elements.itemDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.item)) {
+          elements.itemDropdown.value = dropdownState.item;
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); elements.itemDropdown.removeEventListener('change', handler); };
+            elements.itemDropdown.addEventListener('change', handler, { once: true });
+            elements.itemDropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.name && elements.nameDropdown) {
+        const options = Array.from(elements.nameDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.name)) {
+          elements.nameDropdown.value = dropdownState.name;
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); elements.nameDropdown.removeEventListener('change', handler); };
+            elements.nameDropdown.addEventListener('change', handler, { once: true });
+            elements.nameDropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
 
-    if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
-      const options = Array.from(secretariatAssignmentDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.secretariatAssignment)) {
-        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-        console.log(`Restored secretariatAssignmentDropdown to: ${dropdownState.secretariatAssignment}`);
+      // Restore Secretariat dropdowns
+      const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+      const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
+      const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+
+      if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
+        const options = Array.from(secretariatAssignmentDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.secretariatAssignment)) {
+          secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+          console.log(`Restored secretariatAssignmentDropdown to: ${dropdownState.secretariatAssignment}`);
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
+            secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
+            secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+          }));
+        } else {
+          console.error(`Saved assignment value ${dropdownState.secretariatAssignment} not found in options:`, options);
+          showToast('warning', 'Warning', `Assignment "${dropdownState.secretariatAssignment}" not available`);
+        }
+      }
+      if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
+        const options = Array.from(secretariatPositionDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.secretariatPosition)) {
+          secretariatPositionDropdown.value = dropdownState.secretariatPosition;
+          console.log(`Restored secretariatPositionDropdown to: ${dropdownState.secretariatPosition}`);
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatPositionDropdown.removeEventListener('change', handler); };
+            secretariatPositionDropdown.addEventListener('change', handler, { once: true });
+            secretariatPositionDropdown.dispatchEvent(new Event('change'));
+          }));
+        } else {
+          console.warn(`Saved position value ${dropdownState.secretariatPosition} not found in options:`, options);
+        }
+      }
+      if (dropdownState.secretariatItem && secretariatItemDropdown) {
+        const options = Array.from(secretariatItemDropdown.options).map(opt => opt.value);
+        if (options.includes(dropdownState.secretariatItem)) {
+          secretariatItemDropdown.value = dropdownState.secretariatItem;
+          console.log(`Restored secretariatItemDropdown to: ${dropdownState.secretariatItem}`);
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatItemDropdown.removeEventListener('change', handler); };
+            secretariatItemDropdown.addEventListener('change', handler, { once: true });
+            secretariatItemDropdown.dispatchEvent(new Event('change'));
+          }));
+        } else {
+          console.warn(`Saved item value ${dropdownState.secretariatItem} not found in options:`, options);
+        }
+      }
+
+      await Promise.all(changePromises);
+
+      // Ensure UI reflects restored values with a slight delay
+      if (currentTab === 'secretariat' && secretariatAssignmentDropdown) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment || '';
         secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-        changePromises.push(Promise.resolve());
-      } else {
-        console.error(`Saved assignment value ${dropdownState.secretariatAssignment} not found in options:`, options);
-        showToast('warning', 'Warning', `Assignment "${dropdownState.secretariatAssignment}" not available`);
+        console.log('Re-applied secretariatAssignmentDropdown value for UI consistency');
       }
-    }
-    if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
-      const options = Array.from(secretariatPositionDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.secretariatPosition)) {
-        secretariatPositionDropdown.value = dropdownState.secretariatPosition;
-        console.log(`Restored secretariatPositionDropdown to: ${dropdownState.secretariatPosition}`);
-        secretariatPositionDropdown.dispatchEvent(new Event('change'));
-        changePromises.push(Promise.resolve());
-      } else {
-        console.warn(`Saved position value ${dropdownState.secretariatPosition} not found in options:`, options);
-      }
-    }
-    if (dropdownState.secretariatItem && secretariatItemDropdown) {
-      const options = Array.from(secretariatItemDropdown.options).map(opt => opt.value);
-      if (options.includes(dropdownState.secretariatItem)) {
-        secretariatItemDropdown.value = dropdownState.secretariatItem;
-        console.log(`Restored secretariatItemDropdown to: ${dropdownState.secretariatItem}`);
-        secretariatItemDropdown.dispatchEvent(new Event('change'));
-        changePromises.push(Promise.resolve());
-      } else {
-        console.warn(`Saved item value ${dropdownState.secretariatItem} not found in options:`, options);
-      }
-    }
 
-    await Promise.all(changePromises);
-
-    // Ensure UI reflects restored values
-    if (currentTab === 'secretariat' && secretariatAssignmentDropdown) {
-      secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment || '';
-      secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-      console.log('Re-applied secretariatAssignmentDropdown value for UI consistency');
-    }
-
-    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && currentTab === 'rater') {
-      fetchSubmittedRatings();
-    }
-    if (localStorage.getItem('secretariatAuthenticated') && localStorage.getItem('currentTab') === 'secretariat') {
-      switchTab('secretariat');
-      if (secretariatItemDropdown.value) {
-        fetchSecretariatCandidates(secretariatItemDropdown.value);
+      if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && currentTab === 'rater') {
+        fetchSubmittedRatings();
       }
-    }
-  } else {
-    const urlParams = new URLSearchParams(window.location.search);
-    const accessToken = urlParams.get('access_token');
-    const expiresIn = urlParams.get('expires_in');
-    sessionId = urlParams.get('session_id');
-    if (accessToken && sessionId) {
-      handleTokenCallback({
-        access_token: accessToken,
-        expires_in: parseInt(expiresIn, 10),
-        session_id: sessionId,
-      });
-      window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
+      if (localStorage.getItem('secretariatAuthenticated') && localStorage.getItem('currentTab') === 'secretariat') {
+        switchTab('secretariat');
+        if (secretariatItemDropdown.value) {
+          fetchSecretariatCandidates(secretariatItemDropdown.value);
+        }
+      }
     } else {
-      updateUI(false);
-      currentEvaluator = null;
-      vacancies = [];
-      candidates = [];
-      compeCodes = [];
-      competencies = [];
-      resetDropdowns([]);
-      container.style.marginTop = '20px';
-      authSection.classList.add('signed-out');
-      const resultsArea = document.querySelector('.results-area');
-      if (resultsArea) resultsArea.remove();
+      const urlParams = new URLSearchParams(window.location.search);
+      const accessToken = urlParams.get('access_token');
+      const expiresIn = urlParams.get('expires_in');
+      sessionId = urlParams.get('session_id');
+      if (accessToken && sessionId) {
+        handleTokenCallback({
+          access_token: accessToken,
+          expires_in: parseInt(expiresIn, 10),
+          session_id: sessionId,
+        });
+        window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
+      } else {
+        updateUI(false);
+        currentEvaluator = null;
+        vacancies = [];
+        candidates = [];
+        compeCodes = [];
+        competencies = [];
+        resetDropdowns([]);
+        container.style.marginTop = '20px';
+        authSection.classList.add('signed-out');
+        const resultsArea = document.querySelector('.results-area');
+        if (resultsArea) resultsArea.remove();
+      }
     }
-  }
   } finally {
     dropdownStateRestoring = false; // Reset flag after restoration
   }
@@ -297,12 +307,10 @@ async function initializeSecretariatDropdowns() {
   console.log('Unique assignments:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
 
-  // Remove existing event listeners to prevent duplicates
-  const newAssignmentDropdown = assignmentDropdown.cloneNode(true);
-  assignmentDropdown.parentNode.replaceChild(newAssignmentDropdown, assignmentDropdown);
-
-  newAssignmentDropdown.addEventListener('change', () => {
-    const selectedAssignment = newAssignmentDropdown.value;
+  // Remove existing event listeners using a single reference
+  assignmentDropdown.removeEventListener('change', assignmentDropdown._changeHandler);
+  assignmentDropdown._changeHandler = () => {
+    const selectedAssignment = assignmentDropdown.value;
     console.log('Assignment changed to:', selectedAssignment);
     const filteredPositions = [...new Set(
       vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
@@ -311,15 +319,14 @@ async function initializeSecretariatDropdowns() {
     updateDropdown(positionDropdown, filteredPositions, 'Select Position');
     updateDropdown(itemDropdown, [], 'Select Item'); // Reset item dropdown
     saveDropdownState();
-  });
+  };
+  assignmentDropdown.addEventListener('change', assignmentDropdown._changeHandler);
 
   // Remove existing event listeners for positionDropdown
-  const newPositionDropdown = positionDropdown.cloneNode(true);
-  positionDropdown.parentNode.replaceChild(newPositionDropdown, positionDropdown);
-
-  newPositionDropdown.addEventListener('change', () => {
-    const selectedAssignment = newAssignmentDropdown.value;
-    const selectedPosition = newPositionDropdown.value;
+  positionDropdown.removeEventListener('change', positionDropdown._changeHandler);
+  positionDropdown._changeHandler = () => {
+    const selectedAssignment = assignmentDropdown.value;
+    const selectedPosition = positionDropdown.value;
     console.log('Position changed to:', selectedPosition);
     const filteredItems = vacancies.slice(1)
       .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
@@ -328,24 +335,24 @@ async function initializeSecretariatDropdowns() {
     console.log('Filtered items:', filteredItems);
     updateDropdown(itemDropdown, filteredItems, 'Select Item');
     saveDropdownState();
-  });
+  };
+  positionDropdown.addEventListener('change', positionDropdown._changeHandler);
 
   // Remove existing event listeners for itemDropdown
-  const newItemDropdown = itemDropdown.cloneNode(true);
-  itemDropdown.parentNode.replaceChild(newItemDropdown, itemDropdown);
-
-  newItemDropdown.addEventListener('change', () => {
-    console.log('Item changed to:', newItemDropdown.value);
+  itemDropdown.removeEventListener('change', itemDropdown._changeHandler);
+  itemDropdown._changeHandler = () => {
+    console.log('Item changed to:', itemDropdown.value);
     saveDropdownState();
-    if (newItemDropdown.value) {
-      fetchSecretariatCandidates(newItemDropdown.value);
+    if (itemDropdown.value) {
+      fetchSecretariatCandidates(itemDropdown.value);
     }
-  });
+  };
+  itemDropdown.addEventListener('change', itemDropdown._changeHandler);
 
-  // Trigger change only if a value is already set and not during restoration
-  if (newAssignmentDropdown.value && !dropdownStateRestoring) {
+  // Trigger change only if a value is set and not during restoration
+  if (assignmentDropdown.value && !dropdownStateRestoring) {
     console.log('Triggering initial assignment change');
-    newAssignmentDropdown.dispatchEvent(new Event('change'));
+    assignmentDropdown.dispatchEvent(new Event('change'));
   }
 }
 
@@ -579,30 +586,25 @@ function switchTab(tab) {
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
 
-  // Clear Secretariat authentication when leaving the Secretariat tab
   if (tab === 'rater') {
     localStorage.removeItem('secretariatAuthenticated');
     secretariatMemberId = null;
-    saveAuthState(gapi.client.getToken(), currentEvaluator); // Update auth state without secretariatMemberId
+    saveAuthState(gapi.client.getToken(), currentEvaluator);
     console.log('Secretariat authentication cleared');
   }
 
-  // Update tab button states
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
 
-  // Show/hide tab content
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
   document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
 
-  // Manage results-area visibility
   const resultsArea = document.querySelector('.results-area');
   if (resultsArea) {
     resultsArea.style.display = tab === 'rater' ? 'block' : 'none';
     resultsArea.classList.toggle('active', tab === 'rater');
   }
 
-  // Disable dropdowns of the inactive tab
   setDropdownState(elements.assignmentDropdown, tab === 'rater');
   setDropdownState(elements.positionDropdown, tab === 'rater');
   setDropdownState(elements.itemDropdown, tab === 'rater');
@@ -615,7 +617,6 @@ function switchTab(tab) {
   setDropdownState(secretariatPositionDropdown, tab === 'secretariat');
   setDropdownState(secretariatItemDropdown, tab === 'secretariat');
 
-  // Initialize tab-specific logic
   if (tab === 'rater') {
     initializeDropdowns(vacancies);
     if (elements.nameDropdown.value && elements.itemDropdown.value) {
@@ -624,20 +625,22 @@ function switchTab(tab) {
     }
     updateUI(true);
   } else if (tab === 'secretariat') {
-    initializeSecretariatDropdowns();
+    // Only initialize if dropdowns are empty
+    if (!secretariatAssignmentDropdown.options.length || secretariatAssignmentDropdown.options.length === 1) {
+      initializeSecretariatDropdowns();
+    }
     if (secretariatItemDropdown.value) {
       fetchSecretariatCandidates(secretariatItemDropdown.value);
     }
     updateUI(true);
   }
 
-  // Refresh the UI layout
   const container = document.querySelector('.container');
   if (resultsArea && tab === 'rater') {
     const resultsHeight = resultsArea.offsetHeight + 20;
     container.style.marginTop = `${resultsHeight}px`;
   } else {
-    container.style.marginTop = '20px'; // Default margin when results-area is hidden
+    container.style.marginTop = '20px';
   }
 }
 
