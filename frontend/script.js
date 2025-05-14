@@ -10,6 +10,7 @@ let submissionQueue = []; // Queue for pending submissions
 let currentTab = 'rater'; // Track current tab ('rater' or 'secretariat')
 let generalList = [];
 let disqualified = [];
+let SECRETARIAT_PASSWORD = '';
 
 let CLIENT_ID;
 let API_KEY;
@@ -37,7 +38,6 @@ let compeCodes = [];
 let competencies = [];
 
 const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
-const SECRETARIAT_PASSWORD = 'SECRETARIAT_PASSWORD'; // Will be fetched from config
 
 function saveAuthState(tokenResponse, evaluator) {
   const authState = {
