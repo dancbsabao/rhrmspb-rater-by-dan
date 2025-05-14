@@ -46,6 +46,7 @@ function saveAuthState(tokenResponse, evaluator) {
     session_id: tokenResponse.session_id || sessionId,
     expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
+    secretariatMemberId: secretariatMemberId || null,
   };
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
@@ -59,9 +60,18 @@ function saveDropdownState() {
     position: elements.positionDropdown.value,
     item: elements.itemDropdown.value,
     name: elements.nameDropdown.value,
+    secretariatAssignment: document.getElementById('secretariatAssignmentDropdown').value,
+    secretariatPosition: document.getElementById('secretariatPositionDropdown').value,
+    secretariatItem: document.getElementById('secretariatItemDropdown').value,
   };
   localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
   console.log('Dropdown state saved:', dropdownState);
+}
+
+function loadDropdownState() {
+  const dropdownState = JSON.parse(localStorage.getItem('dropdownState'));
+  console.log('Loaded dropdown state:', dropdownState);
+  return dropdownState || {};
 }
 
 function loadAuthState() {
@@ -89,6 +99,7 @@ async function restoreState() {
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
     sessionId = authState.session_id;
+    secretariatMemberId = authState.secretariatMemberId;
     await new Promise(resolve => setTimeout(resolve, 1000));
     if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
@@ -102,6 +113,7 @@ async function restoreState() {
     }
 
     const changePromises = [];
+    // Restore rater dropdowns
     if (dropdownState.assignment) {
       elements.assignmentDropdown.value = dropdownState.assignment;
       changePromises.push(new Promise(resolve => {
@@ -130,10 +142,36 @@ async function restoreState() {
         elements.nameDropdown.dispatchEvent(new Event('change'));
       }));
     }
+    // Restore secretariat dropdowns
+    if (dropdownState.secretariatAssignment) {
+      document.getElementById('secretariatAssignmentDropdown').value = dropdownState.secretariatAssignment;
+      changePromises.push(new Promise(resolve => {
+        document.getElementById('secretariatAssignmentDropdown').addEventListener('change', resolve, { once: true });
+        document.getElementById('secretariatAssignmentDropdown').dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.secretariatPosition) {
+      document.getElementById('secretariatPositionDropdown').value = dropdownState.secretariatPosition;
+      changePromises.push(new Promise(resolve => {
+        document.getElementById('secretariatPositionDropdown').addEventListener('change', resolve, { once: true });
+        document.getElementById('secretariatPositionDropdown').dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.secretariatItem) {
+      document.getElementById('secretariatItemDropdown').value = dropdownState.secretariatItem;
+      changePromises.push(new Promise(resolve => {
+        document.getElementById('secretariatItemDropdown').addEventListener('change', resolve, { once: true });
+        document.getElementById('secretariatItemDropdown').dispatchEvent(new Event('change'));
+      }));
+    }
 
     await Promise.all(changePromises);
     if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
       fetchSubmittedRatings();
+    }
+    // Restore secretariat tab if authenticated
+    if (localStorage.getItem('secretariatAuthenticated') && localStorage.getItem('currentTab') === 'secretariat') {
+      switchTab('secretariat');
     }
   } else {
     const urlParams = new URLSearchParams(window.location.search);
@@ -340,34 +378,40 @@ function setupTabNavigation() {
 
   raterTab.addEventListener('click', () => switchTab('rater'));
   secretariatTab.addEventListener('click', () => {
-    showModal(
-      'Secretariat Authentication',
-      `
-        <p>Please enter the Secretariat password:</p>
-        <input type="password" id="secretariatPassword" class="modal-input">
-        <p>Select Member ID (1-5):</p>
-        <select id="secretariatMemberId" class="modal-input">
-          <option value="">Select Member</option>
-          <option value="1">Member 1</option>
-          <option value="2">Member 2</option>
-          <option value="3">Member 3</option>
-          <option value="4">Member 4</option>
-          <option value="5">Member 5</option>
-        </select>
-      `,
-      () => {
-        const password = document.getElementById('secretariatPassword').value.trim();
-        const memberId = document.getElementById('secretariatMemberId').value;
-        if (password === SECRETARIAT_PASSWORD && memberId) {
-          secretariatMemberId = memberId;
-          localStorage.setItem('secretariatAuthenticated', 'true');
-          switchTab('secretariat');
-          showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
-        } else {
-          showToast('error', 'Error', 'Incorrect password or missing Member ID');
+    if (localStorage.getItem('secretariatAuthenticated') && secretariatMemberId) {
+      switchTab('secretariat');
+      showToast('success', 'Success', `Logged in as Secretariat Member ${secretariatMemberId}`);
+    } else {
+      showModal(
+        'Secretariat Authentication',
+        `
+          <p>Please enter the Secretariat password:</p>
+          <input type="password" id="secretariatPassword" class="modal-input">
+          <p>Select Member ID (1-5):</p>
+          <select id="secretariatMemberId" class="modal-input">
+            <option value="">Select Member</option>
+            <option value="1">Member 1</option>
+            <option value="2">Member 2</option>
+            <option value="3">Member 3</option>
+            <option value="4">Member 4</option>
+            <option value="5">Member 5</option>
+          </select>
+        `,
+        () => {
+          const password = document.getElementById('secretariatPassword').value.trim();
+          const memberId = document.getElementById('secretariatMemberId').value;
+          if (password === SECRETARIAT_PASSWORD && memberId) {
+            secretariatMemberId = memberId;
+            localStorage.setItem('secretariatAuthenticated', 'true');
+            saveAuthState(gapi.client.getToken(), currentEvaluator);
+            switchTab('secretariat');
+            showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
+          } else {
+            showToast('error', 'Error', 'Incorrect password or missing Member ID');
+          }
         }
-      }
-    );
+      );
+    }
   });
 }
 
@@ -459,15 +503,15 @@ async function fetchSecretariatCandidates(itemNumber) {
     const [generalResponse, candidatesResponse, disqualifiedResponse] = await Promise.all([
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'GENERAL_LIST!A:Q',
+        range: 'GENERAL_LIST!A:P',
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:S', // Extended to include Member ID
+        range: 'CANDIDATES!A:S',
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'DISQUALIFIED!A:E', // Extended to include Member ID
+        range: 'DISQUALIFIED!A:E',
       }),
     ]);
 
@@ -478,12 +522,12 @@ async function fetchSecretariatCandidates(itemNumber) {
     // Map submissions by name, item number, and member ID
     const submissions = new Map();
     candidatesSheet.forEach(row => {
-      if (row[0] && row[1] && row[18]) { // Name, Item Number, Member ID
+      if (row[0] && row[1] && row[18]) {
         submissions.set(`${row[0]}|${row[1]}|${row[18]}`, 'CANDIDATES');
       }
     });
     disqualifiedSheet.forEach(row => {
-      if (row[0] && row[1] && row[4]) { // Name, Item Number, Member ID
+      if (row[0] && row[1] && row[4]) {
         submissions.set(`${row[0]}|${row[1]}|${row[4]}`, 'DISQUALIFIED');
       }
     });
@@ -592,14 +636,21 @@ function toggleCommentInput(selectElement) {
 
 
 async function submitCandidateAction(button, name, itemNumber, sex) {
-  console.log('submitCandidateAction triggered:', { name, itemNumber, sex }); // Debug log
+  console.log('submitCandidateAction triggered:', { name, itemNumber, sex });
   const row = button.closest('tr');
   const action = row.querySelector('.action-dropdown').value;
   const comment = action === 'FOR DISQUALIFICATION' ? row.querySelector('.comment-input').value : '';
-  console.log('Action:', action, 'Comment:', comment); // Debug log
+  console.log('Action:', action, 'Comment:', comment);
 
   if (!action) {
     showToast('error', 'Error', 'Please select an action');
+    return;
+  }
+
+  // Check for duplicate submission
+  const isDuplicate = await checkDuplicateSubmission(name, itemNumber, action);
+  if (isDuplicate) {
+    showToast('error', 'Error', `Candidate already submitted as ${action} by Member ${secretariatMemberId}.`);
     return;
   }
 
@@ -622,67 +673,100 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
 
   showModal('CONFIRM SUBMISSION', modalContent, async () => {
     try {
-      console.log('Submitting action:', { name, itemNumber, sex, action, comment }); // Debug log
+      console.log('Submitting action:', { name, itemNumber, sex, action, comment });
       if (!await isTokenValid()) {
-        console.log('Refreshing token'); // Debug log
+        console.log('Refreshing token');
         await refreshAccessToken();
       }
 
-      if (action === 'FOR DISQUALIFICATION') {
-        const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
-        console.log('Appending to DISQUALIFIED:', values); // Debug log
-        await gapi.client.sheets.spreadsheets.values.append({
+      // Remove candidate from the opposite sheet
+      if (action === 'FOR LONG LIST') {
+        // Remove from DISQUALIFIED if exists
+        const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:E', // Include Member ID
-          valueInputOption: 'RAW',
-          resource: { values },
+          range: 'DISQUALIFIED!A:E',
         });
-      } else if (action === 'FOR LONG LIST') {
-        const response = await gapi.client.sheets.spreadsheets.values.get({
+        let disqualifiedValues = disqualifiedResponse.result.values || [];
+        const disqualifiedIndex = disqualifiedValues.findIndex(row => row[0] === name && row[1] === itemNumber && row[4] === secretariatMemberId);
+        if (disqualifiedIndex !== -1) {
+          disqualifiedValues.splice(disqualifiedIndex, 1);
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: 'DISQUALIFIED!A:E',
+            valueInputOption: 'RAW',
+            resource: { values: disqualifiedValues.length ? disqualifiedValues : [['']] }, // Avoid empty sheet error
+          });
+        }
+
+        // Fetch from GENERAL_LIST and append to CANDIDATES
+        const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: `GENERAL_LIST!A:Q`,
-          valueRenderOption: 'FORMATTED_VALUE',
+          range: 'GENERAL_LIST!A:P', // Exclude comment column
         });
-        const candidate = response.result.values.find(row => row[0] === name && row[1] === itemNumber);
+        let candidate = generalResponse.result.values.find(row => row[0] === name && row[1] === itemNumber);
         if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-        candidate.push(secretariatMemberId); // Add Member ID
-        console.log('Appending to CANDIDATES:', [candidate]); // Debug log
+        candidate = [...candidate, '', secretariatMemberId]; // Add empty comment and Member ID
+        console.log('Appending to CANDIDATES:', [candidate]);
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:S', // Include Member ID
+          range: 'CANDIDATES!A:S',
           valueInputOption: 'RAW',
           resource: { values: [candidate] },
         });
-      }
+      } else if (action === 'FOR DISQUALIFICATION') {
+        // Remove from CANDIDATES if exists
+        const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'CANDIDATES!A:S',
+        });
+        let candidatesValues = candidatesResponse.result.values || [];
+        const candidatesIndex = candidatesValues.findIndex(row => row[0] === name && row[1] === itemNumber && row[18] === secretariatMemberId);
+        if (candidatesIndex !== -1) {
+          candidatesValues.splice(candidatesIndex, 1);
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: 'CANDIDATES!A:S',
+            valueInputOption: 'RAW',
+            resource: { values: candidatesValues.length ? candidatesValues : [['']] },
+          });
+        }
 
-      if (comment && action === 'FOR DISQUALIFICATION') {
-        const response = await gapi.client.sheets.spreadsheets.values.get({
+        // Append to DISQUALIFIED
+        const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
+        console.log('Appending to DISQUALIFIED:', values);
+        await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: `GENERAL_LIST!A:Q`,
-        });
-        const values = response.result.values || [];
-        const updatedValues = values.map(row => {
-          if (row[0] === name && row[1] === itemNumber) {
-            row[16] = comment; // Update comment in column Q
-          }
-          return row;
-        });
-        console.log('Updating GENERAL_LIST with comment:', updatedValues); // Debug log
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: `GENERAL_LIST!A:Q`,
+          range: 'DISQUALIFIED!A:E',
           valueInputOption: 'RAW',
-          resource: { values: updatedValues },
+          resource: { values },
         });
       }
 
       showToast('success', 'Success', 'Action submitted successfully');
-      fetchSecretariatCandidates(itemNumber); // Refresh table
+      fetchSecretariatCandidates(itemNumber);
     } catch (error) {
       console.error('Error submitting action:', error);
       showToast('error', 'Error', 'Failed to submit action: ' + error.message);
     }
   });
+}
+
+
+async function checkDuplicateSubmission(name, itemNumber, action) {
+  try {
+    const sheetName = action === 'FOR LONG LIST' ? 'CANDIDATES' : 'DISQUALIFIED';
+    const range = sheetName === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:E';
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: range,
+    });
+    const values = response.result.values || [];
+    return values.some(row => row[0] === name && row[1] === itemNumber && row[row.length - 1] === secretariatMemberId);
+  } catch (error) {
+    console.error('Error checking duplicates:', error);
+    showToast('error', 'Error', 'Failed to check for duplicates.');
+    return false;
+  }
 }
 
 
