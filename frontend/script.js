@@ -1,267 +1,746 @@
-const API_URL = 'https://rater-by-dan.onrender.com';
-let gapiLoaded = false;
-let accessToken = null;
-let sessionId = null;
-let isSignedIn = false;
-let assignmentsData = [];
-let positionsData = [];
-let itemsData = [];
-let namesData = [];
-let candidatesData = [];
-let competenciesData = [];
-let ratingsData = [];
-let config = {};
-let currentUserEmail = '';
-let passwordAttempts = {};
+// Global variables
+let gapiInitialized = false;
+let tokenClient = null;
+let currentEvaluator = null;
+let fetchTimeout;
+let isSubmitting = false;
+let refreshTimer = null;
+let sessionId = null; // To track server session
+let submissionQueue = []; // Queue for pending submissions
+let isSecretariatAuthenticated = false; // Track secretariat access
+let passwordAttempts = {}; // Track password attempts
 const MAX_ATTEMPTS = 3;
-let isSecretariatAuthenticated = false;
 
-function showToast(type, title, message, duration = 5000, position = 'top-right') {
-  let toastContainer = document.querySelector('.toast-container');
-  if (!toastContainer) {
-    toastContainer = document.createElement('div');
-    toastContainer.className = `toast-container ${position}`;
-    document.body.appendChild(toastContainer);
-  } else {
-    toastContainer.className = `toast-container ${position}`;
-  }
+let CLIENT_ID;
+let API_KEY;
+let SHEET_ID;
+let SCOPES;
+let EVALUATOR_PASSWORDS;
+let SHEET_RANGES;
+let SECRETARIAT_PASSWORD; // Added for secretariat authentication
 
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  let icon;
-  switch (type) {
-    case 'success': icon = '✓'; break;
-    case 'error': icon = '✗'; break;
-    case 'info': icon = 'ℹ'; break;
-    case 'warning': icon = '⚠'; break;
-    default: icon = '';
-  }
-  toast.innerHTML = `
-    <span class="toast-icon">${icon}</span>
-    <div class="toast-content">
-      <div class="toast-title">${title}</div>
-      <div class="toast-message">${message}</div>
-    </div>
-    <div class="toast-close" onclick="this.parentElement.remove()">×</div>
-  `;
-  toastContainer.appendChild(toast);
+const elements = {
+  authStatus: document.getElementById('authStatus'),
+  signInBtn: document.getElementById('signInBtn'),
+  signOutBtn: document.getElementById('signOutBtn'),
+  assignmentDropdown: document.getElementById('assignmentDropdown'),
+  positionDropdown: document.getElementById('positionDropdown'),
+  itemDropdown: document.getElementById('itemDropdown'),
+  nameDropdown: document.getElementById('nameDropdown'),
+  competencyContainer: document.getElementById('competencyContainer'),
+  submitRatings: document.getElementById('submitRatings'),
+  ratingForm: document.querySelector('.rating-form'),
+  secretariatAssignmentDropdown: document.getElementById('secretariatAssignmentDropdown'),
+  secretariatPositionDropdown: document.getElementById('secretariatPositionDropdown'),
+  secretariatItemDropdown: document.getElementById('secretariatItemDropdown'),
+  secretariatCandidatesTable: document.getElementById('secretariat-candidates-table'),
+  secretariatNamesTable: document.getElementById('secretariat-names-table'),
+  submitSecretariat: document.getElementById('submitSecretariat'),
+  secretariatForm: document.querySelector('.secretariat-form'),
+};
 
-  requestAnimationFrame(() => {
-    toast.style.opacity = '1';
-  });
+let vacancies = [];
+let candidates = [];
+let compeCodes = [];
+let competencies = [];
 
-  setTimeout(() => {
-    if (position === 'center') {
-      toast.style.animation = 'fadeScaleOut 0.3s ease-out forwards';
-    } else {
-      toast.style.animation = 'slideOut 0.3s ease-out forwards';
-    }
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
-}
+const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 
-function showModal(options) {
-  const modalOverlay = document.createElement('div');
-  modalOverlay.className = 'modal-overlay';
-  modalOverlay.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h2 class="modal-title">${options.title || 'Modal'}</h2>
-        <span class="modal-close">&times;</span>
-      </div>
-      <div class="modal-content">${options.content || ''}</div>
-      <div:${options.input ? options.input : ''}</div>
-      <div class="modal-actions">
-        ${options.cancelText ? `<button class="modal-cancel">${options.cancelText}</button>` : ''}
-        ${options.confirmText ? `<button class="modal-confirm">${options.confirmText}</button>` : ''}
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modalOverlay);
-
-  setTimeout(() => {
-    modalOverlay.className = 'modal-overlay active';
-  }, 10);
-
-  const closeModal = () => {
-    modalOverlay.className = 'modal-overlay';
-    setTimeout(() => modalOverlay.remove(), 300);
+function saveAuthState(tokenResponse, evaluator) {
+  const authState = {
+    access_token: tokenResponse.access_token,
+    session_id: tokenResponse.session_id || sessionId,
+    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
+    evaluator: evaluator || null,
+    isSecretariatAuthenticated: isSecretariatAuthenticated, // Save secretariat auth state
   };
-
-  modalOverlay.querySelector('.modal-close').addEventListener('click', closeModal);
-  if (options.cancelText) {
-    modalOverlay.querySelector('.modal-cancel').addEventListener('click', () => {
-      closeModal();
-      if (options.onCancel) options.onCancel();
-    });
-  }
-  if (options.confirmText) {
-    modalOverlay.querySelector('.modal-confirm').addEventListener('click', () => {
-      closeModal();
-      if (options.onConfirm) options.onConfirm(modalOverlay.querySelector('.modal-input')?.value);
-    });
-  }
+  localStorage.setItem('authState', JSON.stringify(authState));
+  console.log('Auth state saved:', authState);
+  scheduleTokenRefresh();
 }
 
-function updateUI() {
-  const authStatus = document.getElementById('authStatus');
-  const signInBtn = document.getElementById('signInBtn');
-  const signOutBtn = document.getElementById('signOutBtn');
-  const ratingForm = document.querySelector('.rating-form');
-  const secretariatForm = document.querySelector('.secretariat-form');
+function saveDropdownState() {
+  const dropdownState = {
+    evaluator: document.getElementById('evaluatorSelect')?.value || '',
+    assignment: elements.assignmentDropdown.value,
+    position: elements.positionDropdown.value,
+    item: elements.itemDropdown.value,
+    name: elements.nameDropdown.value,
+    secretariatAssignment: elements.secretariatAssignmentDropdown.value,
+    secretariatPosition: elements.secretariatPositionDropdown.value,
+    secretariatItem: elements.secretariatItemDropdown.value,
+  };
+  localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
+  console.log('Dropdown state saved:', dropdownState);
+}
 
-  if (isSignedIn) {
-    authStatus.textContent = `Signed in as ${currentUserEmail}`;
-    signInBtn.style.display = 'none';
-    signOutBtn.style.display = 'block';
-    ratingForm.style.display = 'block';
-    if (isSecretariatAuthenticated) {
-      secretariatForm.style.display = 'block';
-    } else {
-      secretariatForm.style.display = 'none';
+function loadAuthState() {
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState || !authState.access_token) {
+    console.log('No auth state found');
+    return null;
+  }
+  console.log('Loaded auth state:', authState);
+  isSecretariatAuthenticated = authState.isSecretariatAuthenticated || false; // Restore secretariat auth
+  return authState;
+}
+
+function loadDropdownState() {
+  const dropdownState = JSON.parse(localStorage.getItem('dropdownState'));
+  console.log('Loaded dropdown state:', dropdownState);
+  return dropdownState || {};
+}
+
+async function restoreState() {
+  const authState = loadAuthState();
+  const dropdownState = loadDropdownState();
+  const authSection = document.querySelector('.auth-section');
+  const container = document.querySelector('.container');
+
+  if (authState) {
+    gapi.client.setToken({ access_token: authState.access_token });
+    sessionId = authState.session_id;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (!await isTokenValid()) await refreshAccessToken();
+    currentEvaluator = authState.evaluator;
+    updateUI(true);
+    authSection.classList.remove('signed-out');
+    await loadSheetData();
+    const evaluatorSelect = document.getElementById('evaluatorSelect');
+    if (evaluatorSelect && dropdownState.evaluator) {
+      evaluatorSelect.value = dropdownState.evaluator;
+      currentEvaluator = dropdownState.evaluator;
+    }
+
+    const changePromises = [];
+    if (dropdownState.assignment) {
+      elements.assignmentDropdown.value = dropdownState.assignment;
+      changePromises.push(new Promise(resolve => {
+        elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
+        elements.assignmentDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.position) {
+      elements.positionDropdown.value = dropdownState.position;
+      changePromises.push(new Promise(resolve => {
+        elements.positionDropdown.addEventListener('change', resolve, { once: true });
+        elements.positionDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.item) {
+      elements.itemDropdown.value = dropdownState.item;
+      changePromises.push(new Promise(resolve => {
+        elements.itemDropdown.addEventListener('change', resolve, { once: true });
+        elements.itemDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (dropdownState.name) {
+      elements.nameDropdown.value = dropdownState.name;
+      changePromises.push(new Promise(resolve => {
+        elements.nameDropdown.addEventListener('change', resolve, { once: true });
+        elements.nameDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+    // Restore secretariat dropdowns
+    if (isSecretariatAuthenticated && dropdownState.secretariatAssignment) {
+      elements.secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+      changePromises.push(new Promise(resolve => {
+        elements.secretariatAssignmentDropdown.addEventListener('change', resolve, { once: true });
+        elements.secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (isSecretariatAuthenticated && dropdownState.secretariatPosition) {
+      elements.secretariatPositionDropdown.value = dropdownState.secretariatPosition;
+      changePromises.push(new Promise(resolve => {
+        elements.secretariatPositionDropdown.addEventListener('change', resolve, { once: true });
+        elements.secretariatPositionDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+    if (isSecretariatAuthenticated && dropdownState.secretariatItem) {
+      elements.secretariatItemDropdown.value = dropdownState.secretariatItem;
+      changePromises.push(new Promise(resolve => {
+        elements.secretariatItemDropdown.addEventListener('change', resolve, { once: true });
+        elements.secretariatItemDropdown.dispatchEvent(new Event('change'));
+      }));
+    }
+
+    await Promise.all(changePromises);
+    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value) {
+      fetchSubmittedRatings();
     }
   } else {
-    authStatus.textContent = 'Not signed in';
-    signInBtn.style.display = 'block';
-    signOutBtn.style.display = 'none';
-    ratingForm.style.display = 'none';
-    secretariatForm.style.display = 'none';
-  }
-}
-
-async function fetchConfig() {
-  try {
-    const response = await fetch(`${API_URL}/config`, {
-      credentials: 'include',
-    });
-    config = await response.json();
-  } catch (error) {
-    console.error('Error fetching config:', error);
-    showToast('error', 'Error', 'Failed to load configuration');
-  }
-}
-
-async function initGapi() {
-  if (gapiLoaded) return;
-  await new Promise((resolve) => {
-    gapi.load('client', () => {
-      gapi.client.init({
-        apiKey: config.API_KEY,
-        clientId: config.CLIENT_ID,
-        scope: config.SCOPES,
-      }).then(() => {
-        gapiLoaded = true;
-        resolve();
+    const urlParams = new URLSearchParams(window.location.search);
+    const accessToken = urlParams.get('access_token');
+    const expiresIn = urlParams.get('expires_in');
+    sessionId = urlParams.get('session_id');
+    if (accessToken && sessionId) {
+      handleTokenCallback({
+        access_token: accessToken,
+        expires_in: parseInt(expiresIn, 10),
+        session_id: sessionId,
       });
+      window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
+    } else {
+      updateUI(false);
+      currentEvaluator = null;
+      vacancies = [];
+      candidates = [];
+      compeCodes = [];
+      competencies = [];
+      resetDropdowns([]);
+      container.style.marginTop = '20px';
+      authSection.classList.add('signed-out');
+      const resultsArea = document.querySelector('.results-area');
+      if (resultsArea) resultsArea.remove();
+    }
+  }
+}
+
+fetch(`${API_BASE_URL}/config`)
+  .then((response) => {
+    if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+    return response.json();
+  })
+  .then((config) => {
+    CLIENT_ID = config.CLIENT_ID;
+    API_KEY = config.API_KEY;
+    SHEET_ID = config.SHEET_ID;
+    SCOPES = config.SCOPES;
+    EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS;
+    SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD || 'secretariat123'; // Fallback password
+    SHEET_RANGES = config.SHEET_RANGES;
+    initializeApp();
+  })
+  .catch((error) => {
+    console.error("Error fetching config:", error);
+    elements.authStatus.textContent = 'Error loading configuration';
+  });
+
+function initializeApp() {
+  gapi.load('client', async () => {
+    await initializeGapiClient();
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
+    maybeEnableButtons();
+    createEvaluatorSelector();
+    initializeSecretariatDropdowns();
+    restoreState();
+    // Add tab event listeners
+    document.querySelectorAll('.tab-button').forEach(button => {
+      button.addEventListener('click', () => switchTab(button.dataset.tab));
     });
   });
 }
 
-async function getAccessToken() {
-  const urlParams = new URLSearchParams(window.location.search);
-  accessToken = urlParams.get('access_token');
-  sessionId = urlParams.get('session_id');
-
-  if (accessToken) {
-    try {
-      await initGapi();
-      gapi.client.setToken({ access_token: accessToken });
-      const userInfo = await gapi.client.request({
-        path: 'https://www.googleapis.com/oauth2/v3/userinfo',
-      });
-      currentUserEmail = userInfo.result.email;
-      isSignedIn = true;
-
-      const evaluatorEmails = Object.keys(config.EVALUATOR_PASSWORDS);
-      if (evaluatorEmails.includes(currentUserEmail)) {
-        promptEvaluatorPassword();
-      } else {
-        updateUI();
-        fetchAssignments();
-      }
-    } catch (error) {
-      console.error('Error verifying access token:', error);
-      isSignedIn = false;
-      updateUI();
-      showToast('error', 'Authentication Error', 'Failed to verify access token');
-    }
-  } else {
-    isSignedIn = false;
-    updateUI();
+async function initializeGapiClient() {
+  try {
+    await gapi.client.init({
+      apiKey: API_KEY,
+      discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
+    });
+    const token = gapi.client.getToken();
+    if (token && !await isTokenValid()) await refreshAccessToken();
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
+  } catch (error) {
+    console.error('Error initializing GAPI client:', error);
   }
 }
 
-function promptEvaluatorPassword() {
-  showModal({
-    title: 'Evaluator Password',
-    content: `
-      <p>Please enter your evaluator password for ${currentUserEmail}</p>
-      <input type="password" class="modal-input" placeholder="Enter password">
-    `,
-    cancelText: 'Cancel',
-    confirmText: 'Submit',
-    onConfirm: (password) => {
-      const correctPassword = config.EVALUATOR_PASSWORDS[currentUserEmail];
-      if (!passwordAttempts[currentUserEmail]) {
-        passwordAttempts[currentUserEmail] = 0;
-      }
+async function isTokenValid() {
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.access_token) return false;
 
-      if (password === correctPassword) {
-        passwordAttempts[currentUserEmail] = 0;
-        updateUI();
-        fetchAssignments();
-        showToast('success', 'Success', 'Password verified');
+  const timeLeft = authState.expires_at - Date.now();
+  if (timeLeft <= 0) {
+    console.log('Token expired, refreshing');
+    return await refreshAccessToken();
+  }
+
+  try {
+    await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    return true;
+  } catch (error) {
+    console.log('Token validation failed:', error);
+    if (timeLeft < 300000) {
+      return await refreshAccessToken();
+    }
+    return false;
+  }
+}
+
+async function refreshAccessToken() {
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.session_id) {
+    console.warn('No session ID available');
+    localStorage.clear();
+    handleAuthClick();
+    return false;
+  }
+  try {
+    console.log('Attempting token refresh with session_id:', authState.session_id);
+    const response = await fetch(`${API_BASE_URL}/refresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ session_id: authState.session_id }),
+    });
+    const newToken = await response.json();
+    console.log('Refresh response:', newToken);
+    if (!response.ok || newToken.error) {
+      throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
+    }
+    authState.access_token = newToken.access_token;
+    authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
+    localStorage.setItem('authState', JSON.stringify(authState));
+    gapi.client.setToken({ access_token: newToken.access_token });
+    console.log('Token refreshed successfully');
+    scheduleTokenRefresh();
+    return true;
+  } catch (error) {
+    console.error('Token refresh failed:', error.message);
+    showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
+    localStorage.clear();
+    handleAuthClick();
+    return false;
+  }
+}
+
+function scheduleTokenRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.expires_at || !authState.session_id) {
+    console.log('No valid auth state for scheduling refresh');
+    return;
+  }
+
+  const timeToExpiry = authState.expires_at - Date.now();
+  const refreshInterval = Math.max(300000, timeToExpiry - 900000); // 15 min before expiry
+
+  refreshTimer = setTimeout(async () => {
+    console.log('Scheduled token refresh triggered');
+    const success = await refreshAccessToken();
+    if (!success) {
+      console.warn('Refresh failed, retrying in 1 minute');
+      refreshTimer = setTimeout(scheduleTokenRefresh, 60000);
+    }
+  }, refreshInterval);
+
+  console.log(`Token refresh scheduled in ${refreshInterval / 60000} minutes`);
+}
+
+function handleTokenCallback(tokenResponse) {
+  if (tokenResponse.error) {
+    console.error('Token error:', tokenResponse.error);
+    elements.authStatus.textContent = 'Error during sign-in';
+  } else {
+    saveAuthState(tokenResponse, currentEvaluator);
+    gapi.client.setToken({ access_token: tokenResponse.access_token });
+    updateUI(true);
+    fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
+      .then(() => {
+        createEvaluatorSelector();
+        loadSheetData();
+        showToast('success', 'Welcome!', 'Successfully signed in.');
+        localStorage.setItem('hasWelcomed', 'true');
+      });
+  }
+}
+
+function maybeEnableButtons() {
+  if (gapiInitialized) {
+    elements.signInBtn.style.display = 'inline-block';
+    elements.signOutBtn.style.display = 'inline-block';
+  }
+}
+
+function createEvaluatorSelector() {
+  if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) return;
+  if (document.getElementById('evaluatorSelect')) return;
+
+  const formGroup = document.createElement('div');
+  formGroup.className = 'form-group';
+
+  const label = document.createElement('label');
+  label.htmlFor = 'evaluatorSelect';
+  label.textContent = 'Evaluator:';
+
+  const select = document.createElement('select');
+  select.id = 'evaluatorSelect';
+  select.required = true;
+
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = 'Select Evaluator';
+  select.appendChild(defaultOption);
+
+  Object.keys(EVALUATOR_PASSWORDS).forEach((evaluator) => {
+    const option = document.createElement('option');
+    option.value = evaluator;
+    option.textContent = evaluator;
+    select.appendChild(option);
+  });
+
+  select.addEventListener('change', handleEvaluatorSelection);
+  formGroup.appendChild(label);
+  formGroup.appendChild(select);
+
+  const ratingForm = document.querySelector('.rating-form');
+  if (ratingForm) ratingForm.insertBefore(formGroup, ratingForm.firstChild);
+}
+
+async function handleEvaluatorSelection(event) {
+  const selectElement = event.target;
+  const newSelection = selectElement.value;
+
+  if (!newSelection) {
+    currentEvaluator = null;
+    saveAuthState(gapi.client.getToken(), null);
+    saveDropdownState();
+    resetDropdowns(vacancies);
+    return;
+  }
+
+  const modalContent = `
+    <p>Please enter the password for ${newSelection}:</p>
+    <input type="password" id="evaluatorPassword" class="modal-input">
+  `;
+
+  showModal('Evaluator Authentication', modalContent, () => {
+    const passwordInput = document.getElementById('evaluatorPassword');
+    const password = passwordInput.value.trim();
+
+    if (password === EVALUATOR_PASSWORDS[newSelection]) {
+      currentEvaluator = newSelection;
+      selectElement.value = newSelection;
+      saveAuthState(gapi.client.getToken(), currentEvaluator);
+      saveDropdownState();
+      showToast('success', 'Success', `Logged in as ${newSelection}`);
+      resetDropdowns(vacancies);
+      fetchSubmittedRatings();
+    } else {
+      showToast('error', 'Error', 'Incorrect password');
+      selectElement.value = currentEvaluator || '';
+    }
+  });
+}
+
+function updateUI(isSignedIn) {
+  elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
+  elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
+  elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
+  elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
+  elements.secretariatForm.style.display = isSignedIn && isSecretariatAuthenticated ? 'block' : 'none';
+  if (!isSignedIn) {
+    elements.competencyContainer.innerHTML = '';
+    elements.secretariatNamesTable.innerHTML = '';
+    elements.secretariatCandidatesTable.innerHTML = '';
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) resultsArea.classList.remove('active');
+  }
+}
+
+async function loadSheetData(maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (!await isTokenValid()) {
+        console.log('Token invalid, refreshed in attempt', attempt);
+      }
+      const ranges = Object.values(SHEET_RANGES);
+      const data = await Promise.all(
+        ranges.map((range) =>
+          gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range,
+          })
+        )
+      );
+      vacancies = data[0]?.result?.values || [];
+      candidates = data[1]?.result?.values || [];
+      compeCodes = data[2]?.result?.values || [];
+      competencies = data[3]?.result?.values || [];
+      console.log('Sheet data loaded:', { vacancies, candidates, compeCodes, competencies });
+      initializeDropdowns(vacancies);
+      if (isSecretariatAuthenticated) fetchSecretariatAssignments();
+      updateUI(true);
+      return;
+    } catch (error) {
+      console.error(`Attempt ${attempt} failed:`, error);
+      if (attempt === maxRetries) {
+        elements.authStatus.textContent = 'Error loading sheet data. Retrying soon...';
+        showToast('error', 'Error', 'Failed to load sheet data, retrying in the background.');
+        setTimeout(() => loadSheetData(), 300000);
       } else {
-        passwordAttempts[currentUserEmail]++;
-        if (passwordAttempts[currentUserEmail] >= MAX_ATTEMPTS) {
-          showToast('error', 'Error', 'Maximum password attempts reached');
-          signOut();
-        } else {
-          showToast('error', 'Error', 'Incorrect password');
-          promptEvaluatorPassword();
+        await delay(Math.pow(2, attempt) * 1000);
+      }
+    }
+  }
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function updateDropdown(dropdown, options, defaultOptionText = 'Select') {
+  dropdown.innerHTML = `<option value="">${defaultOptionText}</option>`;
+  options.forEach((opt) => {
+    const option = document.createElement('option');
+    option.value = opt;
+    option.textContent = opt;
+    dropdown.appendChild(option);
+  });
+}
+
+function setDropdownState(dropdown, enabled) {
+  dropdown.disabled = !enabled;
+  if (!enabled) {
+    dropdown.value = '';
+    dropdown.innerHTML = `<option value="">${dropdown.getAttribute('data-placeholder') || 'Select Option'}</option>`;
+  }
+}
+
+function initializeDropdowns(vacancies) {
+  elements.assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
+  elements.positionDropdown.setAttribute('data-placeholder', 'Select Position');
+  elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
+  elements.nameDropdown.setAttribute('data-placeholder', 'Select Name');
+
+  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+  updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
+
+  setDropdownState(elements.positionDropdown, false);
+  setDropdownState(elements.itemDropdown, false);
+  setDropdownState(elements.nameDropdown, false);
+
+  elements.assignmentDropdown.addEventListener('change', async () => {
+    const assignment = elements.assignmentDropdown.value;
+    const requiresPassword = currentEvaluator === "In-charge, Administrative Division" || currentEvaluator === "End-User";
+    let isAuthorized = true;
+
+    if (assignment && requiresPassword) {
+      const authKey = `currentAssignmentAuth_${currentEvaluator}`;
+      const storedAssignment = localStorage.getItem(authKey);
+
+      if (storedAssignment !== assignment) {
+        const modalContent = `
+          <p>Please enter the password to access assignment "${assignment}":</p>
+          <input type="password" id="assignmentPassword" class="modal-input">
+        `;
+        isAuthorized = await new Promise((resolve) => {
+          showModal('Assignment Authentication', modalContent, () => {
+            const passwordInput = document.getElementById('assignmentPassword');
+            const password = passwordInput.value.trim();
+            const isValid = password === "admindan";
+            if (isValid) localStorage.setItem(authKey, assignment);
+            resolve(isValid);
+          });
+        });
+
+        if (!isAuthorized) {
+          showToast('error', 'Error', 'Incorrect password for assignment');
+          elements.assignmentDropdown.value = storedAssignment || '';
+          setDropdownState(elements.positionDropdown, false);
+          setDropdownState(elements.itemDropdown, false);
+          setDropdownState(elements.nameDropdown, false);
+          saveDropdownState();
+          return;
         }
       }
-    },
-    onCancel: () => {
-      signOut();
-    },
+    }
+
+    if (assignment && isAuthorized) {
+      const positions = vacancies
+        .filter((row) => row[2] === assignment)
+        .map((row) => row[1]);
+      updateDropdown(elements.positionDropdown, [...new Set(positions)], 'Select Position');
+      setDropdownState(elements.positionDropdown, true);
+    } else {
+      setDropdownState(elements.positionDropdown, false);
+    }
+    setDropdownState(elements.itemDropdown, false);
+    setDropdownState(elements.nameDropdown, false);
+    saveDropdownState();
+  });
+
+  elements.positionDropdown.addEventListener('change', () => {
+    const assignment = elements.assignmentDropdown.value;
+    const position = elements.positionDropdown.value;
+    if (assignment && position) {
+      const items = vacancies
+        .filter((row) => row[2] === assignment && row[1] === position)
+        .map((row) => row[0]);
+      updateDropdown(elements.itemDropdown, [...new Set(items)], 'Select Item');
+      setDropdownState(elements.itemDropdown, true);
+    } else {
+      setDropdownState(elements.itemDropdown, false);
+    }
+    setDropdownState(elements.nameDropdown, false);
+    saveDropdownState();
+  });
+
+  elements.itemDropdown.addEventListener('change', () => {
+    const item = elements.itemDropdown.value;
+    if (item) {
+      const names = candidates
+        .filter((row) => row[1] === item)
+        .map((row) => row[0]);
+      updateDropdown(elements.nameDropdown, [...new Set(names)], 'Select Name');
+      setDropdownState(elements.nameDropdown, true);
+    } else {
+      setDropdownState(elements.nameDropdown, false);
+    }
+    saveDropdownState();
+  });
+
+  elements.nameDropdown.addEventListener('change', async () => {
+    const item = elements.itemDropdown.value;
+    const name = elements.nameDropdown.value;
+    const assignment = elements.assignmentDropdown.value;
+    const position = elements.positionDropdown.value;
+
+    if (item && name) {
+      displayCandidatesTable(name, item);
+
+      const selectedCodes = compeCodes
+        .filter((row) => row[0] === item)
+        .flatMap((row) => row[1].split(','));
+
+      const relatedCompetencies = competencies
+        .filter((row) => row[0] && selectedCodes.includes(row[0]))
+        .map((row) => row[1]);
+
+      const vacancy = vacancies.find(row =>
+        row[0] === item && row[2] === assignment && row[1] === position
+      );
+
+      const salaryGrade = vacancy && vacancy[3] ? parseInt(vacancy[3], 10) : 0;
+      console.log("Salary Grade detected:", salaryGrade);
+
+      await displayCompetencies(name, relatedCompetencies, salaryGrade);
+
+      if (currentEvaluator && name && item) {
+        clearRatings();
+        fetchSubmittedRatings();
+      }
+    } else {
+      clearRatings();
+    }
+
+    saveDropdownState();
+  });
+}
+
+function resetDropdowns(vacancies) {
+  const uniqueAssignments = vacancies.length ? [...new Set(vacancies.slice(1).map((row) => row[2]))] : [];
+  updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
+  updateDropdown(elements.positionDropdown, [], 'Select Position');
+  updateDropdown(elements.itemDropdown, [], 'Select Item');
+  updateDropdown(elements.nameDropdown, [], 'Select Name');
+  updateDropdown(elements.secretariatAssignmentDropdown, uniqueAssignments, 'Select Assignment');
+  updateDropdown(elements.secretariatPositionDropdown, [], 'Select Position');
+  updateDropdown(elements.secretariatItemDropdown, [], 'Select Item');
+  elements.assignmentDropdown.value = '';
+  elements.positionDropdown.value = '';
+  elements.itemDropdown.value = '';
+  elements.nameDropdown.value = '';
+  elements.secretariatAssignmentDropdown.value = '';
+  elements.secretariatPositionDropdown.value = '';
+  elements.secretariatItemDropdown.value = '';
+  elements.assignmentDropdown.disabled = !vacancies.length;
+  elements.positionDropdown.disabled = true;
+  elements.itemDropdown.disabled = true;
+  elements.nameDropdown.disabled = true;
+  elements.secretariatAssignmentDropdown.disabled = !vacancies.length;
+  elements.secretariatPositionDropdown.disabled = true;
+  elements.secretariatItemDropdown.disabled = true;
+}
+
+function handleAuthClick() {
+  window.location.href = `${API_BASE_URL}/auth/google`;
+}
+
+function handleSignOutClick() {
+  const modalContent = `<p>Are you sure you want to sign out?</p>`;
+  showModal('Confirm Sign Out', modalContent, () => {
+    gapi.client.setToken(null);
+    localStorage.clear();
+    console.log('All localStorage cleared');
+    currentEvaluator = null;
+    sessionId = null;
+    isSecretariatAuthenticated = false;
+    vacancies = [];
+    candidates = [];
+    compeCodes = [];
+    competencies = [];
+    submissionQueue = [];
+    passwordAttempts = {};
+    console.log('Global variables reset');
+    updateUI(false);
+    resetDropdowns([]);
+    elements.competencyContainer.innerHTML = '';
+    clearRatings();
+    const evaluatorSelect = document.getElementById('evaluatorSelect');
+    if (evaluatorSelect) {
+      evaluatorSelect.value = '';
+      evaluatorSelect.parentElement.remove();
+    }
+    if (elements.submitRatings) {
+      elements.submitRatings.disabled = true;
+    }
+    if (fetchTimeout) {
+      clearTimeout(fetchTimeout);
+      fetchTimeout = null;
+    }
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) resultsArea.remove();
+    const container = document.querySelector('.container');
+    container.style.marginTop = '20px';
+    const authSection = document.querySelector('.auth-section');
+    authSection.classList.add('signed-out');
+    showToast('success', 'Signed Out', 'You have been successfully signed out.');
+  }, () => {
+    console.log('Sign out canceled');
   });
 }
 
 function promptSecretariatPassword() {
-  showModal({
-    title: 'Secretariat Password',
-    content: `
-      <p>Please enter the secretariat password</p>
-      <input type="password" class="modal-input" placeholder="Enter password">
-    `,
-    cancelText: 'Cancel',
-    confirmText: 'Submit',
-    onConfirm: (password) => {
-      if (!passwordAttempts['secretariat']) {
-        passwordAttempts['secretariat'] = 0;
-      }
+  return new Promise((resolve) => {
+    const modalContent = `
+      <p>Please enter the secretariat password:</p>
+      <input type="password" id="secretariatPassword" class="modal-input">
+    `;
+    showModal('Secretariat Authentication', modalContent, () => {
+      const password = document.getElementById('secretariatPassword').value.trim();
+      if (!passwordAttempts['secretariat']) passwordAttempts['secretariat'] = 0;
 
-      if (password === config.SECRETARIAT_PASSWORD) {
+      if (password === SECRETARIAT_PASSWORD) {
         passwordAttempts['secretariat'] = 0;
         isSecretariatAuthenticated = true;
-        updateUI();
+        saveAuthState(gapi.client.getToken(), currentEvaluator);
+        updateUI(true);
         fetchSecretariatAssignments();
         showToast('success', 'Success', 'Secretariat access granted');
+        resolve(true);
       } else {
         passwordAttempts['secretariat']++;
         if (passwordAttempts['secretariat'] >= MAX_ATTEMPTS) {
           showToast('error', 'Error', 'Maximum password attempts reached');
           switchTab('rater');
+          resolve(false);
         } else {
           showToast('error', 'Error', 'Incorrect password');
-          promptSecretariatPassword();
+          promptSecretariatPassword().then(resolve);
         }
       }
-    },
-    onCancel: () => {
+    }, () => {
       switchTab('rater');
-    },
+      resolve(false);
+    });
   });
 }
 
@@ -271,158 +750,143 @@ function switchTab(tabId) {
 
   tabs.forEach(tab => {
     tab.classList.remove('active');
-    if (tab.dataset.tab === tabId) {
-      tab.classList.add('active');
-    }
+    if (tab.dataset.tab === tabId) tab.classList.add('active');
   });
 
   contents.forEach(content => {
     content.classList.remove('active');
-    if (content.id === tabId) {
-      content.classList.add('active');
-    }
+    if (content.id === tabId) content.classList.add('active');
   });
 
-  if (tabId === 'secretariat' && isSignedIn && !isSecretariatAuthenticated) {
+  if (tabId === 'secretariat' && !isSecretariatAuthenticated) {
     promptSecretariatPassword();
-  } else if (tabId === 'rater') {
-    updateUI();
-    fetchAssignments();
+  } else {
+    updateUI(tabId === 'rater' || isSecretariatAuthenticated);
   }
-}
-
-async function refreshAccessToken() {
-  try {
-    const response = await fetch(`${API_URL}/refresh-token`, {
-      method: 'POST',
-      credentials: 'include',
-    });
-    const data = await response.json();
-    if (data.access_token) {
-      accessToken = data.access_token;
-      gapi.client.setToken({ access_token: accessToken });
-      return true;
-    } else {
-      throw new Error('No access token received');
-    }
-  } catch (error) {
-    console.error('Error refreshing token:', error);
-    showToast('error', 'Authentication Error', 'Session expired. Please sign in again.');
-    signOut();
-    return false;
-  }
-}
-
-function signOut() {
-  isSignedIn = false;
-  isSecretariatAuthenticated = false;
-  accessToken = null;
-  sessionId = null;
-  currentUserEmail = '';
-  gapi.auth2.getAuthInstance().signOut();
-  document.cookie = 'refresh_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-  updateUI();
-  window.location.href = window.location.pathname;
-}
-
-async function fetchGoogleSheetData(range) {
-  try {
-    await initGapi();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: config.SHEET_ID,
-      range: range,
-    });
-    return response.result.values || [];
-  } catch (error) {
-    if (error.status === 401) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        return await fetchGoogleSheetData(range);
-      }
-    }
-    console.error(`Error fetching data from ${range}:`, error);
-    showToast('error', 'Error', `Failed to fetch data from ${range}`);
-    return [];
-  }
-}
-
-async function updateGoogleSheetData(range, values) {
-  try {
-    await initGapi();
-    const response = await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: config.SHEET_ID,
-      range: range,
-      valueInputOption: 'RAW',
-      resource: { values: values },
-    });
-    return response.result;
-  } catch (error) {
-    if (error.status === 401) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) {
-        return await updateGoogleSheetData(range, values);
-      }
-    }
-    console.error(`Error updating data in ${range}:`, error);
-    showToast('error', 'Error', `Failed to update data in ${range}`);
-    return null;
-  }
-}
-
-async function fetchAssignments() {
-  const data = await fetchGoogleSheetData(config.SHEET_RANGES.ASSIGNMENTS);
-  assignmentsData = data.slice(1).map(row => ({
-    Assignment: row[0] || '',
-    Position: row[1] || '',
-    Item: row[2] || '',
-  }));
-  populateDropdown('assignmentDropdown', assignmentsData.map(a => a.Assignment), 'Select Assignment');
 }
 
 async function fetchSecretariatAssignments() {
-  const data = await fetchGoogleSheetData(config.SHEET_RANGES.SECRETARIAT);
-  assignmentsData = data.slice(1).map(row => ({
-    Assignment: row[0] || '',
-    Position: row[1] || '',
-    Item: row[2] || '',
-  }));
-  populateDropdown('secretariatAssignmentDropdown', assignmentsData.map(a => a.Assignment), 'Select Assignment');
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.VACANCIES, // Use same range as rater for consistency
+    });
+    vacancies = response.result.values || [];
+    const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+    updateDropdown(elements.secretariatAssignmentDropdown, uniqueAssignments, 'Select Assignment');
+    setDropdownState(elements.secretariatPositionDropdown, false);
+    setDropdownState(elements.secretariatItemDropdown, false);
+    elements.secretariatCandidatesTable.innerHTML = '';
+    elements.secretariatNamesTable.innerHTML = '';
+    elements.submitSecretariat.disabled = true;
+  } catch (error) {
+    console.error('Error fetching secretariat assignments:', error);
+    showToast('error', 'Error', 'Failed to load secretariat assignments');
+  }
 }
 
-function populateDropdown(elementId, items, placeholder) {
-  const dropdown = document.getElementById(elementId);
-  dropdown.innerHTML = `<option value="">${placeholder}</option>`;
-  const uniqueItems = [...new Set(items.filter(item => item))];
-  uniqueItems.forEach(item => {
-    const option = document.createElement('option');
-    option.value = item;
-    option.textContent = item;
-    dropdown.appendChild(option);
+function initializeSecretariatDropdowns() {
+  elements.secretariatAssignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
+  elements.secretariatPositionDropdown.setAttribute('data-placeholder', 'Select Position');
+  elements.secretariatItemDropdown.setAttribute('data-placeholder', 'Select Item');
+
+  elements.secretariatAssignmentDropdown.addEventListener('change', async () => {
+    const assignment = elements.secretariatAssignmentDropdown.value;
+    if (assignment) {
+      const positions = vacancies
+        .filter((row) => row[2] === assignment)
+        .map((row) => row[1]);
+      updateDropdown(elements.secretariatPositionDropdown, [...new Set(positions)], 'Select Position');
+      setDropdownState(elements.secretariatPositionDropdown, true);
+    } else {
+      setDropdownState(elements.secretariatPositionDropdown, false);
+    }
+    setDropdownState(elements.secretariatItemDropdown, false);
+    elements.secretariatCandidatesTable.innerHTML = '';
+    elements.secretariatNamesTable.innerHTML = '';
+    elements.submitSecretariat.disabled = true;
+    saveDropdownState();
+  });
+
+  elements.secretariatPositionDropdown.addEventListener('change', async () => {
+    const assignment = elements.secretariatAssignmentDropdown.value;
+    const position = elements.secretariatPositionDropdown.value;
+    if (assignment && position) {
+      const items = vacancies
+        .filter((row) => row[2] === assignment && row[1] === position)
+        .map((row) => row[0]);
+      updateDropdown(elements.secretariatItemDropdown, [...new Set(items)], 'Select Item');
+      setDropdownState(elements.secretariatItemDropdown, true);
+
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.CANDIDATES,
+      });
+      const candidateData = response.result.values || [];
+      const filteredCandidates = candidateData.slice(1).filter(row => row[2] === position);
+      displayCandidatesTableForSecretariat(filteredCandidates);
+    } else {
+      setDropdownState(elements.secretariatItemDropdown, false);
+      elements.secretariatCandidatesTable.innerHTML = '';
+    }
+    elements.secretariatNamesTable.innerHTML = '';
+    elements.submitSecretariat.disabled = true;
+    saveDropdownState();
+  });
+
+  elements.secretariatItemDropdown.addEventListener('change', async () => {
+    const item = elements.secretariatItemDropdown.value;
+    const position = elements.secretariatPositionDropdown.value;
+    if (item) {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.CANDIDATES,
+      });
+      const candidateData = response.result.values || [];
+      const names = candidateData
+        .slice(1)
+        .filter(row => row[2] === position && row[1] === item)
+        .map(row => row[0]);
+      populateNamesTable(names);
+      const filteredCandidates = candidateData.slice(1).filter(row => row[2] === position && row[1] === item);
+      displayCandidatesTableForSecretariat(filteredCandidates);
+    } else {
+      elements.secretariatNamesTable.innerHTML = '';
+      elements.secretariatCandidatesTable.innerHTML = '';
+    }
+    elements.submitSecretariat.disabled = true;
+    saveDropdownState();
   });
 }
 
-function populateCandidatesTable(candidates, tableId) {
-  const tableContainer = document.getElementById(tableId);
-  tableContainer.innerHTML = '';
+function displayCandidatesTableForSecretariat(candidateRows) {
+  const container = elements.secretariatCandidatesTable;
+  container.innerHTML = '';
 
-  if (candidates.length === 0) {
-    tableContainer.innerHTML = '<p>No candidates available</p>';
+  if (candidateRows.length === 0) {
+    container.innerHTML = '<p>No candidates available</p>';
     return;
   }
 
   const tilesContainer = document.createElement('div');
-  tilesContainer.className = 'tiles-container';
+  tilesContainer.classList.add('tiles-container');
 
-  candidates.forEach(candidate => {
+  candidateRows.forEach(row => {
+    const name = row[0] || 'No Name';
+    const item = row[1] || 'N/A';
+    const position = row[2] || 'N/A';
+    const fileLink = row[3] || '';
+
     const tile = document.createElement('div');
-    tile.className = 'tile';
+    tile.classList.add('tile');
     tile.innerHTML = `
-      <h4>${candidate.Name || 'No Name'}</h4>
+      <h4>${name}</h4>
       <div class="tile-content">
-        <p><strong>Position:</strong> ${candidate.Position || 'N/A'}</p>
-        <p><strong>Item:</strong> ${candidate.Item || 'N/A'}</p>
-        ${candidate.FileLink ? `
-          <button class="open-link-button" onclick="openDocument('${candidate.FileLink}')">
+        <p><strong>Position:</strong> ${position}</p>
+        <p><strong>Item:</strong> ${item}</p>
+        ${fileLink ? `
+          <button class="open-link-button" onclick="window.open('${fileLink}', '_blank')">
             View Document
           </button>
         ` : '<p class="no-data">No document available</p>'}
@@ -431,139 +895,11 @@ function populateCandidatesTable(candidates, tableId) {
     tilesContainer.appendChild(tile);
   });
 
-  tableContainer.appendChild(tilesContainer);
+  container.appendChild(tilesContainer);
 }
 
-function openDocument(url) {
-  showModal({
-    title: 'Document Viewer',
-    content: `<iframe src="${url}" title="Document"></iframe>`,
-    cancelText: 'Close',
-    onCancel: () => {},
-  });
-  const modal = document.querySelector('.modal');
-  const modalOverlay = document.querySelector('.modal-overlay');
-  modal.classList.add('full-screen-modal');
-  modalOverlay.classList.add('active');
-}
-
-async function fetchCompetencies(position, item) {
-  const data = await fetchGoogleSheetData(config.SHEET_RANGES.COMPETENCIES);
-  competenciesData = data.slice(1).map(row => ({
-    Position: row[0] || '',
-    Item: row[1] || '',
-    Competency: row[2] || '',
-    Type: row[3] || '',
-    Description: row[4] || '',
-  }));
-
-  const filteredCompetencies = competenciesData.filter(c => c.Position === position && c.Item === item);
-  const groupedCompetencies = {
-    basic: filteredCompetencies.filter(c => c.Type.toLowerCase() === 'basic'),
-    organizational: filteredCompetencies.filter(c => c.Type.toLowerCase() === 'organizational'),
-    minimum: filteredCompetencies.filter(c => c.Type.toLowerCase() === 'minimum'),
-  };
-
-  const competencyContainer = document.getElementById('competencyContainer');
-  competencyContainer.innerHTML = '';
-
-  const createSection = (title, competencies) => {
-    if (competencies.length === 0) return;
-    const section = document.createElement('div');
-    section.className = 'competency-section';
-    section.innerHTML = `<h3 class="section-title">${title}</h3>`;
-    const grid = document.createElement('div');
-    grid.className = 'competency-grid';
-    competencies.forEach(comp => {
-      const item = document.createElement('div');
-      item.className = 'competency-item';
-      item.innerHTML = `
-        <h3>${comp.Competency}</h3>
-        <p>${comp.Description}</p>
-        <div class="rating-container" data-competency="${comp.Competency}">
-          ${[1, 2, 3, 4, 5].map(score => `
-            <input type="radio" name="${comp.Competency}" id="${comp.Competency}-${score}" value="${score}">
-            <label for="${comp.Competency}-${score}">${score}</label>
-          `).join('')}
-        </div>
-      `;
-      grid.appendChild(item);
-    });
-    section.appendChild(grid);
-    competencyContainer.appendChild(section);
-  };
-
-  createSection('Basic Competencies', groupedCompetencies.basic);
-  createSection('Organizational Competencies', groupedCompetencies.organizational);
-  createSection('Minimum Competencies', groupedCompetencies.minimum);
-
-  document.getElementById('submitRatings').disabled = !filteredCompetencies.length;
-}
-
-async function fetchRatings(name, position, item) {
-  const data = await fetchGoogleSheetData(config.SHEET_RANGES.RATINGS);
-  ratingsData = data.slice(1).map(row => ({
-    Evaluator: row[0] || '',
-    Name: row[1] || '',
-    Position: row[2] || '',
-    Item: row[3] || '',
-    Competency: row[4] || '',
-    Rating: row[5] || '',
-    Timestamp: row[6] || '',
-  }));
-
-  const existingRatings = ratingsData.filter(r => 
-    r.Evaluator === currentUserEmail &&
-    r.Name === name &&
-    r.Position === position &&
-    r.Item === item
-  );
-
-  if (existingRatings.length > 0) {
-    showExistingRatings(existingRatings, name, position, item);
-  }
-}
-
-function showExistingRatings(ratings, name, position, item) {
-  const ratingsByCompetency = ratings.reduce((acc, r) => {
-    acc[r.Competency] = r.Rating;
-    return acc;
-  }, {});
-
-  const modalContent = `
-    <p>Existing ratings found for ${name} (${position} - ${item}).</p>
-    <div class="modal-section">
-      <h4>Ratings</h4>
-      ${Object.entries(ratingsByCompetency).map(([comp, rating]) => `
-        <div class="modal-field">
-          <span class="modal-label">${comp}</span>
-          <span class="modal-value rating-value">${rating}</span>
-        </div>
-      `).join('')}
-    </div>
-  `;
-
-  showModal({
-    title: 'Existing Ratings',
-    content: modalContent,
-    cancelText: 'Close',
-    confirmText: 'Update Ratings',
-    onCancel: () => {},
-    onConfirm: () => {
-      document.querySelectorAll('.rating-container').forEach(container => {
-        const competency = container.dataset.competency;
-        const rating = ratingsByCompetency[competency];
-        if (rating) {
-          const radio = container.querySelector(`input[value="${rating}"]`);
-          if (radio) radio.checked = true;
-        }
-      });
-    },
-  });
-}
-
-function populateNamesTable(names, position, item) {
-  const tableContainer = document.getElementById('secretariat-names-table');
+function populateNamesTable(names) {
+  const tableContainer = elements.secretariatNamesTable;
   tableContainer.innerHTML = '';
 
   if (names.length === 0) {
@@ -614,22 +950,27 @@ function populateNamesTable(names, position, item) {
 }
 
 function updateSubmitSecretariatButton() {
-  const table = document.querySelector('#secretariat-names-table .names-table');
+  const table = elements.secretariatNamesTable.querySelector('.names-table');
   if (!table) {
-    document.getElementById('submitSecretariat').disabled = true;
+    elements.submitSecretariat.disabled = true;
     return;
   }
 
   const hasSelection = Array.from(table.querySelectorAll('select')).some(select => select.value !== '');
-  document.getElementById('submitSecretariat').disabled = !hasSelection;
+  elements.submitSecretariat.disabled = !hasSelection;
 }
 
 async function submitSecretariatSelections() {
-  const assignment = document.getElementById('secretariatAssignmentDropdown').value;
-  const position = document.getElementById('secretariatPositionDropdown').value;
-  const item = document.getElementById('secretariatItemDropdown').value;
+  const assignment = elements.secretariatAssignmentDropdown.value;
+  const position = elements.secretariatPositionDropdown.value;
+  const item = elements.secretariatItemDropdown.value;
 
-  const table = document.querySelector('#secretariat-names-table .names-table');
+  if (!assignment || !position || !item) {
+    showToast('warning', 'Warning', 'Please select assignment, position, and item');
+    return;
+  }
+
+  const table = elements.secretariatNamesTable.querySelector('.names-table');
   const selections = Array.from(table.querySelectorAll('tr')).map(row => {
     const name = row.cells[0].textContent;
     const comment = row.querySelector('textarea').value;
@@ -642,275 +983,947 @@ async function submitSecretariatSelections() {
     return;
   }
 
-  const disqualified = selections.filter(s => s.action === 'disqualified').map(s => ({
-    Name: s.name,
-    Comment: s.comment,
-    Status: 'Disqualified',
-    Timestamp: new Date().toISOString(),
-  }));
+  const modalContent = `
+    <p>Confirm submission of the following selections:</p>
+    <div class="modal-section">
+      ${selections.map(sel => `
+        <div class="modal-field">
+          <span class="modal-label">${sel.name}:</span>
+          <span class="modal-value">${sel.action === 'disqualified' ? 'Disqualify' : 'Long List'} (${sel.comment || 'No comment'})</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
 
-  const longList = selections.filter(s => s.action === 'long_list').map(s => ({
-    Name: s.name,
-    Comment: s.comment,
-    Status: 'Long List',
-    Timestamp: new Date().toISOString(),
-  }));
+  showModal('Confirm Secretariat Submission', modalContent, async () => {
+    showSubmittingIndicator();
+    try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      const values = selections.map(sel => [
+        assignment,
+        position,
+        item,
+        sel.name,
+        sel.action === 'disqualified' ? 'Disqualified' : 'Long List',
+        sel.comment,
+        new Date().toISOString(),
+      ]);
 
-  const showSubmittingIndicator = () => {
-    const indicator = document.createElement('div');
-    indicator.className = 'submitting-indicator';
-    indicator.innerHTML = `
-      <div class="submitting-content">
-        <div class="spinner"></div>
-        <span>Submitting...</span>
-      </div>
-    `;
-    document.body.appendChild(indicator);
-    return () => document.body.removeChild(indicator);
-  };
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.SECRETARIAT || 'Secretariat!A:G', // Fallback range
+        valueInputOption: 'RAW',
+        resource: { values },
+      });
 
-  const hideIndicator = showSubmittingIndicator();
-
-  try {
-    const values = [...disqualified, ...longList].map(s => [
-      assignment,
-      position,
-      item,
-      s.Name,
-      s.Status,
-      s.Comment,
-      s.Timestamp,
-    ]);
-
-    const result = await updateGoogleSheetData(config.SHEET_RANGES.SECRETARIAT, [values[0], ...values]);
-    if (result) {
       showToast('success', 'Success', 'Selections submitted successfully');
-      document.getElementById('secretariat-names-table').innerHTML = '';
-      document.getElementById('submitSecretariat').disabled = true;
+      elements.secretariatNamesTable.innerHTML = '';
+      elements.submitSecretariat.disabled = true;
       fetchSecretariatAssignments();
+    } catch (error) {
+      console.error('Error submitting selections:', error);
+      showToast('error', 'Error', 'Failed to submit selections');
+    } finally {
+      hideSubmittingIndicator();
     }
-  } catch (error) {
-    console.error('Error submitting selections:', error);
-    showToast('error', 'Error', 'Failed to submit selections');
-  } finally {
-    hideIndicator();
-  }
+  });
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await fetchConfig();
-  await getAccessToken();
+async function fetchSubmittedRatings() {
+  if (fetchTimeout) clearTimeout(fetchTimeout);
 
-  document.getElementById('signInBtn').addEventListener('click', () => {
-    window.location.href = `${API_URL}/auth/google`;
-  });
+  fetchTimeout = setTimeout(async () => {
+    const name = elements.nameDropdown.value;
+    const item = elements.itemDropdown.value;
 
-  document.getElementById('signOutBtn').addEventListener('click', signOut);
-
-  document.getElementById('assignmentDropdown').addEventListener('change', async (e) => {
-    const assignment = e.target.value;
-    positionsData = assignmentsData.filter(a => a.Assignment === assignment);
-    populateDropdown('positionDropdown', positionsData.map(p => p.Position), 'Select Position');
-    document.getElementById('positionDropdown').disabled = !positionsData.length;
-    document.getElementById('itemDropdown').innerHTML = '<option value="">Select Item</option>';
-    document.getElementById('itemDropdown').disabled = true;
-    document.getElementById('nameDropdown').innerHTML = '<option value="">Select Name</option>';
-    document.getElementById('nameDropdown').disabled = true;
-    document.getElementById('candidates-table').innerHTML = '';
-    document.getElementById('competencyContainer').innerHTML = '';
-    document.getElementById('submitRatings').disabled = true;
-  });
-
-  document.getElementById('positionDropdown').addEventListener('change', async (e) => {
-    const position = e.target.value;
-    itemsData = positionsData.filter(p => p.Position === position);
-    populateDropdown('itemDropdown', itemsData.map(i => i.Item), 'Select Item');
-    document.getElementById('itemDropdown').disabled = !itemsData.length;
-    document.getElementById('nameDropdown').innerHTML = '<option value="">Select Name</option>';
-    document.getElementById('nameDropdown').disabled = true;
-    document.getElementById('candidates-table').innerHTML = '';
-    document.getElementById('competencyContainer').innerHTML = '';
-    document.getElementById('submitRatings').disabled = true;
-
-    if (position) {
-      const data = await fetchGoogleSheetData(config.SHEET_RANGES.CANDIDATES);
-      candidatesData = data.slice(1).map(row => ({
-        Assignment: row[0] || '',
-        Position: row[1] || '',
-        Item: row[2] || '',
-        Name: row[3] || '',
-        FileLink: row[4] || '',
-      }));
-      const filteredCandidates = candidatesData.filter(c => c.Position === position);
-      populateCandidatesTable(filteredCandidates, 'candidates-table');
-    }
-  });
-
-  document.getElementById('itemDropdown').addEventListener('change', async (e) => {
-    const item = e.target.value;
-    const position = document.getElementById('positionDropdown').value;
-    const data = await fetchGoogleSheetData(config.SHEET_RANGES.CANDIDATES);
-    candidatesData = data.slice(1).map(row => ({
-      Assignment: row[0] || '',
-      Position: row[1] || '',
-      Item: row[2] || '',
-      Name: row[3] || '',
-      FileLink: row[4] || '',
-    }));
-    namesData = candidatesData
-      .filter(c => c.Position === position && c.Item === item)
-      .map(c => c.Name);
-    populateDropdown('nameDropdown', namesData, 'Select Name');
-    document.getElementById('nameDropdown').disabled = !namesData.length;
-    document.getElementById('competencyContainer').innerHTML = '';
-    document.getElementById('submitRatings').disabled = true;
-
-    const filteredCandidates = candidatesData.filter(c => c.Position === position && c.Item === item);
-    populateCandidatesTable(filteredCandidates, 'candidates-table');
-
-    if (item) {
-      await fetchCompetencies(position, item);
-    }
-  });
-
-  document.getElementById('nameDropdown').addEventListener('change', async (e) => {
-    const name = e.target.value;
-    const position = document.getElementById('positionDropdown').value;
-    const item = document.getElementById('itemDropdown').value;
-    if (name && position && item) {
-      await fetchRatings(name, position, item);
-    }
-  });
-
-  document.getElementById('submitRatings').addEventListener('click', async () => {
-    const assignment = document.getElementById('assignmentDropdown').value;
-    const position = document.getElementById('positionDropdown').value;
-    const item = document.getElementById('itemDropdown').value;
-    const name = document.getElementById('nameDropdown').value;
-
-    const ratings = [];
-    document.querySelectorAll('.rating-container').forEach(container => {
-      const competency = container.dataset.competency;
-      const selectedRating = container.querySelector('input:checked');
-      if (selectedRating) {
-        ratings.push({
-          Evaluator: currentUserEmail,
-          Name: name,
-          Position: position,
-          Item: item,
-          Competency: competency,
-          Rating: selectedRating.value,
-          Timestamp: new Date().toISOString(),
-        });
-      }
-    });
-
-    if (ratings.length === 0) {
-      showToast('warning', 'Warning', 'Please provide ratings for at least one competency');
+    if (!currentEvaluator || !name || !item) {
+      console.warn('Missing evaluator, name, or item');
+      elements.submitRatings.disabled = true;
+      clearRatings();
       return;
     }
 
-    const showSubmittingIndicator = () => {
-      const indicator = document.createElement('div');
-      indicator.className = 'submitting-indicator';
-      indicator.innerHTML = `
-        <div class="submitting-content">
-          <div class="spinner"></div>
-          <span>Submitting...</span>
-        </div>
-      `;
-      document.body.appendChild(indicator);
-      return () => document.body.removeChild(indicator);
-    };
-
-    const hideIndicator = showSubmittingIndicator();
-
     try {
-      const values = ratings.map(r => [
-        r.Evaluator,
-        r.Name,
-        r.Position,
-        r.Item,
-        r.Competency,
-        r.Rating,
-        r.Timestamp,
-      ]);
+      if (!await isTokenValid()) await refreshAccessToken();
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+      });
 
-      const result = await updateGoogleSheetData(config.SHEET_RANGES.RATINGS, [values[0], ...values]);
-      if (result) {
-        showToast('success', 'Success', 'Ratings submitted successfully');
-        document.querySelectorAll('.rating-container input').forEach(input => input.checked = false);
-        document.getElementById('submitRatings').disabled = true;
-      }
+      const data = response.result.values || [];
+      const filteredRows = data.slice(1).filter(row =>
+        row[2] === name && row[1] === item && row[5] === currentEvaluator
+      );
+
+      const competencyRatings = {};
+      filteredRows.forEach(row => {
+        const competencyName = row[3];
+        if (!competencyRatings[competencyName]) competencyRatings[competencyName] = {};
+        competencyRatings[competencyName][currentEvaluator] = row[4];
+      });
+
+      console.log(`Fetched ratings for ${name} (${item}):`, competencyRatings);
+      prefillRatings(competencyRatings, filteredRows.length === 0, name, item);
     } catch (error) {
-      console.error('Error submitting ratings:', error);
-      showToast('error', 'Error', 'Failed to submit ratings');
-    } finally {
-      hideIndicator();
+      console.error('Error fetching ratings:', error);
+      showToast('error', 'Error', 'Failed to fetch ratings');
+      clearRatings();
+      prefillRatings({}, true, name, item);
     }
+  }, 300);
+}
+
+function clearRatings() {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const radios = item.querySelectorAll('input[type="radio"]');
+    radios.forEach(radio => (radio.checked = false));
   });
+  console.log('Radio buttons cleared');
+}
 
-  document.getElementById('secretariatAssignmentDropdown').addEventListener('change', async (e) => {
-    const assignment = e.target.value;
-    positionsData = assignmentsData.filter(a => a.Assignment === assignment);
-    populateDropdown('secretariatPositionDropdown', positionsData.map(p => p.Position), 'Select Position');
-    document.getElementById('secretariatPositionDropdown').disabled = !positionsData.length;
-    document.getElementById('secretariatItemDropdown').innerHTML = '<option value="">Select Item</option>';
-    document.getElementById('secretariatItemDropdown').disabled = true;
-    document.getElementById('secretariat-candidates-table').innerHTML = '';
-    document.getElementById('secretariat-names-table').innerHTML = '';
-    document.getElementById('submitSecretariat').disabled = true;
-  });
+let originalRatings = {};
+function prefillRatings(competencyRatings, noFetchedData, name, item) {
+  originalRatings = {};
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
 
-  document.getElementById('secretariatPositionDropdown').addEventListener('change', async (e) => {
-    const position = e.target.value;
-    itemsData = positionsData.filter(p => p.Position === position);
-    populateDropdown('secretariatItemDropdown', itemsData.map(i => i.Item), 'Select Item');
-    document.getElementById('secretariatItemDropdown').disabled = !itemsData.length;
-    document.getElementById('secretariat-candidates-table').innerHTML = '';
-    document.getElementById('secretariat-names-table').innerHTML = '';
-    document.getElementById('submitSecretariat').disabled = true;
+  clearRatings();
 
-    if (position) {
-      const data = await fetchGoogleSheetData(config.SHEET_RANGES.CANDIDATES);
-      candidatesData = data.slice(1).map(row => ({
-        Assignment: row[0] || '',
-        Position: row[1] || '',
-        Item: row[2] || '',
-        Name: row[3] || '',
-        FileLink: row[4] || '',
-      }));
-      const filteredCandidates = candidatesData.filter(c => c.Position === position);
-      populateCandidatesTable(filteredCandidates, 'secretariat-candidates-table');
-    }
-  });
+  if (Object.keys(competencyRatings).length > 0) {
+    Array.from(competencyItems).forEach(item => {
+      const competencyName = item.querySelector('label').textContent.split('. ')[1];
+      const rating = competencyRatings[competencyName]?.[currentEvaluator];
 
-  document.getElementById('secretariatItemDropdown').addEventListener('change', async (e) => {
-    const item = e.target.value;
-    const position = document.getElementById('secretariatPositionDropdown').value;
-    const data = await fetchGoogleSheetData(config.SHEET_RANGES.CANDIDATES);
-    candidatesData = data.slice(1).map(row => ({
-      Assignment: row[0] || '',
-      Position: row[1] || '',
-      Item: row[2] || '',
-      Name: row[3] || '',
-      FileLink: row[4] || '',
-    }));
-    namesData = candidatesData
-      .filter(c => c.Position === position && c.Item === item)
-      .map(c => c.Name);
-    populateNamesTable(namesData, position, item);
-    document.getElementById('submitSecretariat').disabled = true;
+      if (rating) {
+        originalRatings[competencyName] = rating;
+        const radio = item.querySelector(`input[type="radio"][value="${rating}"]`);
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change'));
+          console.log(`Prefilled ${competencyName} with rating ${rating} for ${name} (${item})`);
+        }
+      }
+    });
+  } else if (noFetchedData) {
+    loadRadioState(name, item);
+  }
 
-    const filteredCandidates = candidatesData.filter(c => c.Position === position && c.Item === item);
-    populateCandidatesTable(filteredCandidates, 'secretariat-candidates-table');
-  });
+  function checkAllRatingsSelected() {
+    const allItems = Array.from(competencyItems);
+    const allRated = allItems.every(item =>
+      Array.from(item.getElementsByTagName('input')).some(input => input.checked)
+    );
+    elements.submitRatings.disabled = !allRated;
+  }
 
-  document.getElementById('submitSecretariat').addEventListener('click', submitSecretariatSelections);
-
-  document.querySelectorAll('.tab-button').forEach(button => {
-    button.addEventListener('click', () => {
-      switchTab(button.dataset.tab);
+  Array.from(competencyItems).forEach(item => {
+    const inputs = item.querySelectorAll('input[type="radio"]');
+    inputs.forEach(input => {
+      input.removeEventListener('change', input.onchange);
+      input.onchange = () => {
+        const competencyName = item.querySelector('label').textContent.split('. ')[1];
+        originalRatings[competencyName] = input.value;
+        checkAllRatingsSelected();
+        saveRadioState(competencyName, input.value, name, item);
+      };
+      input.addEventListener('change', input.onchange);
     });
   });
-});
+
+  checkAllRatingsSelected();
+}
+
+async function submitRatings() {
+  if (isSubmitting) {
+    console.log('Submission already in progress');
+    return;
+  }
+
+  try {
+    const token = gapi.client.getToken();
+    if (!token || !await isTokenValid()) {
+      await refreshAccessToken();
+      if (!gapi.client.getToken()) {
+        showToast('error', 'Error', 'Authentication failed. Please sign in again.');
+        handleAuthClick();
+        return;
+      }
+    }
+
+    if (!currentEvaluator) {
+      showToast('warning', 'Warning', 'Please select an evaluator');
+      return;
+    }
+
+    const item = elements.itemDropdown.value;
+    const candidateName = elements.nameDropdown.value;
+
+    if (!item || !candidateName) {
+      showToast('error', 'Error', 'Please select both item and candidate');
+      return;
+    }
+
+    const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
+    const isUpdate = existingRatings.length > 0;
+
+    let tempRatings = {};
+    if (isUpdate) {
+      const isVerified = await verifyEvaluatorPassword(existingRatings);
+      if (!isVerified) {
+        revertToExistingRatings(existingRatings);
+        showToast('warning', 'Update Canceled', 'Ratings reverted to original values');
+        return;
+      }
+      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+      Array.from(competencyItems).forEach(item => {
+        const competencyName = item.querySelector('label').textContent.split('. ')[1];
+        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
+        if (rating) tempRatings[competencyName] = rating;
+      });
+    }
+
+    const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
+    if (error) {
+      showToast('error', 'Error', error);
+      return;
+    }
+
+    const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
+    const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
+
+    let modalContent = `
+      <div class="modal-body">
+        <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
+        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
+        <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
+        <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
+        <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
+        <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${candidateName}</span></div>
+        <div class="modal-section">
+          <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
+          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
+          <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
+    `;
+
+    if (isUpdate) {
+      modalContent += '<h4>CHANGES:</h4>';
+      ratings.forEach(row => {
+        const competencyName = row[3];
+        const newRating = row[4];
+        const oldRating = existingRatings.find(r => r[3] === competencyName)?.[4] || 'N/A';
+        if (oldRating !== newRating) {
+          modalContent += `
+            <div class="modal-field">
+              <span class="modal-label">${competencyName}:</span>
+              <span class="modal-value rating-value">${oldRating} → ${newRating}</span>
+            </div>
+          `;
+        }
+      });
+    }
+
+    modalContent += `
+        </div>
+      </div>
+    `;
+
+    showModal(
+      `CONFIRM ${isUpdate ? 'UPDATE' : 'SUBMISSION'}`,
+      modalContent,
+      () => {
+        submissionQueue.push(ratings);
+        showSubmittingIndicator();
+        processSubmissionQueue();
+      },
+      () => {
+        if (isUpdate) {
+          revertToExistingRatings(existingRatings);
+          showToast('info', 'Canceled', 'Ratings reverted to original values');
+        } else {
+          console.log('Submission canceled');
+          showToast('info', 'Canceled', 'Ratings submission aborted');
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Submission error:', error);
+    showToast('error', 'Error', `Failed to submit: ${error.message}`);
+    if (error.status === 401 || error.status === 403) handleAuthClick();
+  }
+}
+
+function showSubmittingIndicator() {
+  let indicator = document.getElementById('submittingIndicator');
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.id = 'submittingIndicator';
+    indicator.className = 'submitting-indicator';
+    indicator.innerHTML = `
+      <div class="submitting-content">
+        <span class="spinner"></span>
+        <span>SUBMITTING...</span>
+      </div>
+    `;
+    document.body.appendChild(indicator);
+  }
+}
+
+function hideSubmittingIndicator() {
+  const indicator = document.getElementById('submittingIndicator');
+  if (indicator) indicator.remove();
+}
+
+async function processSubmissionQueue() {
+  if (isSubmitting || !submissionQueue.length) return;
+  isSubmitting = true;
+
+  const ratings = submissionQueue.shift();
+
+  try {
+    const result = await submitRatingsWithLock(ratings);
+    if (result.success) {
+      const candidateName = ratings[0][2];
+      const item = ratings[0][1];
+      localStorage.removeItem(`radioState_${candidateName}_${item}`);
+      showModal(
+        'Submission Successful',
+        `<p>${result.message}</p>`,
+        () => {
+          console.log('Success modal closed');
+          fetchSubmittedRatings();
+        },
+        null,
+        false
+      );
+    }
+  } catch (error) {
+    console.error('Queue submission failed:', error);
+    showToast('error', 'Error', error.message);
+    submissionQueue.unshift(ratings);
+    setTimeout(processSubmissionQueue, 5000);
+  } finally {
+    isSubmitting = false;
+    hideSubmittingIndicator();
+    processSubmissionQueue();
+  }
+}
+
+async function checkExistingRatings(item, candidateName, evaluator) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const existingData = response.result.values || [];
+    const candidateInitials = getInitials(candidateName);
+    return existingData.filter(row =>
+      row[0].startsWith(`${item}-${candidateInitials}`) && row[5] === evaluator
+    );
+  } catch (error) {
+    console.error('Error checking ratings:', error);
+    return [];
+  }
+}
+
+function revertToExistingRatings(existingRatings) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
+    if (existingRating) {
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    } else {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => radio.checked = false);
+    }
+  });
+}
+
+async function verifyEvaluatorPassword(existingRatings) {
+  return new Promise((resolve) => {
+    const modalContent = `
+      <p>Please verify password for ${currentEvaluator} to update ratings:</p>
+      <input type="password" id="verificationPassword" class="modal-input">
+    `;
+    showModal('Password Verification', modalContent, () => {
+      const password = document.getElementById('verificationPassword').value;
+      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    }, () => {
+      revertToExistingRatings(existingRatings);
+      resolve(false);
+    });
+  });
+}
+
+function prepareRatingsData(item, candidateName, currentEvaluator) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  const ratings = [];
+
+  for (let itemElement of competencyItems) {
+    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
+    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
+      .find(radio => radio.checked)?.value;
+
+    if (!rating) {
+      return { error: 'Please rate all competencies' };
+    }
+
+    const competencyCode = getCompetencyCode(competencyName);
+    const candidateInitials = getInitials(candidateName);
+    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
+    
+    ratings.push([
+      ratingCode,
+      item,
+      candidateName,
+      competencyName,
+      rating,
+      currentEvaluator,
+      '',
+      ''
+    ]);
+  }
+  console.log('Ratings to submit:', ratings);
+  return { ratings };
+}
+
+async function submitRatingsWithLock(ratings, maxRetries = 5) {
+  const lockRange = "RATELOG!G1:I1";
+  let retryCount = 0;
+  let lockAcquired = false;
+
+  while (retryCount < maxRetries) {
+    try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      const { acquired, owner } = await acquireLock(sessionId);
+      if (!acquired) {
+        showToast('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
+        await delay(Math.pow(2, retryCount) * 1000);
+        retryCount++;
+        continue;
+      }
+      lockAcquired = true;
+
+      const result = await processRatings(ratings);
+      await releaseLock(sessionId);
+      return result;
+    } catch (error) {
+      console.error('Error in submitRatingsWithLock:', error);
+      retryCount++;
+      if (lockAcquired) await releaseLock(sessionId);
+      if (retryCount === maxRetries) {
+        throw new Error('Submission failed after retries—queued for later');
+      }
+      await delay(Math.pow(2, retryCount) * 1000);
+    }
+  }
+}
+
+async function acquireLock(sessionId) {
+  const lockRange = "RATELOG!G1:I1";
+  try {
+    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: lockRange,
+    });
+    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
+    
+    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < 15000) {
+      return { acquired: false, owner: lockOwner || 'unknown' };
+    }
+
+    const timestamp = new Date().toISOString();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: lockRange,
+      valueInputOption: 'RAW',
+      resource: { values: [['locked', timestamp, sessionId]] },
+    });
+    return { acquired: true };
+  } catch (error) {
+    console.error('Lock acquisition failed:', error);
+    return { acquired: false, owner: 'error' };
+  }
+}
+
+async function releaseLock(sessionId) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: "RATELOG!G1:I1",
+      valueInputOption: 'RAW',
+      resource: { values: [['', '', '']] },
+    });
+  } catch (error) {
+    console.error('Failed to release lock:', error);
+    showToast('error', 'Lock Error', 'Lock release failed—may resolve in 15s');
+  }
+}
+
+async function processRatings(ratings) {
+  if (!await isTokenValid()) await refreshAccessToken();
+  const response = await gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: SHEET_RANGES.RATELOG,
+  });
+
+  let existingData = response.result.values || [];
+  const newRatings = [];
+  let isUpdated = false;
+
+  const existingRatingsMap = new Map();
+  existingData.forEach((row, index) => {
+    if (row[0]) existingRatingsMap.set(row[0], { row, index });
+  });
+
+  ratings.forEach(newRating => {
+    const ratingCode = newRating[0];
+    if (existingRatingsMap.has(ratingCode)) {
+      const { index } = existingRatingsMap.get(ratingCode);
+      existingData[index] = newRating;
+      isUpdated = true;
+    } else {
+      newRatings.push(newRating);
+    }
+  });
+
+  const batchUpdates = [];
+  if (isUpdated) {
+    batchUpdates.push(
+      gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+        valueInputOption: 'RAW',
+        resource: { values: existingData },
+      })
+    );
+  }
+  if (newRatings.length > 0) {
+    batchUpdates.push(
+      gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+        valueInputOption: 'RAW',
+        resource: { values: newRatings },
+      })
+    );
+  }
+
+  await Promise.all(batchUpdates);
+  return {
+    success: true,
+    message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
+  };
+}
+
+function getInitials(name) {
+  return name.split(' ').map(word => word.slice(0, 3)).join('');
+}
+
+function getCompetencyCode(competencyName) {
+  return competencyName.split(' ').map(word => word.charAt(0).replace(/[^A-Za-z]/g, '')).join('');
+}
+
+async function displayCandidatesTable(name, itemNumber) {
+  const container = document.getElementById('candidates-table');
+  container.innerHTML = '';
+
+  const candidateRow = candidates.find(row => row[0] === name && row[1] === itemNumber);
+  if (candidateRow) {
+    const tilesContainer = document.createElement('div');
+    tilesContainer.classList.add('tiles-container');
+
+    const headers = [
+      'SEX', 'DATE OF BIRTH', 'AGE', 'ELIGIBILITY/PROFESSION', 'PROFESSIONAL LICENSE',
+      'LETTER OF INTENT (PDF FILE)', 'PERSONAL DATA SHEET (SPREADSHEET FILE)',
+      'WORK EXPERIENCE SHEET (WORD FILE)', 'PROOF OF ELIGIBILITY (PDF FILE)', 
+      'CERTIFICATES (PDF FILE)', 'INDIVIDUAL PERFORMANCE COMMITMENT REVIEW (PDF FILE)',
+      'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)', 
+      'TRANSCRIPT OF RECORDS (PDF FILE)'
+    ];
+
+    const columnsCtoP = candidateRow.slice(2, 16);
+    columnsCtoP.forEach((value, index) => {
+      const tile = document.createElement('div');
+      tile.classList.add('tile');
+
+      const header = document.createElement('h4');
+      header.textContent = headers[index];
+      tile.appendChild(header);
+
+      const content = document.createElement('div');
+      content.classList.add('tile-content');
+
+      if (index < 4) {
+        const textContent = document.createElement('p');
+        textContent.textContent = value || 'No Data';
+        if (!value) textContent.classList.add('no-data');
+        content.appendChild(textContent);
+      } else {
+        const button = document.createElement('button');
+        button.classList.add('open-link-button');
+        button.textContent = value ? 'View Document' : 'NONE';
+        if (value) {
+          button.addEventListener('click', () => {
+            window.open(value, '_blank');
+          });
+        } else {
+          button.disabled = true;
+        }
+        content.appendChild(button);
+      }
+      tile.appendChild(content);
+      tilesContainer.appendChild(tile);
+    });
+
+    container.appendChild(tilesContainer);
+  } else {
+    container.innerHTML = '<p>No matching data found.</p>';
+  }
+}
+
+async function fetchCompetenciesFromSheet() {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'ALLCOMPE!A:C',
+    });
+
+    const values = response.result.values || [];
+    const competenciesColumn1 = values.map(row => row[0]).filter(value => value);
+    const competenciesColumn2 = values.map(row => row[1]).filter(value => value);
+    const competenciesColumn3 = values.map(row => row[2]).filter(value => value);
+
+    return { competenciesColumn1, competenciesColumn2, competenciesColumn3 };
+  } catch (error) {
+    console.error('Error fetching competencies:', error);
+    return { competenciesColumn1: [], competenciesColumn2: [], competenciesColumn3: [] };
+  }
+}
+
+async function displayCompetencies(name, competencies, salaryGrade = 0) {
+  const { competenciesColumn1, competenciesColumn2, competenciesColumn3 } = await fetchCompetenciesFromSheet();
+
+  elements.competencyContainer.innerHTML = `
+    <div class="competency-section" id="basic-competencies">
+      <h3 class="section-title">PSYCHO-SOCIAL ATTRIBUTES AND PERSONALITY TRAITS</h3>
+      <h3>BASIC COMPETENCIES</h3>
+      <div class="competency-grid"></div>
+    </div>
+    <div class="competency-section" id="organizational-competencies">
+      <h3 class="section-title">POTENTIAL</h3>
+      <h3>ORGANIZATIONAL COMPETENCIES</h3>
+      <div class="competency-grid"></div>
+    </div>
+    ${salaryGrade >= 24 ? `
+      <div class="competency-section" id="leadership-competencies">
+        <h3>LEADERSHIP COMPETENCIES</h3>
+        <div class="competency-grid"></div>
+      </div>
+    ` : ''}
+    <div class="competency-section" id="minimum-competencies">
+      <h3>MINIMUM COMPETENCIES</h3>
+      <div class="competency-grid"></div>
+    </div>
+    <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
+  `;
+
+  let resultsArea = document.querySelector('.results-area');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  if (!resultsArea) {
+    resultsArea = document.createElement('div');
+    resultsArea.className = 'results-area';
+    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild);
+  }
+  resultsArea.classList.add('active');
+  resultsArea.innerHTML = `
+    <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
+    <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
+    <div class="grid-container">
+      <div class="dropdown-info">
+        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
+        ${salaryGrade >= 24 ? `<div class="data-row"><span class="data-label">LEADERSHIP:</span> <span class="data-value" id="leadership-rating-value">0.00</span></div>` : ''}
+        <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
+      </div>
+    </div>
+    <div class="prominent-ratings">
+      <div><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
+      <div><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
+    </div>
+  `;
+
+  const container = document.querySelector('.container');
+  const updateMarginTop = () => {
+    const resultsHeight = resultsArea.offsetHeight + 20;
+    container.style.marginTop = `${resultsHeight}px`;
+  };
+  
+  updateMarginTop();
+  window.addEventListener('resize', updateMarginTop);
+
+  const basicRatings = Array(competenciesColumn1.length).fill(0);
+  const orgRatings = Array(competenciesColumn2.length).fill(0);
+  const leadershipRatings = Array(competenciesColumn3.length).fill(0);
+  const minimumRatings = Array(competencies.length).fill(0);
+
+  function createCompetencyItem(comp, idx, ratings, updateFunction) {
+    const div = document.createElement("div");
+    div.className = "competency-item";
+    div.innerHTML = `
+      <label>${idx + 1}. ${comp}</label>
+      <div class="rating-container">
+        ${[1, 2, 3, 4, 5].map(val => `
+          <input type="radio" id="${comp}-${val}" name="${comp}" value="${val}">
+          <label for="${comp}-${val}">${val}</label>
+        `).join('')}
+      </div>
+    `;
+    div.querySelectorAll('input[type="radio"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        ratings[idx] = parseInt(radio.value, 10);
+        updateFunction();
+        computePsychosocial();
+        computePotential();
+        saveRadioState(comp, radio.value, name, elements.itemDropdown.value);
+      });
+    });
+    return div;
+  }
+
+  const basicGrid = document.querySelector("#basic-competencies .competency-grid");
+  competenciesColumn1.forEach((comp, idx) => {
+    basicGrid.appendChild(createCompetencyItem(comp, idx, basicRatings, computeBasicRating));
+  });
+
+  const orgGrid = document.querySelector("#organizational-competencies .competency-grid");
+  competenciesColumn2.forEach((comp, idx) => {
+    orgGrid.appendChild(createCompetencyItem(comp, idx, orgRatings, computeOrgRating));
+  });
+
+  if (salaryGrade >= 24) {
+    const leadGrid = document.querySelector("#leadership-competencies .competency-grid");
+    competenciesColumn3.forEach((comp, idx) => {
+      leadGrid.appendChild(createCompetencyItem(comp, idx, leadershipRatings, computeLeadershipRating));
+    });
+  }
+
+  const minGrid = document.querySelector("#minimum-competencies .competency-grid");
+  competencies.forEach((comp, idx) => {
+    minGrid.appendChild(createCompetencyItem(comp, idx, minimumRatings, computeMinimumRating));
+  });
+
+  function computeBasicRating() {
+    const total = basicRatings.filter(r => r).reduce((a, b) => a + (b / 5) * 2, 0);
+    document.getElementById("basic-rating-value").textContent = total.toFixed(2);
+  }
+
+  function computeOrgRating() {
+    const total = orgRatings.filter(r => r).reduce((a, b) => a + b / 5, 0);
+    document.getElementById("organizational-rating-value").textContent = total.toFixed(2);
+  }
+
+  function computeLeadershipRating() {
+    const leadTotal = leadershipRatings.filter(r => r).reduce((a, b) => a + b / 5, 0);
+    const el = document.getElementById("leadership-rating-value");
+    if (el) el.textContent = leadTotal.toFixed(2);
+  }
+
+  function computeMinimumRating() {
+    const total = minimumRatings.filter(r => r).reduce((a, b) => a + (b / minimumRatings.length), 0);
+    document.getElementById("minimum-rating-value").textContent = total.toFixed(2);
+  }
+
+  function computePsychosocial() {
+    const basicTotal = parseFloat(document.getElementById("basic-rating-value").textContent) || 0;
+    document.getElementById("psychosocial-rating-value").textContent = basicTotal.toFixed(2);
+  }
+
+  function computePotential() {
+    const orgTotal = parseFloat(document.getElementById("organizational-rating-value").textContent) || 0;
+    const minTotal = parseFloat(document.getElementById("minimum-rating-value").textContent) || 0;
+    const leadTotal = salaryGrade >= 24 ? (parseFloat(document.getElementById("leadership-rating-value").textContent) || 0) : 0;
+    const divisor = salaryGrade >= 24 ? 3 : 2;
+    const potential = ((orgTotal + minTotal + leadTotal) / divisor) * 2;
+    document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
+  }
+
+  document.getElementById('reset-ratings').addEventListener('click', () => {
+    showModal(
+      'CONFIRM RESET',
+      '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
+      () => {
+        clearRatings();
+        computeBasicRating();
+        computeOrgRating();
+        computeLeadershipRating();
+        computeMinimumRating();
+        computePsychosocial();
+        computePotential();
+        localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
+        elements.submitRatings.disabled = true;
+        showToast('success', 'Reset Complete', 'All ratings have been cleared.');
+      }
+    );
+  });
+
+  loadRadioState(name, elements.itemDropdown.value);
+}
+
+function saveRadioState(competencyName, value, candidateName, item) {
+  const key = `radioState_${candidateName}_${item}`;
+  const state = JSON.parse(localStorage.getItem(key)) || {};
+  state[competencyName] = value;
+  localStorage.setItem(key, JSON.stringify(state));
+}
+
+function loadRadioState(candidateName, item) {
+  const key = `radioState_${candidateName}_${item}`;
+  const state = JSON.parse(localStorage.getItem(key)) || {};
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const savedValue = state[competencyName];
+    if (savedValue) {
+      const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    }
+  });
+}
+
+function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  modalOverlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+      </div>
+      <div class="modal-content">${contentHTML}</div>
+      <div class="modal-actions">
+        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
+        <button id="modalConfirm" class="modal-confirm">Confirm</button>
+      </div>
+    </div>
+  `;
+
+  return new Promise((resolve) => {
+    modalOverlay.classList.add('active');
+    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      resolve(result);
+      modalOverlay.removeEventListener('click', outsideClickHandler);
+    };
+
+    confirmBtn.onclick = () => {
+      if (onConfirm) onConfirm();
+      closeHandler(true);
+    };
+
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      };
+    }
+
+    const outsideClickHandler = (event) => {
+      if (event.target === modalOverlay) {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      }
+    };
+    modalOverlay.addEventListener('click', outsideClickHandler);
+  });
+}
+
+function showFullScreenModal(title, contentHTML) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  modalOverlay.innerHTML = `
+    <div class="modal full-screen-modal">
+      <div class="modal-header">
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+      </div>
+      <div class="modal-content full-screen-content">${contentHTML}</div>
+    </div>
+  `;
+
+  modalOverlay.classList.add('active');
+  modalOverlay.addEventListener('click', (event) => {
+    if (event.target === modalOverlay) {
+      modalOverlay.classList.remove('active');
+    }
+  });
+}
+
+function showToast(type, title, message) {
+  const toastContainer = document.createElement('div');
+  toastContainer.className = 'toast-container';
+  document.body.appendChild(toastContainer);
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+    <span class="toast-close">×</span>
+  `;
+
+  toastContainer.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('show');
+  }, 100);
+
+  const closeToast = () => {
+    toast.classList.remove('show');
+    setTimeout(() => {
+      toastContainer.remove();
+    }, 300);
+  };
+
+  toast.querySelector('.toast-close').addEventListener('click', closeToast);
+
+  setTimeout(closeToast, 5000);
+}
