@@ -996,3 +996,121 @@ html, body {
   max-width: 100%;
   overflow-x: hidden;
 }
+
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.tab-button {
+  padding: 10px 20px;
+  margin: 0 5px;
+  border: 2px solid #333;
+  border-radius: 5px;
+  background-color: white;
+  color: black;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.tab-button.active,
+.tab-button:hover {
+  background-color: #333;
+  color: white;
+}
+
+.tab-content {
+  width: 100%;
+}
+
+/* Secretariat Table */
+#secretariat-table {
+  width: 100%;
+  max-width: 1400px;
+  margin: 20px 0;
+  border-collapse: collapse;
+}
+
+#secretariat-table table {
+  width: 100%;
+  border: 1px solid #333;
+  background-color: white;
+}
+
+#secretariat-table th,
+#secretariat-table td {
+  padding: 10px;
+  border: 1px solid #333;
+  text-align: left;
+}
+
+#secretariat-table th {
+  background-color: #f0f0f0;
+  font-weight: 600;
+  color: #333;
+}
+
+#secretariat-table td {
+  color: #555;
+}
+
+#secretariat-table tr.selected {
+  background-color: #e0e0e0;
+}
+
+#secretariat-table input[type="text"] {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+#secretariat-table select {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* Submit Button */
+#submitSecretariat {
+  padding: 12px 24px;
+  border: 2px solid #333;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  background-color: black;
+  color: white;
+  margin-top: 15px;
+}
+
+#submitSecretariat:disabled {
+  background-color: #666;
+  cursor: not-allowed;
+}
+
+/* Media Queries */
+@media (max-width: 600px) {
+  .tab-button {
+    padding: 8px 15px;
+    font-size: 14px;
+  }
+
+  #secretariat-table th,
+  #secretariat-table td {
+    padding: 8px;
+    font-size: 12px;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 850px) {
+  #secretariat-table th,
+  #secretariat-table td {
+    padding: 9px;
+    font-size: 13px;
+  }
+}
