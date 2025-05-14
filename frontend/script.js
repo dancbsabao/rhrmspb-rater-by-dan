@@ -99,259 +99,277 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
-  // Check for tab query parameter
-  const urlParams = new URLSearchParams(window.location.search);
-  const tabFromUrl = urlParams.get('tab');
-  if (tabFromUrl && ['rater', 'secretariat'].includes(tabFromUrl)) {
-    localStorage.setItem('currentTab', tabFromUrl);
-    currentTab = tabFromUrl;
-    // Clear query parameter to prevent reprocessing
-    const url = new URL(window.location);
-    url.searchParams.delete('tab');
-    window.history.replaceState({}, document.title, url.toString());
-  }
+  const spinner = document.getElementById('loadingSpinner');
+  if (spinner) spinner.style.display = 'block';
 
-  // Prompt for secretariat login if switching to secretariat and not authenticated
-  if (currentTab === 'secretariat' && !localStorage.getItem('secretariatAuthenticated')) {
-    console.log('Prompting secretariat login');
-    const authenticated = await new Promise((resolve) => {
-      showModal(
-        'Secretariat Authentication',
-        `
-          <p>Please enter the Secretariat password:</p>
-          <input type="password" id="secretariatPassword" class="modal-input">
-          <p>Select Member ID (1-5):</p>
-          <select id="secretariatMemberId" class="modal-input">
-            <option value="">Select Member</option>
-            <option value="1">Member 1</option>
-            <option value="2">Member 2</option>
-            <option value="3">Member 3</option>
-            <option value="4">Member 4</option>
-            <option value="5">Member 5</option>
-          </select>
-        `,
-        () => {
-          const password = document.getElementById('secretariatPassword').value.trim();
-          const memberId = document.getElementById('secretariatMemberId').value;
-          if (password === SECRETARIAT_PASSWORD && memberId) {
-            secretariatMemberId = memberId;
-            localStorage.setItem('secretariatAuthenticated', 'true');
-            localStorage.setItem('secretariatMemberId', memberId);
-            saveAuthState(gapi.client.getToken(), currentEvaluator);
-            showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
-            resolve(true);
-          } else {
-            showToast('error', 'Error', 'Incorrect password or missing Member ID');
+  try {
+    // Restore tab from localStorage or URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabFromUrl = urlParams.get('tab');
+    currentTab = localStorage.getItem('currentTab') || 'rater'; // Default to rater
+    if (tabFromUrl && ['rater', 'secretariat'].includes(tabFromUrl)) {
+      currentTab = tabFromUrl;
+      localStorage.setItem('currentTab', tabFromUrl);
+      // Clear query parameter
+      const url = new URL(window.location);
+      url.searchParams.delete('tab');
+      window.history.replaceState({}, document.title, url.toString());
+    }
+    console.log('Restored tab:', currentTab);
+
+    // Prompt for secretariat login
+    if (currentTab === 'secretariat' && !localStorage.getItem('secretariatAuthenticated')) {
+      console.log('Prompting secretariat login');
+      const authenticated = await new Promise((resolve) => {
+        showModal(
+          'Secretariat Authentication',
+          `
+            <p>Please enter the Secretariat password:</p>
+            <input type="password" id="secretariatPassword" class="modal-input">
+            <p>Select Member ID (1-5):</p>
+            <select id="secretariatMemberId" class="modal-input">
+              <option value="">Select Member</option>
+              <option value="1">Member 1</option>
+              <option value="2">Member 2</option>
+              <option value="3">Member 3</option>
+              <option value="4">Member 4</option>
+              <option value="5">Member 5</option>
+            </select>
+          `,
+          async () => {
+            const confirmBtn = document.querySelector('#modalConfirm');
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = 'Logging in...';
+            const password = document.getElementById('secretariatPassword').value.trim();
+            const memberId = document.getElementById('secretariatMemberId').value;
+            if (password === SECRETARIAT_PASSWORD && memberId) {
+              secretariatMemberId = memberId;
+              localStorage.setItem('secretariatAuthenticated', 'true');
+              localStorage.setItem('secretariatMemberId', memberId);
+              localStorage.setItem('secretariatAuthenticatedData', JSON.stringify({
+                authenticated: true,
+                timestamp: Date.now()
+              }));
+              saveAuthState(gapi.client.getToken(), currentEvaluator);
+              showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
+              confirmBtn.disabled = false;
+              confirmBtn.textContent = 'Confirm';
+              resolve(true);
+            } else {
+              showToast('error', 'Error', 'Incorrect password or missing Member ID');
+              confirmBtn.disabled = false;
+              confirmBtn.textContent = 'Confirm';
+              resolve(false);
+            }
+          },
+          () => {
+            console.log('Secretariat login cancelled');
+            switchTab('rater');
             resolve(false);
           }
-        },
-        () => {
-          console.log('Secretariat login cancelled');
-          switchTab('rater'); // Switch back to rater if cancelled
-          resolve(false);
-        }
-      );
-    });
-
-    if (!authenticated) {
-      switchTab('rater'); // Force switch to rater if login fails or is cancelled
-      return;
-    }
-  }
-
-  const authState = loadAuthState();
-  const dropdownState = loadDropdownState();
-  const authSection = document.querySelector('.auth-section');
-  const container = document.querySelector('.container');
-
-  if (authState) {
-    gapi.client.setToken({ access_token: authState.access_token });
-    sessionId = authState.session_id;
-    secretariatMemberId = authState.secretariatMemberId || localStorage.getItem('secretariatMemberId');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    if (!await isTokenValid()) await refreshAccessToken();
-    currentEvaluator = authState.evaluator;
-    updateUI(true);
-    authSection.classList.remove('signed-out');
-
-    // Load sheet data and initialize dropdowns
-    await loadSheetData();
-    console.log('Calling initializeSecretariatDropdowns after loadSheetData');
-    await initializeSecretariatDropdowns(); // Explicitly initialize dropdowns
-
-    const evaluatorSelect = document.getElementById('evaluatorSelect');
-    if (evaluatorSelect && dropdownState.evaluator) {
-      evaluatorSelect.value = dropdownState.evaluator;
-      currentEvaluator = dropdownState.evaluator;
-    }
-
-    // Helper function to wait for dropdown options
-    async function waitForDropdownOptions(dropdown, expectedValue, maxAttempts = 10, delayMs = 500) {
-      console.log(`Waiting for option ${expectedValue} in ${dropdown.id}`);
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const options = Array.from(dropdown.options).map(opt => opt.value);
-        console.log(`Attempt ${attempt}: Options in ${dropdown.id}:`, options);
-        if (options.includes(expectedValue)) {
-          console.log(`Found option ${expectedValue} in ${dropdown.id}`);
-          return true;
-        }
-        console.log(`Attempt ${attempt}: Option ${expectedValue} not found in ${dropdown.id}, retrying...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        dropdown.dispatchEvent(new Event('change')); // Trigger population
-      }
-      console.error(`Failed to find option ${expectedValue} in ${dropdown.id} after ${maxAttempts} attempts`);
-      return false;
-    }
-
-    const changePromises = [];
-    // Restore Rater dropdowns
-    if (dropdownState.assignment && currentTab === 'rater') {
-      const dropdown = elements.assignmentDropdown;
-      dropdown.value = dropdownState.assignment;
-      if (await waitForDropdownOptions(dropdown, dropdownState.assignment)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-    if (dropdownState.position && currentTab === 'rater') {
-      const dropdown = elements.positionDropdown;
-      dropdown.value = dropdownState.position;
-      if (await waitForDropdownOptions(dropdown, dropdownState.position)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-    if (dropdownState.item && currentTab === 'rater') {
-      const dropdown = elements.itemDropdown;
-      dropdown.value = dropdownState.item;
-      if (await waitForDropdownOptions(dropdown, dropdownState.item)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-    if (dropdownState.name && currentTab === 'rater') {
-      const dropdown = elements.nameDropdown;
-      dropdown.value = dropdownState.name;
-      if (await waitForDropdownOptions(dropdown, dropdownState.name)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-
-    // Restore Secretariat dropdowns
-    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-    const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
-    const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
-
-    if (dropdownState.secretariatAssignment && currentTab === 'secretariat' && secretariatAssignmentDropdown && localStorage.getItem('secretariatAuthenticated')) {
-      secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-      if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
-          secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
-          secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-        }));
-      } else {
-        console.log('Retrying secretariatAssignmentDropdown population');
-        await initializeSecretariatDropdowns(); // Retry initialization
-        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-        secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-      }
-    }
-    if (dropdownState.secretariatPosition && currentTab === 'secretariat' && secretariatPositionDropdown && localStorage.getItem('secretariatAuthenticated')) {
-      secretariatPositionDropdown.value = dropdownState.secretariatPosition;
-      if (await waitForDropdownOptions(secretariatPositionDropdown, dropdownState.secretariatPosition)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); secretariatPositionDropdown.removeEventListener('change', handler); };
-          secretariatPositionDropdown.addEventListener('change', handler, { once: true });
-          secretariatPositionDropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-    if (dropdownState.secretariatItem && currentTab === 'secretariat' && secretariatItemDropdown && localStorage.getItem('secretariatAuthenticated')) {
-      secretariatItemDropdown.value = dropdownState.secretariatItem;
-      if (await waitForDropdownOptions(secretariatItemDropdown, dropdownState.secretariatItem)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); secretariatItemDropdown.removeEventListener('change', handler); };
-          secretariatItemDropdown.addEventListener('change', handler, { once: true });
-          secretariatItemDropdown.dispatchEvent(new Event('change'));
-        }));
-      }
-    }
-
-    await Promise.all(changePromises);
-    if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && currentTab === 'rater') {
-      fetchSubmittedRatings();
-    }
-    if (localStorage.getItem('secretariatAuthenticated') && currentTab === 'secretariat') {
-      document.getElementById('raterTab').classList.remove('active');
-      document.getElementById('secretariatTab').classList.add('active');
-      document.getElementById('raterContent').style.display = 'none';
-      document.getElementById('secretariatContent').style.display = 'block';
-      if (secretariatItemDropdown.value) {
-        fetchSecretariatCandidates(secretariatItemDropdown.value);
-      }
-    } else {
-      document.getElementById('raterTab').classList.add('active');
-      document.getElementById('secretariatTab').classList.remove('active');
-      document.getElementById('raterContent').style.display = 'block';
-      document.getElementById('secretariatContent').style.display = 'none';
-    }
-
-    // Ensure results-area is hidden for Secretariat tab on restore
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) {
-      resultsArea.classList.toggle('active', currentTab === 'rater');
-      console.log(`Results area ${currentTab === 'rater' ? 'shown' : 'hidden'} on restore for ${currentTab} tab`);
-    }
-  } else {
-    const accessToken = urlParams.get('access_token');
-    const expiresIn = urlParams.get('expires_in');
-    sessionId = urlParams.get('session_id');
-    if (accessToken && sessionId) {
-      handleTokenCallback({
-        access_token: accessToken,
-        expires_in: parseInt(expiresIn, 10),
-        session_id: sessionId,
+        );
       });
-      window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
-    } else {
-      updateUI(false);
-      currentEvaluator = null;
-      vacancies = [];
-      candidates = [];
-      compeCodes = [];
-      competencies = [];
-      resetDropdowns([]);
-      container.style.marginTop = '20px';
-      authSection.classList.add('signed-out');
-      const resultsArea = document.querySelector('.results-area');
-      if (resultsArea) resultsArea.classList.remove('active');
+
+      if (!authenticated) {
+        currentTab = 'rater';
+        localStorage.setItem('currentTab', 'rater');
+        switchTab('rater'); // Force rater tab
+        return;
+      }
     }
+
+    // Existing auth and UI logic
+    const authState = loadAuthState();
+    const dropdownState = loadDropdownState();
+    const authSection = document.querySelector('.auth-section');
+    const container = document.querySelector('.container');
+
+    if (authState) {
+      gapi.client.setToken({ access_token: authState.access_token });
+      sessionId = authState.session_id;
+      secretariatMemberId = authState.secretariatMemberId || localStorage.getItem('secretariatMemberId');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!await isTokenValid()) await refreshAccessToken();
+      currentEvaluator = authState.evaluator;
+      updateUI(true);
+      authSection.classList.remove('signed-out');
+
+      await loadSheetData();
+      console.log('Calling initializeSecretariatDropdowns after loadSheetData');
+      await initializeSecretariatDropdowns();
+
+      const evaluatorSelect = document.getElementById('evaluatorSelect');
+      if (evaluatorSelect && dropdownState.evaluator) {
+        evaluatorSelect.value = dropdownState.evaluator;
+        currentEvaluator = dropdownState.evaluator;
+      }
+
+      async function waitForDropdownOptions(dropdown, expectedValue, maxAttempts = 10, delayMs = 500) {
+        console.log(`Waiting for option ${expectedValue} in ${dropdown.id}`);
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const options = Array.from(dropdown.options).map(opt => opt.value);
+          if (options.includes(expectedValue)) {
+            console.log(`Found option ${expectedValue} in ${dropdown.id}`);
+            return true;
+          }
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          dropdown.dispatchEvent(new Event('change'));
+        }
+        console.error(`Failed to find option ${expectedValue} in ${dropdown.id}`);
+        return false;
+      }
+
+      const changePromises = [];
+      if (dropdownState.assignment && currentTab === 'rater') {
+        const dropdown = elements.assignmentDropdown;
+        dropdown.value = dropdownState.assignment;
+        if (await waitForDropdownOptions(dropdown, dropdownState.assignment)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
+            dropdown.addEventListener('change', handler, { once: true });
+            dropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.position && currentTab === 'rater') {
+        const dropdown = elements.positionDropdown;
+        dropdown.value = dropdownState.position;
+        if (await waitForDropdownOptions(dropdown, dropdownState.position)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
+            dropdown.addEventListener('change', handler, { once: true });
+            dropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.item && currentTab === 'rater') {
+        const dropdown = elements.itemDropdown;
+        dropdown.value = dropdownState.item;
+        if (await waitForDropdownOptions(dropdown, dropdownState.item)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
+            dropdown.addEventListener('change', handler, { once: true });
+            dropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.name && currentTab === 'rater') {
+        const dropdown = elements.nameDropdown;
+        dropdown.value = dropdownState.name;
+        if (await waitForDropdownOptions(dropdown, dropdownState.name)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
+            dropdown.addEventListener('change', handler, { once: true });
+            dropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+
+      const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+      const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
+      const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+
+      if (dropdownState.secretariatAssignment && currentTab === 'secretariat' && secretariatAssignmentDropdown && localStorage.getItem('secretariatAuthenticated')) {
+        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+        if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
+            secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
+            secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+          }));
+        } else {
+          console.log('Retrying secretariatAssignmentDropdown population');
+          await initializeSecretariatDropdowns();
+          secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+          secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+        }
+      }
+      if (dropdownState.secretariatPosition && currentTab === 'secretariat' && secretariatPositionDropdown && localStorage.getItem('secretariatAuthenticated')) {
+        secretariatPositionDropdown.value = dropdownState.secretariatPosition;
+        if (await waitForDropdownOptions(secretariatPositionDropdown, dropdownState.secretariatPosition)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatPositionDropdown.removeEventListener('change', handler); };
+            secretariatPositionDropdown.addEventListener('change', handler, { once: true });
+            secretariatPositionDropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+      if (dropdownState.secretariatItem && currentTab === 'secretariat' && secretariatItemDropdown && localStorage.getItem('secretariatAuthenticated')) {
+        secretariatItemDropdown.value = dropdownState.secretariatItem;
+        if (await waitForDropdownOptions(secretariatItemDropdown, dropdownState.secretariatItem)) {
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatItemDropdown.removeEventListener('change', handler); };
+            secretariatItemDropdown.addEventListener('change', handler, { once: true });
+            secretariatItemDropdown.dispatchEvent(new Event('change'));
+          }));
+        }
+      }
+
+      await Promise.all(changePromises);
+      if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && currentTab === 'rater') {
+        fetchSubmittedRatings();
+      }
+      if (localStorage.getItem('secretariatAuthenticated') && currentTab === 'secretariat') {
+        document.getElementById('raterTab').classList.remove('active');
+        document.getElementById('secretariatTab').classList.add('active');
+        document.getElementById('raterContent').style.display = 'none';
+        document.getElementById('secretariatContent').style.display = 'block';
+        if (secretariatItemDropdown.value) {
+          fetchSecretariatCandidates(secretariatItemDropdown.value);
+        }
+      } else {
+        document.getElementById('raterTab').classList.add('active');
+        document.getElementById('secretariatTab').classList.remove('active');
+        document.getElementById('raterContent').style.display = 'block';
+        document.getElementById('secretariatContent').style.display = 'none';
+      }
+
+      const resultsArea = document.querySelector('.results-area');
+      if (resultsArea) {
+        resultsArea.classList.toggle('active', currentTab === 'rater');
+        console.log(`Results area ${currentTab === 'rater' ? 'shown' : 'hidden'}`);
+      }
+    } else {
+      const accessToken = urlParams.get('access_token');
+      const expiresIn = urlParams.get('expires_in');
+      sessionId = urlParams.get('session_id');
+      if (accessToken && sessionId) {
+        handleTokenCallback({
+          access_token: accessToken,
+          expires_in: parseInt(expiresIn, 10),
+          session_id: sessionId,
+        });
+        window.history.replaceState({}, document.title, '/rhrmspb-rater-by-dan/');
+      } else {
+        updateUI(false);
+        currentEvaluator = null;
+        vacancies = [];
+        candidates = [];
+        compeCodes = [];
+        competencies = [];
+        resetDropdowns([]);
+        container.style.marginTop = '20px';
+        authSection.classList.add('signed-out');
+        const resultsArea = document.querySelector('.results-area');
+        if (resultsArea) resultsArea.classList.remove('active');
+      }
+    }
+  } catch (error) {
+    console.error('Error in restoreState:', error);
+    showToast('error', 'Error', 'Failed to restore state');
+  } finally {
+    if (spinner) spinner.style.display = 'none';
   }
 }
 
 
 // Ensure initializeSecretariatDropdowns is called with proper vacancy data
 async function initializeSecretariatDropdowns() {
-  console.log('Initializing Secretariat dropdowns with vacancies:', vacancies);
+  console.log('Initializing Secretariat dropdowns');
   const assignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
   const positionDropdown = document.getElementById('secretariatPositionDropdown');
   const itemDropdown = document.getElementById('secretariatItemDropdown');
 
-  // Reset dropdowns
   setDropdownState(assignmentDropdown, false);
   setDropdownState(positionDropdown, false);
   setDropdownState(itemDropdown, false);
@@ -362,50 +380,44 @@ async function initializeSecretariatDropdowns() {
   }
 
   if (!vacancies || vacancies.length <= 1) {
-    console.warn('No valid vacancies data available');
-    showToast('error', 'Error', 'No vacancies available to populate dropdowns');
+    console.warn('No vacancies data');
+    showToast('error', 'Error', 'No vacancies available');
     return;
   }
 
-  // Enable and populate assignment dropdown
   const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]?.trim()))].filter(Boolean);
   console.log('Unique assignments:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
   setDropdownState(assignmentDropdown, true);
 
-  // Remove existing listeners to prevent duplicates
   assignmentDropdown.removeEventListener('change', assignmentDropdown.onchange);
   assignmentDropdown.onchange = () => {
     const selectedAssignment = assignmentDropdown.value;
-    console.log('Assignment changed to:', selectedAssignment);
+    console.log('Assignment changed:', selectedAssignment);
     setDropdownState(positionDropdown, false);
     setDropdownState(itemDropdown, false);
     if (selectedAssignment) {
       const filteredPositions = [...new Set(
         vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
       )].filter(Boolean);
-      console.log('Filtered positions:', filteredPositions);
       updateDropdown(positionDropdown, filteredPositions, 'Select Position');
       setDropdownState(positionDropdown, true);
-      updateDropdown(itemDropdown, [], 'Select Item');
     }
     saveDropdownState();
   };
   assignmentDropdown.addEventListener('change', assignmentDropdown.onchange);
 
-  // Remove existing listeners
   positionDropdown.removeEventListener('change', positionDropdown.onchange);
   positionDropdown.onchange = () => {
     const selectedAssignment = assignmentDropdown.value;
     const selectedPosition = positionDropdown.value;
-    console.log('Position changed to:', selectedPosition);
+    console.log('Position changed:', selectedPosition);
     setDropdownState(itemDropdown, false);
     if (selectedAssignment && selectedPosition) {
       const filteredItems = vacancies.slice(1)
         .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
         .map(row => row[0]?.trim())
         .filter(Boolean);
-      console.log('Filtered items:', filteredItems);
       updateDropdown(itemDropdown, filteredItems, 'Select Item');
       setDropdownState(itemDropdown, true);
     }
@@ -413,10 +425,9 @@ async function initializeSecretariatDropdowns() {
   };
   positionDropdown.addEventListener('change', positionDropdown.onchange);
 
-  // Remove existing listeners
   itemDropdown.removeEventListener('change', itemDropdown.onchange);
   itemDropdown.onchange = () => {
-    console.log('Item changed to:', itemDropdown.value);
+    console.log('Item changed:', itemDropdown.value);
     saveDropdownState();
     if (itemDropdown.value) {
       fetchSecretariatCandidates(itemDropdown.value);
@@ -424,17 +435,13 @@ async function initializeSecretariatDropdowns() {
   };
   itemDropdown.addEventListener('change', itemDropdown.onchange);
 
-  // Restore saved state
   const dropdownState = loadDropdownState();
   if (dropdownState.secretariatAssignment && currentTab === 'secretariat') {
     assignmentDropdown.value = dropdownState.secretariatAssignment;
     if (assignmentDropdown.value) {
-      console.log('Restoring secretariatAssignmentDropdown:', assignmentDropdown.value);
       assignmentDropdown.dispatchEvent(new Event('change'));
     }
   }
-
-  console.log('initializeSecretariatDropdowns completed');
 }
 
 
@@ -627,22 +634,21 @@ function setupTabNavigation() {
 
 
 function switchTab(tab) {
-  // Clear secretariat authentication when switching to rater
   if (tab === 'rater') {
     localStorage.removeItem('secretariatAuthenticated');
     localStorage.removeItem('secretariatMemberId');
+    localStorage.removeItem('secretariatAuthenticatedData');
     secretariatMemberId = null;
-    console.log('Cleared secretariatAuthenticated and secretariatMemberId for rater tab');
+    console.log('Cleared secretariat authentication for rater tab');
   }
 
-  // Update currentTab and store in localStorage
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
 
-  // Add query parameter to trigger restoreState with correct tab
   const url = new URL(window.location);
   url.searchParams.set('tab', tab);
-  window.location = url.toString(); // Reload page with new URL
+  window.location = url.toString();
+
 
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
