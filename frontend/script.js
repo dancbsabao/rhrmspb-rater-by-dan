@@ -1274,6 +1274,44 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
   `;
 
+  let resultsArea = document.querySelector('.results-area');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  if (!resultsArea) {
+    resultsArea = document.createElement('div');
+    resultsArea.className = 'results-area';
+    pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild);
+  }
+  resultsArea.classList.add('active');
+  resultsArea.innerHTML = `
+    <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
+    <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
+    <div class="grid-container">
+      <div class="dropdown-info">
+        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">BASIC:</span> <span class="data-value" id="basic-rating-value">0.00</span></div>
+        <div class="data-row"><span class="data-label">ORGANIZATIONAL:</span> <span class="data-value" id="organizational-rating-value">0.00</span></div>
+        ${salaryGrade >= 24 ? `<div class="data-row"><span class="data-label">LEADERSHIP:</span> <span class="data-value" id="leadership-rating-value">0.00</span></div>` : ''}
+        <div class="data-row"><span class="data-label">MINIMUM:</span> <span class="data-value" id="minimum-rating-value">0.00</span></div>
+      </div>
+    </div>
+    <div class="prominent-ratings">
+      <div><span class="data-label">PSYCHO-SOCIAL:</span> <span class="data-value" id="psychosocial-rating-value">0.00</span></div>
+      <div><span class="data-label">POTENTIAL:</span> <span class="data-value" id="potential-rating-value">0.00</span></div>
+    </div>
+  `;
+
+  const container = document.querySelector('.container');
+  const updateMarginTop = () => {
+    const resultsHeight = resultsArea.offsetHeight + 20;
+    container.style.marginTop = `${resultsHeight}px`;
+  };
+  
+  updateMarginTop();
+  window.addEventListener('resize', updateMarginTop);
+
   const basicRatings = Array(competenciesColumn1.length).fill(0);
   const orgRatings = Array(competenciesColumn2.length).fill(0);
   const leadershipRatings = Array(competenciesColumn3.length).fill(0);
@@ -1303,19 +1341,16 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     return div;
   }
 
-  // Render Basic
   const basicGrid = document.querySelector("#basic-competencies .competency-grid");
   competenciesColumn1.forEach((comp, idx) => {
     basicGrid.appendChild(createCompetencyItem(comp, idx, basicRatings, computeBasicRating));
   });
 
-  // Render Organizational
   const orgGrid = document.querySelector("#organizational-competencies .competency-grid");
   competenciesColumn2.forEach((comp, idx) => {
     orgGrid.appendChild(createCompetencyItem(comp, idx, orgRatings, computeOrgRating));
   });
 
-  // Render Leadership (if SG >= 24)
   if (salaryGrade >= 24) {
     const leadGrid = document.querySelector("#leadership-competencies .competency-grid");
     competenciesColumn3.forEach((comp, idx) => {
@@ -1323,7 +1358,6 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     });
   }
 
-  // Render Minimum
   const minGrid = document.querySelector("#minimum-competencies .competency-grid");
   competencies.forEach((comp, idx) => {
     minGrid.appendChild(createCompetencyItem(comp, idx, minimumRatings, computeMinimumRating));
@@ -1365,7 +1399,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   document.getElementById('reset-ratings').addEventListener('click', () => {
     showModal(
       'CONFIRM RESET',
-      '<p>Are you sure you want to reset all ratings?</p>',
+      '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
       () => {
         clearRatings();
         computeBasicRating();
@@ -1376,7 +1410,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
         computePotential();
         localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
         elements.submitRatings.disabled = true;
-        showToast('success', 'Reset', 'All ratings cleared.');
+        showToast('success', 'Reset Complete', 'All ratings have been cleared.');
       }
     );
   });
