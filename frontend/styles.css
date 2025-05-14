@@ -1139,3 +1139,7 @@ html, body {
   border-radius: 4px;
   font-size: 14px;
 }
+
+[hidden] {
+  display: none !important;
+}
