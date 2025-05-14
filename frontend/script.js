@@ -61,18 +61,18 @@ function saveDropdownState() {
     position: elements.positionDropdown.value,
     item: elements.itemDropdown.value,
     name: elements.nameDropdown.value,
-    secretariatAssignment: document.getElementById('secretariatAssignmentDropdown').value,
-    secretariatPosition: document.getElementById('secretariatPositionDropdown').value,
-    secretariatItem: document.getElementById('secretariatItemDropdown').value,
+    secretariatAssignment: document.getElementById('secretariatAssignmentDropdown')?.value || '',
+    secretariatPosition: document.getElementById('secretariatPositionDropdown')?.value || '',
+    secretariatItem: document.getElementById('secretariatItemDropdown')?.value || '',
   };
   localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
   console.log('Dropdown state saved:', dropdownState);
 }
 
 function loadDropdownState() {
-  const dropdownState = JSON.parse(localStorage.getItem('dropdownState'));
+  const dropdownState = JSON.parse(localStorage.getItem('dropdownState')) || {};
   console.log('Loaded dropdown state:', dropdownState);
-  return dropdownState || {};
+  return dropdownState;
 }
 
 function loadAuthState() {
@@ -118,51 +118,61 @@ async function restoreState() {
     if (dropdownState.assignment) {
       elements.assignmentDropdown.value = dropdownState.assignment;
       changePromises.push(new Promise(resolve => {
-        elements.assignmentDropdown.addEventListener('change', resolve, { once: true });
+        const handler = () => { resolve(); elements.assignmentDropdown.removeEventListener('change', handler); };
+        elements.assignmentDropdown.addEventListener('change', handler, { once: true });
         elements.assignmentDropdown.dispatchEvent(new Event('change'));
       }));
     }
     if (dropdownState.position) {
       elements.positionDropdown.value = dropdownState.position;
       changePromises.push(new Promise(resolve => {
-        elements.positionDropdown.addEventListener('change', resolve, { once: true });
+        const handler = () => { resolve(); elements.positionDropdown.removeEventListener('change', handler); };
+        elements.positionDropdown.addEventListener('change', handler, { once: true });
         elements.positionDropdown.dispatchEvent(new Event('change'));
       }));
     }
     if (dropdownState.item) {
       elements.itemDropdown.value = dropdownState.item;
       changePromises.push(new Promise(resolve => {
-        elements.itemDropdown.addEventListener('change', resolve, { once: true });
+        const handler = () => { resolve(); elements.itemDropdown.removeEventListener('change', handler); };
+        elements.itemDropdown.addEventListener('change', handler, { once: true });
         elements.itemDropdown.dispatchEvent(new Event('change'));
       }));
     }
     if (dropdownState.name) {
       elements.nameDropdown.value = dropdownState.name;
       changePromises.push(new Promise(resolve => {
-        elements.nameDropdown.addEventListener('change', resolve, { once: true });
+        const handler = () => { resolve(); elements.nameDropdown.removeEventListener('change', handler); };
+        elements.nameDropdown.addEventListener('change', handler, { once: true });
         elements.nameDropdown.dispatchEvent(new Event('change'));
       }));
     }
     // Restore secretariat dropdowns
-    if (dropdownState.secretariatAssignment) {
-      document.getElementById('secretariatAssignmentDropdown').value = dropdownState.secretariatAssignment;
+    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+    const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
+    const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+    if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
+      secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
       changePromises.push(new Promise(resolve => {
-        document.getElementById('secretariatAssignmentDropdown').addEventListener('change', resolve, { once: true });
-        document.getElementById('secretariatAssignmentDropdown').dispatchEvent(new Event('change'));
+        const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
+        secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
+        secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
       }));
     }
-    if (dropdownState.secretariatPosition) {
-      document.getElementById('secretariatPositionDropdown').value = dropdownState.secretariatPosition;
+    if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
+      secretariatPositionDropdown.value = dropdownState.secretariatPosition;
       changePromises.push(new Promise(resolve => {
-        document.getElementById('secretariatPositionDropdown').addEventListener('change', resolve, { once: true });
-        document.getElementById('secretariatPositionDropdown').dispatchEvent(new Event('change'));
+        const handler = () => { resolve(); secretariatPositionDropdown.removeEventListener('change', handler); };
+        secretariatPositionDropdown.addEventListener('change', handler, { once: true });
+        secretariatPositionDropdown.dispatchEvent(new Event('change'));
       }));
     }
-    if (dropdownState.secretariatItem) {
-      document.getElementById('secretariatItemDropdown').value = dropdownState.secretariatItem;
+    if (dropdownState.secretariatItem && secretariatItemDropdown) {
+      secretariatItemDropdown.value = dropdownState.secretariatItem;
       changePromises.push(new Promise(resolve => {
-        document.getElementById('secretariatItemDropdown').addEventListener('change', resolve, { once: true });
-        document.getElementById('secretariatItemDropdown').dispatchEvent(new Event('change'));
+        const handler = () => { resolve(); secretariatItemDropdown.removeEventListener('change', handler); };
+        secretariatItemDropdown.addEventListener('change', handler, { once: true });
+        secretariatItemDropdown.dispatchEvent(new Event('change'));
       }));
     }
 
@@ -173,6 +183,9 @@ async function restoreState() {
     // Restore secretariat tab if authenticated
     if (localStorage.getItem('secretariatAuthenticated') && localStorage.getItem('currentTab') === 'secretariat') {
       switchTab('secretariat');
+      if (secretariatItemDropdown.value) {
+        fetchSecretariatCandidates(secretariatItemDropdown.value);
+      }
     }
   } else {
     const urlParams = new URLSearchParams(window.location.search);
@@ -508,7 +521,7 @@ async function fetchSecretariatCandidates(itemNumber) {
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:S',
+        range: 'CANDIDATES!A:Q',
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
@@ -523,8 +536,8 @@ async function fetchSecretariatCandidates(itemNumber) {
     // Map submissions by name, item number, and member ID
     const submissions = new Map();
     candidatesSheet.forEach(row => {
-      if (row[0] && row[1] && row[18]) {
-        submissions.set(`${row[0]}|${row[1]}|${row[18]}`, 'CANDIDATES');
+      if (row[0] && row[1] && row[16]) {
+        submissions.set(`${row[0]}|${row[1]}|${row[16]}`, 'CANDIDATES');
       }
     });
     disqualifiedSheet.forEach(row => {
@@ -648,7 +661,7 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
     return;
   }
 
-  // Check for duplicate submission
+  // Check for duplicate submission (already working)
   const isDuplicate = await checkDuplicateSubmission(name, itemNumber, action);
   if (isDuplicate) {
     showToast('error', 'Error', `Candidate already submitted as ${action} by Member ${secretariatMemberId}.`);
@@ -682,54 +695,60 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
 
       // Remove candidate from the opposite sheet
       if (action === 'FOR LONG LIST') {
-        // Remove from DISQUALIFIED if exists
+        // Remove from DISQUALIFIED
         const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: 'DISQUALIFIED!A:E',
         });
         let disqualifiedValues = disqualifiedResponse.result.values || [];
-        const disqualifiedIndex = disqualifiedValues.findIndex(row => row[0] === name && row[1] === itemNumber && row[4] === secretariatMemberId);
+        const disqualifiedIndex = disqualifiedValues.findIndex(row => 
+          row[0] === name && row[1] === itemNumber && row[4] === secretariatMemberId
+        );
         if (disqualifiedIndex !== -1) {
           disqualifiedValues.splice(disqualifiedIndex, 1);
           await gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
             range: 'DISQUALIFIED!A:E',
             valueInputOption: 'RAW',
-            resource: { values: disqualifiedValues.length ? disqualifiedValues : [['']] }, // Avoid empty sheet error
+            resource: { values: disqualifiedValues.length ? disqualifiedValues : [['']] },
           });
+          console.log('Removed candidate from DISQUALIFIED');
         }
 
         // Fetch from GENERAL_LIST and append to CANDIDATES
         const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: 'GENERAL_LIST!A:P', // Exclude comment column
+          range: 'GENERAL_LIST!A:P',
         });
         let candidate = generalResponse.result.values.find(row => row[0] === name && row[1] === itemNumber);
         if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-        candidate = [...candidate, '', secretariatMemberId]; // Add empty comment and Member ID
+        candidate = [...candidate, secretariatMemberId]; // Add Member ID in column Q
         console.log('Appending to CANDIDATES:', [candidate]);
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:S',
+          range: 'CANDIDATES!A:Q',
           valueInputOption: 'RAW',
           resource: { values: [candidate] },
         });
       } else if (action === 'FOR DISQUALIFICATION') {
-        // Remove from CANDIDATES if exists
+        // Remove from CANDIDATES
         const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:S',
+          range: 'CANDIDATES!A:Q',
         });
         let candidatesValues = candidatesResponse.result.values || [];
-        const candidatesIndex = candidatesValues.findIndex(row => row[0] === name && row[1] === itemNumber && row[18] === secretariatMemberId);
+        const candidatesIndex = candidatesValues.findIndex(row => 
+          row[0] === name && row[1] === itemNumber && row[16] === secretariatMemberId
+        );
         if (candidatesIndex !== -1) {
           candidatesValues.splice(candidatesIndex, 1);
           await gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
-            range: 'CANDIDATES!A:S',
+            range: 'CANDIDATES!A:Q',
             valueInputOption: 'RAW',
             resource: { values: candidatesValues.length ? candidatesValues : [['']] },
           });
+          console.log('Removed candidate from CANDIDATES');
         }
 
         // Append to DISQUALIFIED
