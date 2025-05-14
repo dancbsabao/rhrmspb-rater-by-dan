@@ -38,6 +38,9 @@ app.options('/refresh-token', cors());
 app.get('/config', (req, res) => {
   try {
     console.log('Config endpoint hit');
+    console.log('Raw SHEET_RANGES:', process.env.SHEET_RANGES); // Debug log
+    const sheetRanges = process.env.SHEET_RANGES ? JSON.parse(process.env.SHEET_RANGES) : {};
+    console.log('Parsed SHEET_RANGES:', sheetRanges); // Debug log
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -46,9 +49,7 @@ app.get('/config', (req, res) => {
       EVALUATOR_PASSWORDS: process.env.EVALUATOR_PASSWORDS
         ? JSON.parse(process.env.EVALUATOR_PASSWORDS)
         : [],
-      SHEET_RANGES: process.env.SHEET_RANGES
-        ? JSON.parse(process.env.SHEET_RANGES)
-        : [],
+      SHEET_RANGES: sheetRanges,
       CLIENT_SECRET: process.env.CLIENT_SECRET || '',
       SECRETARIAT_PASSWORD: process.env.SECRETARIAT_PASSWORD || '',
     });
