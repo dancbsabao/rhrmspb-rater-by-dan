@@ -513,40 +513,39 @@ function setupTabNavigation() {
 
   raterTab.addEventListener('click', () => switchTab('rater'));
   secretariatTab.addEventListener('click', () => {
-    if (localStorage.getItem('secretariatAuthenticated') && secretariatMemberId) {
-      switchTab('secretariat');
-      showToast('success', 'Success', `Logged in as Secretariat Member ${secretariatMemberId}`);
-    } else {
-      showModal(
-        'Secretariat Authentication',
-        `
-          <p>Please enter the Secretariat password:</p>
-          <input type="password" id="secretariatPassword" class="modal-input">
-          <p>Select Member ID (1-5):</p>
-          <select id="secretariatMemberId" class="modal-input">
-            <option value="">Select Member</option>
-            <option value="1">Member 1</option>
-            <option value="2">Member 2</option>
-            <option value="3">Member 3</option>
-            <option value="4">Member 4</option>
-            <option value="5">Member 5</option>
-          </select>
-        `,
-        () => {
-          const password = document.getElementById('secretariatPassword').value.trim();
-          const memberId = document.getElementById('secretariatMemberId').value;
-          if (password === SECRETARIAT_PASSWORD && memberId) {
-            secretariatMemberId = memberId;
-            localStorage.setItem('secretariatAuthenticated', 'true');
-            saveAuthState(gapi.client.getToken(), currentEvaluator);
-            switchTab('secretariat');
-            showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
-          } else {
-            showToast('error', 'Error', 'Incorrect password or missing Member ID');
-          }
+    // Always prompt for authentication when clicking Secretariat tab
+    showModal(
+      'Secretariat Authentication',
+      `
+        <p>Please enter the Secretariat password:</p>
+        <input type="password" id="secretariatPassword" class="modal-input">
+        <p>Select Member ID (1-5):</p>
+        <select id="secretariatMemberId" class="modal-input">
+          <option value="">Select Member</option>
+          <option value="1">Member 1</option>
+          <option value="2">Member 2</option>
+          <option value="3">Member 3</option>
+          <option value="4">Member 4</option>
+          <option value="5">Member 5</option>
+        </select>
+      `,
+      () => {
+        const password = document.getElementById('secretariatPassword').value.trim();
+        const memberId = document.getElementById('secretariatMemberId').value;
+        if (password === SECRETARIAT_PASSWORD && memberId) {
+          secretariatMemberId = memberId;
+          localStorage.setItem('secretariatAuthenticated', 'true');
+          saveAuthState(gapi.client.getToken(), currentEvaluator);
+          switchTab('secretariat');
+          showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
+        } else {
+          showToast('error', 'Error', 'Incorrect password or missing Member ID');
         }
-      );
-    }
+      },
+      () => {
+        console.log('Secretariat authentication canceled');
+      }
+    );
   });
 }
 
@@ -554,8 +553,20 @@ function setupTabNavigation() {
 function switchTab(tab) {
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
+
+  // Clear Secretariat authentication when leaving the Secretariat tab
+  if (tab === 'rater') {
+    localStorage.removeItem('secretariatAuthenticated');
+    secretariatMemberId = null;
+    saveAuthState(gapi.client.getToken(), currentEvaluator); // Update auth state without secretariatMemberId
+    console.log('Secretariat authentication cleared');
+  }
+
+  // Update tab button states
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
+
+  // Show/hide tab content
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
   document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
 
@@ -577,12 +588,23 @@ function switchTab(tab) {
     initializeDropdowns(vacancies);
     if (elements.nameDropdown.value && elements.itemDropdown.value) {
       fetchSubmittedRatings();
+      displayCandidatesTable(elements.nameDropdown.value, elements.itemDropdown.value);
     }
+    updateUI(true);
   } else if (tab === 'secretariat') {
     initializeSecretariatDropdowns();
     if (secretariatItemDropdown.value) {
       fetchSecretariatCandidates(secretariatItemDropdown.value);
     }
+    updateUI(true);
+  }
+
+  // Refresh the UI layout
+  const container = document.querySelector('.container');
+  const resultsArea = document.querySelector('.results-area');
+  if (resultsArea) {
+    const resultsHeight = resultsArea.offsetHeight + 20;
+    container.style.marginTop = `${resultsHeight}px`;
   }
 }
 
