@@ -760,6 +760,24 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
       const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
       const normalizedItemNumber = itemNumber.trim();
 
+      // Helper function to get sheetId
+      async function getSheetId(sheetName) {
+        try {
+          const response = await gapi.client.sheets.spreadsheets.get({
+            spreadsheetId: SHEET_ID,
+          });
+          const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+          if (!sheet) {
+            throw new Error(`Sheet ${sheetName} not found in spreadsheet`);
+          }
+          console.log(`Fetched sheetId for ${sheetName}: ${sheet.properties.sheetId}`);
+          return sheet.properties.sheetId;
+        } catch (error) {
+          console.error(`Failed to fetch sheetId for ${sheetName}:`, error);
+          throw error;
+        }
+      }
+
       // Remove candidate from the opposite sheet
       if (action === 'FOR LONG LIST') {
         const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
@@ -785,23 +803,28 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
           const sheetRowIndex = disqualifiedIndex + 1; // Adjust for header row
           console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
 
-          // Clear the specific row using batchUpdate
-          await gapi.client.sheets.spreadsheets.batchUpdate({
-            spreadsheetId: SHEET_ID,
-            resource: {
-              requests: [{
-                deleteDimension: {
-                  range: {
-                    sheetId: getSheetId('DISQUALIFIED'), // Replace with actual sheet ID or fetch dynamically
-                    dimension: 'ROWS',
-                    startIndex: sheetRowIndex,
-                    endIndex: sheetRowIndex + 1
-                  }
+          // Fetch sheetId for DISQUALIFIED
+          const sheetId = await getSheetId('DISQUALIFIED');
+
+          // Delete the specific row using batchUpdate
+          const batchUpdateRequest = {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: 'ROWS',
+                  startIndex: sheetRowIndex,
+                  endIndex: sheetRowIndex + 1
                 }
-              }]
-            }
+              }
+            }]
+          };
+          console.log('batchUpdate request for DISQUALIFIED:', JSON.stringify(batchUpdateRequest, null, 2));
+          const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            resource: batchUpdateRequest
           });
-          console.log(`Deleted row ${sheetRowIndex + 1} from DISQUALIFIED`);
+          console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
 
           // Fetch updated sheet to confirm deletion
           const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
@@ -855,23 +878,28 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
           const sheetRowIndex = candidatesIndex + 1; // Adjust for header row
           console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
 
-          // Clear the specific row using batchUpdate
-          await gapi.client.sheets.spreadsheets.batchUpdate({
-            spreadsheetId: SHEET_ID,
-            resource: {
-              requests: [{
-                deleteDimension: {
-                  range: {
-                    sheetId: getSheetId('CANDIDATES'), // Replace with actual sheet ID or fetch dynamically
-                    dimension: 'ROWS',
-                    startIndex: sheetRowIndex,
-                    endIndex: sheetRowIndex + 1
-                  }
+          // Fetch sheetId for CANDIDATES
+          const sheetId = await getSheetId('CANDIDATES');
+
+          // Delete the specific row using batchUpdate
+          const batchUpdateRequest = {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: 'ROWS',
+                  startIndex: sheetRowIndex,
+                  endIndex: sheetRowIndex + 1
                 }
-              }]
-            }
+              }
+            }]
+          };
+          console.log('batchUpdate request for CANDIDATES:', JSON.stringify(batchUpdateRequest, null, 2));
+          const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            resource: batchUpdateRequest
           });
-          console.log(`Deleted row ${sheetRowIndex + 1} from CANDIDATES`);
+          console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
 
           // Fetch updated sheet to confirm deletion
           const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
@@ -898,7 +926,7 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
       fetchSecretariatCandidates(itemNumber);
     } catch (error) {
       console.error('Error submitting action:', error);
-      showToast('error', 'Error', `Failed to submit action: ${error.message || error}`);
+      showToast('error', 'Error', `Failed to submit action: ${error.message || JSON.stringify(error)}`);
     }
   });
 }
