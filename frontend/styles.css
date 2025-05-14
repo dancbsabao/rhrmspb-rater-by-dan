@@ -21,6 +21,34 @@ body {
   position: relative;
 }
 
+/* Tabs */
+.tabs {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 10px 20px;
+  border: 2px solid #333;
+  border-radius: 5px;
+  background-color: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  margin: 0 5px;
+  transition: all 0.3s ease;
+}
+
+.tab:hover {
+  background-color: #333;
+  color: white;
+}
+
+.tab.active {
+  background-color: #333;
+  color: white;
+}
+
 /* Results Area (Floating Modal) */
 .results-area {
   position: fixed;
@@ -200,7 +228,8 @@ select:disabled {
 }
 
 /* Candidates Table */
-#candidates-table {
+#candidates-table,
+#secretariat-candidate-details {
   max-width: 1400px;
   margin: 20px auto;
 }
@@ -275,6 +304,51 @@ select:disabled {
   cursor: not-allowed;
 }
 
+/* Secretariat Table */
+.secretariat-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  background-color: white;
+  border: 1px solid #333;
+}
+
+.secretariat-table th,
+.secretariat-table td {
+  padding: 10px;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+
+.secretariat-table th {
+  background-color: #f4f4f4;
+  font-weight: 600;
+}
+
+.secretariat-table tr:hover {
+  background-color: #f9f9f9;
+}
+
+.secretariat-table tr.selected {
+  background-color: #e0e0e0;
+}
+
+.secretariat-table .comment-input {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.secretariat-table .action-dropdown {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
 /* Competency Container */
 #competencyContainer {
   margin-top: 20px;
@@ -323,13 +397,6 @@ select:disabled {
   width: 100%;
 }
 
-#basic-competencies,
-#organizational-competencies,
-#minimum-competencies {
-  width: 100%;
-  max-width: 1400px;
-}
-
 .competency-item label {
   display: block;
   margin-bottom: 8px;
@@ -372,7 +439,8 @@ select:disabled {
   text-align: center;
 }
 
-#submitRatings {
+#submitRatings,
+#submitSecretariatActions {
   padding: 12px 24px;
   border: 2px solid #333;
   border-radius: 5px;
@@ -384,7 +452,8 @@ select:disabled {
   margin-top: 15px;
 }
 
-#submitRatings:disabled {
+#submitRatings:disabled,
+#submitSecretariatActions:disabled {
   background-color: #666;
   cursor: not-allowed;
 }
@@ -779,6 +848,16 @@ select:disabled {
     width: calc(100% - 30px);
   }
 
+  .tabs {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .tab {
+    width: 100%;
+    margin: 5px 0;
+  }
+
   .results-area {
     left: 15px;
     right: 15px;
@@ -869,6 +948,17 @@ select:disabled {
   .modal-body {
     font-size: 10px;
   }
+
+  .secretariat-table th,
+  .secretariat-table td {
+    font-size: 12px;
+    padding: 8px;
+  }
+
+  .secretariat-table .comment-input,
+  .secretariat-table .action-dropdown {
+    font-size: 12px;
+  }
 }
 
 /* Medium Devices (601px to 850px) */
@@ -941,6 +1031,12 @@ select:disabled {
 
   .modal-body {
     font-size: 11px;
+  }
+
+  .secretariat-table th,
+  .secretariat-table td {
+    font-size: 13px;
+    padding: 9px;
   }
 }
 
