@@ -196,23 +196,30 @@ async function restoreState() {
     const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
 
     if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
-      secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-      if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
-        changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
-          secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
-          secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-        }));
-      } else {
-        console.log('Retrying secretariatAssignmentDropdown population');
-        await initializeSecretariatDropdowns(); // Retry initialization
-        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-        secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-      }
+      const setAssignmentValue = async () => {
+        if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
+          secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+          changePromises.push(new Promise(resolve => {
+            const handler = () => { resolve(); secretariatAssignmentDropdown.removeEventListener('change', handler); };
+            secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
+            secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+          }));
+        } else {
+          console.log('Retrying secretariatAssignmentDropdown population');
+          await initializeSecretariatDropdowns(); // Retry initialization
+          if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
+            secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+            secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+          } else {
+            console.error('Failed to restore secretariatAssignmentDropdown value:', dropdownState.secretariatAssignment);
+          }
+        }
+      };
+      await setAssignmentValue();
     }
     if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
-      secretariatPositionDropdown.value = dropdownState.secretariatPosition;
       if (await waitForDropdownOptions(secretariatPositionDropdown, dropdownState.secretariatPosition)) {
+        secretariatPositionDropdown.value = dropdownState.secretariatPosition;
         changePromises.push(new Promise(resolve => {
           const handler = () => { resolve(); secretariatPositionDropdown.removeEventListener('change', handler); };
           secretariatPositionDropdown.addEventListener('change', handler, { once: true });
@@ -221,8 +228,8 @@ async function restoreState() {
       }
     }
     if (dropdownState.secretariatItem && secretariatItemDropdown) {
-      secretariatItemDropdown.value = dropdownState.secretariatItem;
       if (await waitForDropdownOptions(secretariatItemDropdown, dropdownState.secretariatItem)) {
+        secretariatItemDropdown.value = dropdownState.secretariatItem;
         changePromises.push(new Promise(resolve => {
           const handler = () => { resolve(); secretariatItemDropdown.removeEventListener('change', handler); };
           secretariatItemDropdown.addEventListener('change', handler, { once: true });
@@ -570,6 +577,13 @@ function switchTab(tab) {
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
   document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
 
+  // Manage results-area visibility
+  const resultsArea = document.querySelector('.results-area');
+  if (resultsArea) {
+    resultsArea.style.display = tab === 'rater' ? 'block' : 'none';
+    resultsArea.classList.toggle('active', tab === 'rater');
+  }
+
   // Disable dropdowns of the inactive tab
   setDropdownState(elements.assignmentDropdown, tab === 'rater');
   setDropdownState(elements.positionDropdown, tab === 'rater');
@@ -601,10 +615,11 @@ function switchTab(tab) {
 
   // Refresh the UI layout
   const container = document.querySelector('.container');
-  const resultsArea = document.querySelector('.results-area');
-  if (resultsArea) {
+  if (resultsArea && tab === 'rater') {
     const resultsHeight = resultsArea.offsetHeight + 20;
     container.style.marginTop = `${resultsHeight}px`;
+  } else {
+    container.style.marginTop = '20px'; // Default margin when results-area is hidden
   }
 }
 
