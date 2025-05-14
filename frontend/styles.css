@@ -1092,3 +1092,50 @@ html, body {
   max-width: 100%;
   overflow-x: hidden;
 }
+
+.secretariat-table .document-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px;
+}
+
+.secretariat-table .open-link-button {
+  background-color: #333;
+  color: white;
+  border: none;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.secretariat-table .open-link-button:hover {
+  background-color: #000;
+}
+
+.secretariat-table .open-link-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.secretariat-table th, .secretariat-table td {
+  vertical-align: top; /* Align content to top for better layout */
+}
+
+.secretariat-table .comment-input {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.secretariat-table .action-dropdown {
+  width: 100%;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
