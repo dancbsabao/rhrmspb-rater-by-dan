@@ -107,8 +107,10 @@ async function restoreState() {
     updateUI(true);
     authSection.classList.remove('signed-out');
 
-    // Ensure sheet data is loaded before restoring dropdowns
+    // Load sheet data and initialize dropdowns
     await loadSheetData();
+    console.log('Calling initializeSecretariatDropdowns after loadSheetData');
+    await initializeSecretariatDropdowns(); // Explicitly initialize dropdowns
 
     const evaluatorSelect = document.getElementById('evaluatorSelect');
     if (evaluatorSelect && dropdownState.evaluator) {
@@ -117,10 +119,13 @@ async function restoreState() {
     }
 
     // Helper function to wait for dropdown options
-    async function waitForDropdownOptions(dropdown, expectedValue, maxAttempts = 5, delayMs = 500) {
+    async function waitForDropdownOptions(dropdown, expectedValue, maxAttempts = 10, delayMs = 500) {
+      console.log(`Waiting for option ${expectedValue} in ${dropdown.id}`);
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (Array.from(dropdown.options).some(option => option.value === expectedValue)) {
-          console.log(`Dropdown ${dropdown.id} has option ${expectedValue}`);
+        const options = Array.from(dropdown.options).map(opt => opt.value);
+        console.log(`Attempt ${attempt}: Options in ${dropdown.id}:`, options);
+        if (options.includes(expectedValue)) {
+          console.log(`Found option ${expectedValue} in ${dropdown.id}`);
           return true;
         }
         console.log(`Attempt ${attempt}: Option ${expectedValue} not found in ${dropdown.id}, retrying...`);
@@ -191,6 +196,11 @@ async function restoreState() {
           secretariatAssignmentDropdown.addEventListener('change', handler, { once: true });
           secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
         }));
+      } else {
+        console.log('Retrying secretariatAssignmentDropdown population');
+        await initializeSecretariatDropdowns(); // Retry initialization
+        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+        secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
       }
     }
     if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
@@ -251,6 +261,66 @@ async function restoreState() {
     }
   }
 }
+
+
+// Ensure initializeSecretariatDropdowns is called with proper vacancy data
+async function initializeSecretariatDropdowns() {
+  console.log('Initializing Secretariat dropdowns with vacancies:', vacancies);
+  const assignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+  const positionDropdown = document.getElementById('secretariatPositionDropdown');
+  const itemDropdown = document.getElementById('secretariatItemDropdown');
+
+  if (!vacancies || vacancies.length <= 1) {
+    console.warn('No valid vacancies data available');
+    showToast('error', 'Error', 'No vacancies available to populate dropdowns');
+    return;
+  }
+
+  const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]?.trim()))].filter(Boolean);
+  console.log('Unique assignments:', uniqueAssignments);
+  updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
+
+  assignmentDropdown.addEventListener('change', () => {
+    const selectedAssignment = assignmentDropdown.value;
+    console.log('Assignment changed to:', selectedAssignment);
+    const filteredPositions = [...new Set(
+      vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
+    )].filter(Boolean);
+    console.log('Filtered positions:', filteredPositions);
+    updateDropdown(positionDropdown, filteredPositions, 'Select Position');
+    updateDropdown(itemDropdown, [], 'Select Item'); // Reset item dropdown
+    saveDropdownState();
+  });
+
+  positionDropdown.addEventListener('change', () => {
+    const selectedAssignment = assignmentDropdown.value;
+    const selectedPosition = positionDropdown.value;
+    console.log('Position changed to:', selectedPosition);
+    const filteredItems = vacancies.slice(1)
+      .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
+      .map(row => row[0]?.trim())
+      .filter(Boolean);
+    console.log('Filtered items:', filteredItems);
+    updateDropdown(itemDropdown, filteredItems, 'Select Item');
+    saveDropdownState();
+  });
+
+  itemDropdown.addEventListener('change', () => {
+    console.log('Item changed to:', itemDropdown.value);
+    saveDropdownState();
+    if (itemDropdown.value) {
+      fetchSecretariatCandidates(itemDropdown.value);
+    }
+  });
+
+  // Trigger initial population if a value is already set
+  if (assignmentDropdown.value) {
+    console.log('Triggering initial assignment change');
+    assignmentDropdown.dispatchEvent(new Event('change'));
+  }
+}
+
+
 
 fetch(`${API_BASE_URL}/config`)
   .then((response) => {
@@ -502,66 +572,7 @@ function switchTab(tab) {
   }
 }
 
-function initializeSecretariatDropdowns() {
-  const assignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-  const positionDropdown = document.getElementById('secretariatPositionDropdown');
-  const itemDropdown = document.getElementById('secretariatItemDropdown');
 
-  assignmentDropdown.setAttribute('data-placeholder', 'Select Assignment');
-  positionDropdown.setAttribute('data-placeholder', 'Select Position');
-  itemDropdown.setAttribute('data-placeholder', 'Select Item');
-
-  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
-  updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
-
-  setDropdownState(positionDropdown, false);
-  setDropdownState(itemDropdown, false);
-
-  assignmentDropdown.addEventListener('change', () => {
-    const assignment = assignmentDropdown.value;
-    if (currentTab !== 'secretariat') return; // Only process if Secretariat tab is active
-    if (assignment) {
-      const positions = vacancies
-        .filter((row) => row[2] === assignment)
-        .map((row) => row[1]);
-      updateDropdown(positionDropdown, [...new Set(positions)], 'Select Position');
-      setDropdownState(positionDropdown, true);
-    } else {
-      setDropdownState(positionDropdown, false);
-    }
-    setDropdownState(itemDropdown, false);
-    displaySecretariatCandidatesTable([], null, null);
-    saveDropdownState();
-  });
-
-  positionDropdown.addEventListener('change', () => {
-    const assignment = assignmentDropdown.value;
-    const position = positionDropdown.value;
-    if (currentTab !== 'secretariat') return;
-    if (assignment && position) {
-      const items = vacancies
-        .filter((row) => row[2] === assignment && row[1] === position)
-        .map((row) => row[0]);
-      updateDropdown(itemDropdown, [...new Set(items)], 'Select Item');
-      setDropdownState(itemDropdown, true);
-    } else {
-      setDropdownState(itemDropdown, false);
-    }
-    displaySecretariatCandidatesTable([], null, null);
-    saveDropdownState();
-  });
-
-  itemDropdown.addEventListener('change', () => {
-    const item = itemDropdown.value;
-    if (currentTab !== 'secretariat') return;
-    if (item) {
-      fetchSecretariatCandidates(item);
-    } else {
-      displaySecretariatCandidatesTable([], null, null);
-    }
-    saveDropdownState();
-  });
-}
 
 
 async function fetchSecretariatCandidates(itemNumber) {
@@ -746,7 +757,7 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
       }
 
       // Normalize data for matching
-      const normalizedName = name.trim().toUpperCase();
+      const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
       const normalizedItemNumber = itemNumber.trim();
 
       // Remove candidate from the opposite sheet
@@ -756,15 +767,20 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
           range: 'DISQUALIFIED!A:E',
         });
         let disqualifiedValues = disqualifiedResponse.result.values || [];
-        console.log('DISQUALIFIED values before deletion:', disqualifiedValues);
+        console.log('DISQUALIFIED raw values:', disqualifiedValues);
 
-        const disqualifiedIndex = disqualifiedValues.findIndex(row => 
-          row[0]?.trim().toUpperCase() === normalizedName && 
-          row[1]?.trim() === normalizedItemNumber && 
-          row[4] === secretariatMemberId
-        );
+        const disqualifiedIndex = disqualifiedValues.findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const rowMemberId = row[4]?.toString();
+          console.log('Comparing DISQUALIFIED row:', { rowName, rowItem, rowMemberId });
+          return rowName === normalizedName && 
+                 rowItem === normalizedItemNumber && 
+                 rowMemberId === secretariatMemberId;
+        });
 
         if (disqualifiedIndex !== -1) {
+          console.log(`Found match at index ${disqualifiedIndex}:`, disqualifiedValues[disqualifiedIndex]);
           disqualifiedValues.splice(disqualifiedIndex, 1);
           console.log(`Removing ${normalizedName} from DISQUALIFIED at index ${disqualifiedIndex}`);
           await gapi.client.sheets.spreadsheets.values.update({
@@ -772,12 +788,12 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
             range: 'DISQUALIFIED!A:E',
             valueInputOption: 'RAW',
             resource: { 
-              values: disqualifiedValues.length > 0 ? disqualifiedValues : [[]] // Avoid empty sheet issues
+              values: disqualifiedValues.length > 0 ? disqualifiedValues : [[]]
             },
           });
           console.log('DISQUALIFIED sheet updated successfully');
         } else {
-          console.log(`No matching record found for ${normalizedName} in DISQUALIFIED`);
+          console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
         }
 
         const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
@@ -785,7 +801,7 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
           range: 'GENERAL_LIST!A:P',
         });
         let candidate = generalResponse.result.values.find(row => 
-          row[0]?.trim().toUpperCase() === normalizedName && 
+          row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
           row[1]?.trim() === normalizedItemNumber
         );
         if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
@@ -804,15 +820,20 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
           range: 'CANDIDATES!A:Q',
         });
         let candidatesValues = candidatesResponse.result.values || [];
-        console.log('CANDIDATES values before deletion:', candidatesValues);
+        console.log('CANDIDATES raw values:', candidatesValues);
 
-        const candidatesIndex = candidatesValues.findIndex(row => 
-          row[0]?.trim().toUpperCase() === normalizedName && 
-          row[1]?.trim() === normalizedItemNumber && 
-          row[16] === secretariatMemberId
-        );
+        const candidatesIndex = candidatesValues.findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const rowMemberId = row[16]?.toString();
+          console.log('Comparing CANDIDATES row:', { rowName, rowItem, rowMemberId });
+          return rowName === normalizedName && 
+                 rowItem === normalizedItemNumber && 
+                 rowMemberId === secretariatMemberId;
+        });
 
         if (candidatesIndex !== -1) {
+          console.log(`Found match at index ${candidatesIndex}:`, candidatesValues[candidatesIndex]);
           candidatesValues.splice(candidatesIndex, 1);
           console.log(`Removing ${normalizedName} from CANDIDATES at index ${candidatesIndex}`);
           await gapi.client.sheets.spreadsheets.values.update({
@@ -820,12 +841,12 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
             range: 'CANDIDATES!A:Q',
             valueInputOption: 'RAW',
             resource: { 
-              values: candidatesValues.length > 0 ? candidatesValues : [[]] // Avoid empty sheet issues
+              values: candidatesValues.length > 0 ? candidatesValues : [[]]
             },
           });
           console.log('CANDIDATES sheet updated successfully');
         } else {
-          console.log(`No matching record found for ${normalizedName} in CANDIDATES`);
+          console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
         }
 
         const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
