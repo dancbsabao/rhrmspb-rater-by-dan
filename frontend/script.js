@@ -154,8 +154,7 @@ async function restoreState() {
                 authenticated: true,
                 timestamp: Date.now()
               }));
-              const token = gapi.client.getToken();
-              saveAuthState(token, currentEvaluator);
+              saveAuthState(null, currentEvaluator); // Pass null for secretariat login
               showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
               confirmBtn.disabled = false;
               confirmBtn.textContent = 'Confirm';
@@ -187,17 +186,18 @@ async function restoreState() {
     const dropdownState = loadDropdownState();
     const authSection = document.querySelector('.auth-section');
     const container = document.querySelector('.container');
+    const isSecretariatAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
 
-    if (authState) {
-      if (authState.access_token) {
+    if (authState || isSecretariatAuthenticated) {
+      if (authState?.access_token) {
         gapi.client.setToken({ access_token: authState.access_token });
         await new Promise(resolve => setTimeout(resolve, 1000));
         if (!await isTokenValid()) await refreshAccessToken();
       }
-      sessionId = authState.session_id;
-      secretariatMemberId = authState.secretariatMemberId || localStorage.getItem('secretariatMemberId');
-      currentEvaluator = authState.evaluator;
-      updateUI(!!authState.access_token);
+      sessionId = authState?.session_id || null;
+      secretariatMemberId = authState?.secretariatMemberId || localStorage.getItem('secretariatMemberId');
+      currentEvaluator = authState?.evaluator;
+      updateUI(!!authState?.access_token);
       authSection.classList.remove('signed-out');
 
       await loadSheetData();
@@ -523,6 +523,14 @@ async function initializeGapiClient() {
 
 async function isTokenValid() {
   const authState = JSON.parse(localStorage.getItem('authState'));
+  const isSecretariatAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
+
+  // Skip token validation for secretariat-only sessions
+  if (isSecretariatAuthenticated && !authState?.access_token) {
+    console.log('Skipping token validation for secretariat-only session');
+    return true;
+  }
+
   if (!authState?.access_token) return false;
 
   const timeLeft = authState.expires_at - Date.now();
@@ -545,10 +553,20 @@ async function isTokenValid() {
 
 async function refreshAccessToken() {
   const authState = JSON.parse(localStorage.getItem('authState'));
+  const isSecretariatAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
+
+  // Skip refresh for secretariat-only sessions
+  if (isSecretariatAuthenticated && !authState?.access_token) {
+    console.log('No token refresh needed for secretariat-only session');
+    return true;
+  }
+
   if (!authState?.session_id) {
     console.warn('No session ID available');
-    localStorage.clear();
-    handleAuthClick();
+    if (!isSecretariatAuthenticated) {
+      localStorage.clear();
+      handleAuthClick();
+    }
     return false;
   }
   try {
@@ -574,8 +592,10 @@ async function refreshAccessToken() {
   } catch (error) {
     console.error('Token refresh failed:', error.message);
     showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
-    localStorage.clear();
-    handleAuthClick();
+    if (!isSecretariatAuthenticated) {
+      localStorage.clear();
+      handleAuthClick();
+    }
     return false;
   }
 }
