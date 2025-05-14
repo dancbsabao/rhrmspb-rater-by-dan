@@ -99,6 +99,18 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
+  // Check for tab query parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const tabFromUrl = urlParams.get('tab');
+  if (tabFromUrl && ['rater', 'secretariat'].includes(tabFromUrl)) {
+    localStorage.setItem('currentTab', tabFromUrl);
+    currentTab = tabFromUrl;
+    // Clear query parameter to prevent reprocessing
+    const url = new URL(window.location);
+    url.searchParams.delete('tab');
+    window.history.replaceState({}, document.title, url.toString());
+  }
+
   const authState = loadAuthState();
   const dropdownState = loadDropdownState();
   const authSection = document.querySelector('.auth-section');
@@ -145,7 +157,7 @@ async function restoreState() {
 
     const changePromises = [];
     // Restore Rater dropdowns
-    if (dropdownState.assignment) {
+    if (dropdownState.assignment && currentTab === 'rater') {
       const dropdown = elements.assignmentDropdown;
       dropdown.value = dropdownState.assignment;
       if (await waitForDropdownOptions(dropdown, dropdownState.assignment)) {
@@ -156,7 +168,7 @@ async function restoreState() {
         }));
       }
     }
-    if (dropdownState.position) {
+    if (dropdownState.position && currentTab === 'rater') {
       const dropdown = elements.positionDropdown;
       dropdown.value = dropdownState.position;
       if (await waitForDropdownOptions(dropdown, dropdownState.position)) {
@@ -167,7 +179,7 @@ async function restoreState() {
         }));
       }
     }
-    if (dropdownState.item) {
+    if (dropdownState.item && currentTab === 'rater') {
       const dropdown = elements.itemDropdown;
       dropdown.value = dropdownState.item;
       if (await waitForDropdownOptions(dropdown, dropdownState.item)) {
@@ -178,7 +190,7 @@ async function restoreState() {
         }));
       }
     }
-    if (dropdownState.name) {
+    if (dropdownState.name && currentTab === 'rater') {
       const dropdown = elements.nameDropdown;
       dropdown.value = dropdownState.name;
       if (await waitForDropdownOptions(dropdown, dropdownState.name)) {
@@ -195,7 +207,7 @@ async function restoreState() {
     const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
     const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
 
-    if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
+    if (dropdownState.secretariatAssignment && currentTab === 'secretariat' && secretariatAssignmentDropdown) {
       secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
       if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
         changePromises.push(new Promise(resolve => {
@@ -210,7 +222,7 @@ async function restoreState() {
         secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
       }
     }
-    if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
+    if (dropdownState.secretariatPosition && currentTab === 'secretariat' && secretariatPositionDropdown) {
       secretariatPositionDropdown.value = dropdownState.secretariatPosition;
       if (await waitForDropdownOptions(secretariatPositionDropdown, dropdownState.secretariatPosition)) {
         changePromises.push(new Promise(resolve => {
@@ -220,7 +232,7 @@ async function restoreState() {
         }));
       }
     }
-    if (dropdownState.secretariatItem && secretariatItemDropdown) {
+    if (dropdownState.secretariatItem && currentTab === 'secretariat' && secretariatItemDropdown) {
       secretariatItemDropdown.value = dropdownState.secretariatItem;
       if (await waitForDropdownOptions(secretariatItemDropdown, dropdownState.secretariatItem)) {
         changePromises.push(new Promise(resolve => {
@@ -235,11 +247,19 @@ async function restoreState() {
     if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && currentTab === 'rater') {
       fetchSubmittedRatings();
     }
-    if (localStorage.getItem('secretariatAuthenticated') && localStorage.getItem('currentTab') === 'secretariat') {
-      switchTab('secretariat');
+    if (localStorage.getItem('secretariatAuthenticated') && currentTab === 'secretariat') {
+      document.getElementById('raterTab').classList.remove('active');
+      document.getElementById('secretariatTab').classList.add('active');
+      document.getElementById('raterContent').style.display = 'none';
+      document.getElementById('secretariatContent').style.display = 'block';
       if (secretariatItemDropdown.value) {
         fetchSecretariatCandidates(secretariatItemDropdown.value);
       }
+    } else {
+      document.getElementById('raterTab').classList.add('active');
+      document.getElementById('secretariatTab').classList.remove('active');
+      document.getElementById('raterContent').style.display = 'block';
+      document.getElementById('secretariatContent').style.display = 'none';
     }
 
     // Ensure results-area is hidden for Secretariat tab on restore
@@ -249,7 +269,6 @@ async function restoreState() {
       console.log(`Results area ${currentTab === 'rater' ? 'shown' : 'hidden'} on restore for ${currentTab} tab`);
     }
   } else {
-    const urlParams = new URLSearchParams(window.location.search);
     const accessToken = urlParams.get('access_token');
     const expiresIn = urlParams.get('expires_in');
     sessionId = urlParams.get('session_id');
@@ -559,8 +578,14 @@ function setupTabNavigation() {
 
 
 function switchTab(tab) {
+  // Update currentTab and store in localStorage
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
+
+  // Add query parameter to trigger restoreState with correct tab
+  const url = new URL(window.location);
+  url.searchParams.set('tab', tab);
+  window.location = url.toString(); // Reload page with new URL
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
@@ -2222,7 +2247,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     </div>
   `;
 
-  const container = document.querySelector('.container');
+const container = document.querySelector('.container');
 const updateMarginTop = () => {
   if (currentTab === 'rater' && resultsArea.classList.contains('active')) {
     const resultsHeight = resultsArea.offsetHeight + 20;
