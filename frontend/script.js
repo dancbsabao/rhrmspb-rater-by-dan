@@ -54,21 +54,34 @@ function saveAuthState(tokenResponse, evaluator) {
   scheduleTokenRefresh();
 }
 
+let debounceTimeout = null;
 function saveDropdownState() {
-  const dropdownState = {
-    evaluator: document.getElementById('evaluatorSelect')?.value || '',
-    assignment: elements.assignmentDropdown.value,
-    position: elements.positionDropdown.value,
-    item: elements.itemDropdown.value,
-    name: elements.nameDropdown.value,
-    secretariatAssignment: document.getElementById('secretariatAssignmentDropdown')?.value || '',
-    secretariatPosition: document.getElementById('secretariatPositionDropdown')?.value || '',
-    secretariatItem: document.getElementById('secretariatItemDropdown')?.value || '',
-  };
-  localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
-  console.log('Dropdown state saved:', dropdownState);
-}
+  // Clear any existing debounce timeout
+  if (debounceTimeout) {
+    clearTimeout(debounceTimeout);
+  }
 
+  // Debounce state saving by 100ms to ensure DOM updates are complete
+  debounceTimeout = setTimeout(() => {
+    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+    const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
+    const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+
+    const dropdownState = {
+      evaluator: document.getElementById('evaluatorSelect')?.value || '',
+      assignment: elements.assignmentDropdown.value || '',
+      position: elements.positionDropdown.value || '',
+      item: elements.itemDropdown.value || '',
+      name: elements.nameDropdown.value || '',
+      secretariatAssignment: secretariatAssignmentDropdown?.value || '',
+      secretariatPosition: secretariatPositionDropdown?.value || '',
+      secretariatItem: secretariatItemDropdown?.value || '',
+    };
+
+    localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
+    console.log('Dropdown state saved:', dropdownState);
+  }, 100);
+}
 function loadDropdownState() {
   const dropdownState = JSON.parse(localStorage.getItem('dropdownState')) || {};
   console.log('Loaded dropdown state:', dropdownState);
@@ -99,11 +112,13 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
+  dropdownStateRestoring = true; // Set flag during restoration
   const authState = loadAuthState();
   const dropdownState = loadDropdownState();
   const authSection = document.querySelector('.auth-section');
   const container = document.querySelector('.container');
 
+try {
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
     sessionId = authState.session_id;
@@ -114,10 +129,13 @@ async function restoreState() {
     updateUI(true);
     authSection.classList.remove('signed-out');
 
-    // Load sheet data and initialize dropdowns
+    // Load sheet data
     await loadSheetData();
-    console.log('Calling initializeSecretariatDropdowns after loadSheetData');
-    await initializeSecretariatDropdowns(); // Explicitly initialize dropdowns
+    console.log('Sheet data loaded, initializing dropdowns');
+
+    // Initialize dropdowns for both tabs
+    initializeDropdowns(vacancies); // Rater tab
+    await initializeSecretariatDropdowns(); // Secretariat tab
 
     const evaluatorSelect = document.getElementById('evaluatorSelect');
     if (evaluatorSelect && dropdownState.evaluator) {
@@ -125,67 +143,49 @@ async function restoreState() {
       currentEvaluator = dropdownState.evaluator;
     }
 
-    // Helper function to wait for dropdown options
-    async function waitForDropdownOptions(dropdown, expectedValue, maxAttempts = 10, delayMs = 500) {
-      console.log(`Waiting for option ${expectedValue} in ${dropdown.id}`);
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        const options = Array.from(dropdown.options).map(opt => opt.value);
-        console.log(`Attempt ${attempt}: Options in ${dropdown.id}:`, options);
-        if (options.includes(expectedValue)) {
-          console.log(`Found option ${expectedValue} in ${dropdown.id}`);
-          return true;
-        }
-        console.log(`Attempt ${attempt}: Option ${expectedValue} not found in ${dropdown.id}, retrying...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        dropdown.dispatchEvent(new Event('change')); // Trigger population
-      }
-      console.error(`Failed to find option ${expectedValue} in ${dropdown.id} after ${maxAttempts} attempts`);
-      return false;
-    }
-
     const changePromises = [];
     // Restore Rater dropdowns
-    if (dropdownState.assignment) {
-      const dropdown = elements.assignmentDropdown;
-      dropdown.value = dropdownState.assignment;
-      if (await waitForDropdownOptions(dropdown, dropdownState.assignment)) {
+    if (dropdownState.assignment && elements.assignmentDropdown) {
+      const options = Array.from(elements.assignmentDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.assignment)) {
+        elements.assignmentDropdown.value = dropdownState.assignment;
         changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
+          const handler = () => { resolve(); elements.assignmentDropdown.removeEventListener('change', handler); };
+          elements.assignmentDropdown.addEventListener('change', handler, { once: true });
+          elements.assignmentDropdown.dispatchEvent(new Event('change'));
         }));
       }
     }
-    if (dropdownState.position) {
-      const dropdown = elements.positionDropdown;
-      dropdown.value = dropdownState.position;
-      if (await waitForDropdownOptions(dropdown, dropdownState.position)) {
+    if (dropdownState.position && elements.positionDropdown) {
+      const options = Array.from(elements.positionDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.position)) {
+        elements.positionDropdown.value = dropdownState.position;
         changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
+          const handler = () => { resolve(); elements.positionDropdown.removeEventListener('change', handler); };
+          elements.positionDropdown.addEventListener('change', handler, { once: true });
+          elements.positionDropdown.dispatchEvent(new Event('change'));
         }));
       }
     }
-    if (dropdownState.item) {
-      const dropdown = elements.itemDropdown;
-      dropdown.value = dropdownState.item;
-      if (await waitForDropdownOptions(dropdown, dropdownState.item)) {
+    if (dropdownState.item && elements.itemDropdown) {
+      const options = Array.from(elements.itemDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.item)) {
+        elements.itemDropdown.value = dropdownState.item;
         changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
+          const handler = () => { resolve(); elements.itemDropdown.removeEventListener('change', handler); };
+          elements.itemDropdown.addEventListener('change', handler, { once: true });
+          elements.itemDropdown.dispatchEvent(new Event('change'));
         }));
       }
     }
-    if (dropdownState.name) {
-      const dropdown = elements.nameDropdown;
-      dropdown.value = dropdownState.name;
-      if (await waitForDropdownOptions(dropdown, dropdownState.name)) {
+    if (dropdownState.name && elements.nameDropdown) {
+      const options = Array.from(elements.nameDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.name)) {
+        elements.nameDropdown.value = dropdownState.name;
         changePromises.push(new Promise(resolve => {
-          const handler = () => { resolve(); dropdown.removeEventListener('change', handler); };
-          dropdown.addEventListener('change', handler, { once: true });
-          dropdown.dispatchEvent(new Event('change'));
+          const handler = () => { resolve(); elements.nameDropdown.removeEventListener('change', handler); };
+          elements.nameDropdown.addEventListener('change', handler, { once: true });
+          elements.nameDropdown.dispatchEvent(new Event('change'));
         }));
       }
     }
@@ -196,25 +196,17 @@ async function restoreState() {
     const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
 
     if (dropdownState.secretariatAssignment && secretariatAssignmentDropdown) {
-      const setAssignmentValue = async () => {
-        // Ensure dropdowns are initialized with vacancy data
-        await initializeSecretariatDropdowns();
-        // Check if the saved assignment value exists in the dropdown options
-        const options = Array.from(secretariatAssignmentDropdown.options).map(opt => opt.value);
-        if (options.includes(dropdownState.secretariatAssignment)) {
-          secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
-          console.log(`Restored secretariatAssignmentDropdown to: ${dropdownState.secretariatAssignment}`);
-          // Trigger change event to populate dependent dropdowns
-          secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
-          changePromises.push(Promise.resolve()); // Add to changePromises for consistency
-        } else {
-          console.error(`Saved assignment value ${dropdownState.secretariatAssignment} not found in options:`, options);
-          showToast('warning', 'Warning', `Assignment "${dropdownState.secretariatAssignment}" not available`);
-        }
-      };
-      await setAssignmentValue();
+      const options = Array.from(secretariatAssignmentDropdown.options).map(opt => opt.value);
+      if (options.includes(dropdownState.secretariatAssignment)) {
+        secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
+        console.log(`Restored secretariatAssignmentDropdown to: ${dropdownState.secretariatAssignment}`);
+        secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+        changePromises.push(Promise.resolve());
+      } else {
+        console.error(`Saved assignment value ${dropdownState.secretariatAssignment} not found in options:`, options);
+        showToast('warning', 'Warning', `Assignment "${dropdownState.secretariatAssignment}" not available`);
+      }
     }
-    // Restore position dropdown
     if (dropdownState.secretariatPosition && secretariatPositionDropdown) {
       const options = Array.from(secretariatPositionDropdown.options).map(opt => opt.value);
       if (options.includes(dropdownState.secretariatPosition)) {
@@ -226,7 +218,6 @@ async function restoreState() {
         console.warn(`Saved position value ${dropdownState.secretariatPosition} not found in options:`, options);
       }
     }
-    // Restore item dropdown
     if (dropdownState.secretariatItem && secretariatItemDropdown) {
       const options = Array.from(secretariatItemDropdown.options).map(opt => opt.value);
       if (options.includes(dropdownState.secretariatItem)) {
@@ -240,6 +231,14 @@ async function restoreState() {
     }
 
     await Promise.all(changePromises);
+
+    // Ensure UI reflects restored values
+    if (currentTab === 'secretariat' && secretariatAssignmentDropdown) {
+      secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment || '';
+      secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
+      console.log('Re-applied secretariatAssignmentDropdown value for UI consistency');
+    }
+
     if (currentEvaluator && elements.nameDropdown.value && elements.itemDropdown.value && currentTab === 'rater') {
       fetchSubmittedRatings();
     }
@@ -275,6 +274,9 @@ async function restoreState() {
       if (resultsArea) resultsArea.remove();
     }
   }
+  } finally {
+    dropdownStateRestoring = false; // Reset flag after restoration
+  }
 }
 
 
@@ -295,8 +297,12 @@ async function initializeSecretariatDropdowns() {
   console.log('Unique assignments:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
 
-  assignmentDropdown.addEventListener('change', () => {
-    const selectedAssignment = assignmentDropdown.value;
+  // Remove existing event listeners to prevent duplicates
+  const newAssignmentDropdown = assignmentDropdown.cloneNode(true);
+  assignmentDropdown.parentNode.replaceChild(newAssignmentDropdown, assignmentDropdown);
+
+  newAssignmentDropdown.addEventListener('change', () => {
+    const selectedAssignment = newAssignmentDropdown.value;
     console.log('Assignment changed to:', selectedAssignment);
     const filteredPositions = [...new Set(
       vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
@@ -307,9 +313,13 @@ async function initializeSecretariatDropdowns() {
     saveDropdownState();
   });
 
-  positionDropdown.addEventListener('change', () => {
-    const selectedAssignment = assignmentDropdown.value;
-    const selectedPosition = positionDropdown.value;
+  // Remove existing event listeners for positionDropdown
+  const newPositionDropdown = positionDropdown.cloneNode(true);
+  positionDropdown.parentNode.replaceChild(newPositionDropdown, positionDropdown);
+
+  newPositionDropdown.addEventListener('change', () => {
+    const selectedAssignment = newAssignmentDropdown.value;
+    const selectedPosition = newPositionDropdown.value;
     console.log('Position changed to:', selectedPosition);
     const filteredItems = vacancies.slice(1)
       .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
@@ -320,20 +330,27 @@ async function initializeSecretariatDropdowns() {
     saveDropdownState();
   });
 
-  itemDropdown.addEventListener('change', () => {
-    console.log('Item changed to:', itemDropdown.value);
+  // Remove existing event listeners for itemDropdown
+  const newItemDropdown = itemDropdown.cloneNode(true);
+  itemDropdown.parentNode.replaceChild(newItemDropdown, itemDropdown);
+
+  newItemDropdown.addEventListener('change', () => {
+    console.log('Item changed to:', newItemDropdown.value);
     saveDropdownState();
-    if (itemDropdown.value) {
-      fetchSecretariatCandidates(itemDropdown.value);
+    if (newItemDropdown.value) {
+      fetchSecretariatCandidates(newItemDropdown.value);
     }
   });
 
-  // Trigger initial population if a value is already set
-  if (assignmentDropdown.value) {
+  // Trigger change only if a value is already set and not during restoration
+  if (newAssignmentDropdown.value && !dropdownStateRestoring) {
     console.log('Triggering initial assignment change');
-    assignmentDropdown.dispatchEvent(new Event('change'));
+    newAssignmentDropdown.dispatchEvent(new Event('change'));
   }
 }
+
+// Flag to indicate restoration is in progress
+let dropdownStateRestoring = false;
 
 
 
