@@ -12,6 +12,7 @@ let generalList = [];
 let disqualified = [];
 let rateLog = [];
 let SECRETARIAT_PASSWORD = '';
+let secretariatMemberId = null; // Initialize secretariat member ID
 
 let CLIENT_ID;
 let API_KEY;
@@ -46,7 +47,7 @@ function saveAuthState(tokenResponse, evaluator) {
     session_id: tokenResponse.session_id || sessionId,
     expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
-    secretariatMemberId: secretariatMemberId || null,
+    secretariatMemberId: typeof secretariatMemberId !== 'undefined' ? secretariatMemberId : null,
   };
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
