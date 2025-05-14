@@ -19,7 +19,7 @@ app.use(cors({
     ];
     console.log('Request Origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, origin || 'https://dancbsabao.github.io');
+      callback(null, origin || 'https://dancbsabao.github.io'); // Explicit origin
     } else {
       console.error('CORS rejected origin:', origin);
       callback(new Error('Not allowed by CORS'));
@@ -46,7 +46,6 @@ app.get('/config', (req, res) => {
       EVALUATOR_PASSWORDS: process.env.EVALUATOR_PASSWORDS
         ? JSON.parse(process.env.EVALUATOR_PASSWORDS)
         : [],
-      SECRETARIAT_PASSWORD: process.env.SECRETARIAT_PASSWORD || '',
       SHEET_RANGES: process.env.SHEET_RANGES
         ? JSON.parse(process.env.SHEET_RANGES)
         : [],
