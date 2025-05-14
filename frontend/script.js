@@ -241,6 +241,13 @@ async function restoreState() {
         fetchSecretariatCandidates(secretariatItemDropdown.value);
       }
     }
+
+    // Ensure results-area is hidden for Secretariat tab on restore
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) {
+      resultsArea.classList.toggle('active', currentTab === 'rater');
+      console.log(`Results area ${currentTab === 'rater' ? 'shown' : 'hidden'} on restore for ${currentTab} tab`);
+    }
   } else {
     const urlParams = new URLSearchParams(window.location.search);
     const accessToken = urlParams.get('access_token');
@@ -264,7 +271,7 @@ async function restoreState() {
       container.style.marginTop = '20px';
       authSection.classList.add('signed-out');
       const resultsArea = document.querySelector('.results-area');
-      if (resultsArea) resultsArea.remove();
+      if (resultsArea) resultsArea.classList.remove('active');
     }
   }
 }
@@ -583,6 +590,15 @@ function switchTab(tab) {
     if (secretariatItemDropdown.value) {
       fetchSecretariatCandidates(secretariatItemDropdown.value);
     }
+  }
+
+  // Toggle results-area visibility
+  const resultsArea = document.querySelector('.results-area');
+  if (resultsArea) {
+    resultsArea.classList.toggle('active', tab === 'rater');
+    console.log(`Results area ${tab === 'rater' ? 'shown' : 'hidden'} for ${tab} tab`);
+  } else {
+    console.warn('Results area not found when switching to', tab);
   }
 }
 
@@ -2177,7 +2193,14 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     resultsArea.className = 'results-area';
     pageWrapper.insertBefore(resultsArea, pageWrapper.firstChild);
   }
-  resultsArea.classList.add('active');
+  // Only add .active if currentTab is rater
+  if (currentTab === 'rater') {
+    resultsArea.classList.add('active');
+    console.log('Results area shown in displayCompetencies for rater tab');
+  } else {
+    resultsArea.classList.remove('active');
+    console.log('Results area hidden in displayCompetencies for non-rater tab');
+  }
   resultsArea.innerHTML = `
     <div class="ratings-title">CURRENT SELECTION & RATINGS</div>
     <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
@@ -2200,10 +2223,15 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   `;
 
   const container = document.querySelector('.container');
-  const updateMarginTop = () => {
+const updateMarginTop = () => {
+  if (currentTab === 'rater' && resultsArea.classList.contains('active')) {
     const resultsHeight = resultsArea.offsetHeight + 20;
     container.style.marginTop = `${resultsHeight}px`;
-  };
+  } else {
+    container.style.marginTop = '20px';
+    console.log('Container margin reset for non-rater tab');
+  }
+};
   
   updateMarginTop();
   window.addEventListener('resize', updateMarginTop);
