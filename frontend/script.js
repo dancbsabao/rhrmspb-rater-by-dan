@@ -111,6 +111,54 @@ async function restoreState() {
     window.history.replaceState({}, document.title, url.toString());
   }
 
+  // Prompt for secretariat login if switching to secretariat and not authenticated
+  if (currentTab === 'secretariat' && !localStorage.getItem('secretariatAuthenticated')) {
+    console.log('Prompting secretariat login');
+    const authenticated = await new Promise((resolve) => {
+      showModal(
+        'Secretariat Authentication',
+        `
+          <p>Please enter the Secretariat password:</p>
+          <input type="password" id="secretariatPassword" class="modal-input">
+          <p>Select Member ID (1-5):</p>
+          <select id="secretariatMemberId" class="modal-input">
+            <option value="">Select Member</option>
+            <option value="1">Member 1</option>
+            <option value="2">Member 2</option>
+            <option value="3">Member 3</option>
+            <option value="4">Member 4</option>
+            <option value="5">Member 5</option>
+          </select>
+        `,
+        () => {
+          const password = document.getElementById('secretariatPassword').value.trim();
+          const memberId = document.getElementById('secretariatMemberId').value;
+          if (password === SECRETARIAT_PASSWORD && memberId) {
+            secretariatMemberId = memberId;
+            localStorage.setItem('secretariatAuthenticated', 'true');
+            localStorage.setItem('secretariatMemberId', memberId);
+            saveAuthState(gapi.client.getToken(), currentEvaluator);
+            showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
+            resolve(true);
+          } else {
+            showToast('error', 'Error', 'Incorrect password or missing Member ID');
+            resolve(false);
+          }
+        },
+        () => {
+          console.log('Secretariat login cancelled');
+          switchTab('rater'); // Switch back to rater if cancelled
+          resolve(false);
+        }
+      );
+    });
+
+    if (!authenticated) {
+      switchTab('rater'); // Force switch to rater if login fails or is cancelled
+      return;
+    }
+  }
+
   const authState = loadAuthState();
   const dropdownState = loadDropdownState();
   const authSection = document.querySelector('.auth-section');
@@ -119,7 +167,7 @@ async function restoreState() {
   if (authState) {
     gapi.client.setToken({ access_token: authState.access_token });
     sessionId = authState.session_id;
-    secretariatMemberId = authState.secretariatMemberId;
+    secretariatMemberId = authState.secretariatMemberId || localStorage.getItem('secretariatMemberId');
     await new Promise(resolve => setTimeout(resolve, 1000));
     if (!await isTokenValid()) await refreshAccessToken();
     currentEvaluator = authState.evaluator;
@@ -207,7 +255,7 @@ async function restoreState() {
     const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
     const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
 
-    if (dropdownState.secretariatAssignment && currentTab === 'secretariat' && secretariatAssignmentDropdown) {
+    if (dropdownState.secretariatAssignment && currentTab === 'secretariat' && secretariatAssignmentDropdown && localStorage.getItem('secretariatAuthenticated')) {
       secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment;
       if (await waitForDropdownOptions(secretariatAssignmentDropdown, dropdownState.secretariatAssignment)) {
         changePromises.push(new Promise(resolve => {
@@ -222,7 +270,7 @@ async function restoreState() {
         secretariatAssignmentDropdown.dispatchEvent(new Event('change'));
       }
     }
-    if (dropdownState.secretariatPosition && currentTab === 'secretariat' && secretariatPositionDropdown) {
+    if (dropdownState.secretariatPosition && currentTab === 'secretariat' && secretariatPositionDropdown && localStorage.getItem('secretariatAuthenticated')) {
       secretariatPositionDropdown.value = dropdownState.secretariatPosition;
       if (await waitForDropdownOptions(secretariatPositionDropdown, dropdownState.secretariatPosition)) {
         changePromises.push(new Promise(resolve => {
@@ -232,7 +280,7 @@ async function restoreState() {
         }));
       }
     }
-    if (dropdownState.secretariatItem && currentTab === 'secretariat' && secretariatItemDropdown) {
+    if (dropdownState.secretariatItem && currentTab === 'secretariat' && secretariatItemDropdown && localStorage.getItem('secretariatAuthenticated')) {
       secretariatItemDropdown.value = dropdownState.secretariatItem;
       if (await waitForDropdownOptions(secretariatItemDropdown, dropdownState.secretariatItem)) {
         changePromises.push(new Promise(resolve => {
@@ -303,54 +351,90 @@ async function initializeSecretariatDropdowns() {
   const positionDropdown = document.getElementById('secretariatPositionDropdown');
   const itemDropdown = document.getElementById('secretariatItemDropdown');
 
+  // Reset dropdowns
+  setDropdownState(assignmentDropdown, false);
+  setDropdownState(positionDropdown, false);
+  setDropdownState(itemDropdown, false);
+
+  if (!localStorage.getItem('secretariatAuthenticated')) {
+    console.log('Secretariat dropdowns disabled: not authenticated');
+    return;
+  }
+
   if (!vacancies || vacancies.length <= 1) {
     console.warn('No valid vacancies data available');
     showToast('error', 'Error', 'No vacancies available to populate dropdowns');
     return;
   }
 
+  // Enable and populate assignment dropdown
   const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]?.trim()))].filter(Boolean);
   console.log('Unique assignments:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
+  setDropdownState(assignmentDropdown, true);
 
-  assignmentDropdown.addEventListener('change', () => {
+  // Remove existing listeners to prevent duplicates
+  assignmentDropdown.removeEventListener('change', assignmentDropdown.onchange);
+  assignmentDropdown.onchange = () => {
     const selectedAssignment = assignmentDropdown.value;
     console.log('Assignment changed to:', selectedAssignment);
-    const filteredPositions = [...new Set(
-      vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
-    )].filter(Boolean);
-    console.log('Filtered positions:', filteredPositions);
-    updateDropdown(positionDropdown, filteredPositions, 'Select Position');
-    updateDropdown(itemDropdown, [], 'Select Item'); // Reset item dropdown
+    setDropdownState(positionDropdown, false);
+    setDropdownState(itemDropdown, false);
+    if (selectedAssignment) {
+      const filteredPositions = [...new Set(
+        vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
+      )].filter(Boolean);
+      console.log('Filtered positions:', filteredPositions);
+      updateDropdown(positionDropdown, filteredPositions, 'Select Position');
+      setDropdownState(positionDropdown, true);
+      updateDropdown(itemDropdown, [], 'Select Item');
+    }
     saveDropdownState();
-  });
+  };
+  assignmentDropdown.addEventListener('change', assignmentDropdown.onchange);
 
-  positionDropdown.addEventListener('change', () => {
+  // Remove existing listeners
+  positionDropdown.removeEventListener('change', positionDropdown.onchange);
+  positionDropdown.onchange = () => {
     const selectedAssignment = assignmentDropdown.value;
     const selectedPosition = positionDropdown.value;
     console.log('Position changed to:', selectedPosition);
-    const filteredItems = vacancies.slice(1)
-      .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
-      .map(row => row[0]?.trim())
-      .filter(Boolean);
-    console.log('Filtered items:', filteredItems);
-    updateDropdown(itemDropdown, filteredItems, 'Select Item');
+    setDropdownState(itemDropdown, false);
+    if (selectedAssignment && selectedPosition) {
+      const filteredItems = vacancies.slice(1)
+        .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
+        .map(row => row[0]?.trim())
+        .filter(Boolean);
+      console.log('Filtered items:', filteredItems);
+      updateDropdown(itemDropdown, filteredItems, 'Select Item');
+      setDropdownState(itemDropdown, true);
+    }
     saveDropdownState();
-  });
+  };
+  positionDropdown.addEventListener('change', positionDropdown.onchange);
 
-  itemDropdown.addEventListener('change', () => {
+  // Remove existing listeners
+  itemDropdown.removeEventListener('change', itemDropdown.onchange);
+  itemDropdown.onchange = () => {
     console.log('Item changed to:', itemDropdown.value);
     saveDropdownState();
     if (itemDropdown.value) {
       fetchSecretariatCandidates(itemDropdown.value);
     }
-  });
+  };
+  itemDropdown.addEventListener('change', itemDropdown.onchange);
 
-  // Trigger initial population if a value is already set
-  if (assignmentDropdown.value) {
-    console.log('Triggering initial assignment change');
-    assignmentDropdown.dispatchEvent(new Event('change'));
+  // Restore saved state
+  const dropdownState = loadDropdownState();
+  if (dropdownState.secretariatAssignment && currentTab === 'secretariat') {
+    assignmentDropdown.value = dropdownState.secretariatAssignment;
+    if (assignmentDropdown.value) {
+      console.log('Restoring secretariatAssignmentDropdown:', assignmentDropdown.value);
+      assignmentDropdown.dispatchEvent(new Event('change'));
+    }
   }
+
+  console.log('initializeSecretariatDropdowns completed');
 }
 
 
@@ -538,46 +622,19 @@ function setupTabNavigation() {
   const secretariatTab = document.getElementById('secretariatTab');
 
   raterTab.addEventListener('click', () => switchTab('rater'));
-  secretariatTab.addEventListener('click', () => {
-    if (localStorage.getItem('secretariatAuthenticated') && secretariatMemberId) {
-      switchTab('secretariat');
-      showToast('success', 'Success', `Logged in as Secretariat Member ${secretariatMemberId}`);
-    } else {
-      showModal(
-        'Secretariat Authentication',
-        `
-          <p>Please enter the Secretariat password:</p>
-          <input type="password" id="secretariatPassword" class="modal-input">
-          <p>Select Member ID (1-5):</p>
-          <select id="secretariatMemberId" class="modal-input">
-            <option value="">Select Member</option>
-            <option value="1">Member 1</option>
-            <option value="2">Member 2</option>
-            <option value="3">Member 3</option>
-            <option value="4">Member 4</option>
-            <option value="5">Member 5</option>
-          </select>
-        `,
-        () => {
-          const password = document.getElementById('secretariatPassword').value.trim();
-          const memberId = document.getElementById('secretariatMemberId').value;
-          if (password === SECRETARIAT_PASSWORD && memberId) {
-            secretariatMemberId = memberId;
-            localStorage.setItem('secretariatAuthenticated', 'true');
-            saveAuthState(gapi.client.getToken(), currentEvaluator);
-            switchTab('secretariat');
-            showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
-          } else {
-            showToast('error', 'Error', 'Incorrect password or missing Member ID');
-          }
-        }
-      );
-    }
-  });
+  secretariatTab.addEventListener('click', () => switchTab('secretariat'));
 }
 
 
 function switchTab(tab) {
+  // Clear secretariat authentication when switching to rater
+  if (tab === 'rater') {
+    localStorage.removeItem('secretariatAuthenticated');
+    localStorage.removeItem('secretariatMemberId');
+    secretariatMemberId = null;
+    console.log('Cleared secretariatAuthenticated and secretariatMemberId for rater tab');
+  }
+
   // Update currentTab and store in localStorage
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
@@ -586,6 +643,7 @@ function switchTab(tab) {
   const url = new URL(window.location);
   url.searchParams.set('tab', tab);
   window.location = url.toString(); // Reload page with new URL
+
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
