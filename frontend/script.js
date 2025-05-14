@@ -43,15 +43,20 @@ const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 
 function saveAuthState(tokenResponse, evaluator) {
   const authState = {
-    access_token: tokenResponse.access_token,
-    session_id: tokenResponse.session_id || sessionId,
-    expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
+    access_token: tokenResponse?.access_token || null,
+    session_id: tokenResponse?.session_id || sessionId || null,
+    expires_at: tokenResponse ? Date.now() + ((tokenResponse.expires_in || 3600) * 1000) : null,
     evaluator: evaluator || null,
     secretariatMemberId: typeof secretariatMemberId !== 'undefined' ? secretariatMemberId : null,
   };
   localStorage.setItem('authState', JSON.stringify(authState));
-  console.log('Auth state saved:', authState);
-  scheduleTokenRefresh();
+  console.log('Auth state saved:', {
+    session_id: authState.session_id,
+    expires_at: authState.expires_at,
+    evaluator: authState.evaluator,
+    secretariatMemberId: authState.secretariatMemberId
+  });
+  if (authState.access_token) scheduleTokenRefresh();
 }
 
 function saveDropdownState() {
@@ -106,11 +111,10 @@ async function restoreState() {
     // Restore tab from localStorage or URL
     const urlParams = new URLSearchParams(window.location.search);
     const tabFromUrl = urlParams.get('tab');
-    currentTab = localStorage.getItem('currentTab') || 'rater'; // Default to rater
+    currentTab = localStorage.getItem('currentTab') || 'rater';
     if (tabFromUrl && ['rater', 'secretariat'].includes(tabFromUrl)) {
       currentTab = tabFromUrl;
       localStorage.setItem('currentTab', tabFromUrl);
-      // Clear query parameter
       const url = new URL(window.location);
       url.searchParams.delete('tab');
       window.history.replaceState({}, document.title, url.toString());
@@ -150,7 +154,8 @@ async function restoreState() {
                 authenticated: true,
                 timestamp: Date.now()
               }));
-              saveAuthState(gapi.client.getToken(), currentEvaluator);
+              const token = gapi.client.getToken();
+              saveAuthState(token, currentEvaluator);
               showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
               confirmBtn.disabled = false;
               confirmBtn.textContent = 'Confirm';
@@ -173,25 +178,26 @@ async function restoreState() {
       if (!authenticated) {
         currentTab = 'rater';
         localStorage.setItem('currentTab', 'rater');
-        switchTab('rater'); // Force rater tab
+        switchTab('rater');
         return;
       }
     }
 
-    // Existing auth and UI logic
     const authState = loadAuthState();
     const dropdownState = loadDropdownState();
     const authSection = document.querySelector('.auth-section');
     const container = document.querySelector('.container');
 
     if (authState) {
-      gapi.client.setToken({ access_token: authState.access_token });
+      if (authState.access_token) {
+        gapi.client.setToken({ access_token: authState.access_token });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (!await isTokenValid()) await refreshAccessToken();
+      }
       sessionId = authState.session_id;
       secretariatMemberId = authState.secretariatMemberId || localStorage.getItem('secretariatMemberId');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      if (!await isTokenValid()) await refreshAccessToken();
       currentEvaluator = authState.evaluator;
-      updateUI(true);
+      updateUI(!!authState.access_token);
       authSection.classList.remove('signed-out');
 
       await loadSheetData();
