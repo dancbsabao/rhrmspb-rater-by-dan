@@ -769,7 +769,9 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
         let disqualifiedValues = disqualifiedResponse.result.values || [];
         console.log('DISQUALIFIED raw values:', disqualifiedValues);
 
-        const disqualifiedIndex = disqualifiedValues.findIndex(row => {
+        // Skip header row for matching
+        const disqualifiedDataRows = disqualifiedValues.slice(1);
+        const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
           const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
           const rowItem = row[1]?.trim();
           const rowMemberId = row[4]?.toString();
@@ -780,18 +782,33 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
         });
 
         if (disqualifiedIndex !== -1) {
-          console.log(`Found match at index ${disqualifiedIndex}:`, disqualifiedValues[disqualifiedIndex]);
-          disqualifiedValues.splice(disqualifiedIndex, 1);
-          console.log(`Removing ${normalizedName} from DISQUALIFIED at index ${disqualifiedIndex}`);
-          await gapi.client.sheets.spreadsheets.values.update({
+          const sheetRowIndex = disqualifiedIndex + 1; // Adjust for header row
+          console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
+
+          // Clear the specific row using batchUpdate
+          await gapi.client.sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            resource: {
+              requests: [{
+                deleteDimension: {
+                  range: {
+                    sheetId: getSheetId('DISQUALIFIED'), // Replace with actual sheet ID or fetch dynamically
+                    dimension: 'ROWS',
+                    startIndex: sheetRowIndex,
+                    endIndex: sheetRowIndex + 1
+                  }
+                }
+              }]
+            }
+          });
+          console.log(`Deleted row ${sheetRowIndex + 1} from DISQUALIFIED`);
+
+          // Fetch updated sheet to confirm deletion
+          const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range: 'DISQUALIFIED!A:E',
-            valueInputOption: 'RAW',
-            resource: { 
-              values: disqualifiedValues.length > 0 ? disqualifiedValues : [[]]
-            },
           });
-          console.log('DISQUALIFIED sheet updated successfully');
+          console.log('DISQUALIFIED values after deletion:', updatedDisqualifiedResponse.result.values);
         } else {
           console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
         }
@@ -822,7 +839,9 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
         let candidatesValues = candidatesResponse.result.values || [];
         console.log('CANDIDATES raw values:', candidatesValues);
 
-        const candidatesIndex = candidatesValues.findIndex(row => {
+        // Skip header row for matching
+        const candidatesDataRows = candidatesValues.slice(1);
+        const candidatesIndex = candidatesDataRows.findIndex(row => {
           const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
           const rowItem = row[1]?.trim();
           const rowMemberId = row[16]?.toString();
@@ -833,18 +852,33 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
         });
 
         if (candidatesIndex !== -1) {
-          console.log(`Found match at index ${candidatesIndex}:`, candidatesValues[candidatesIndex]);
-          candidatesValues.splice(candidatesIndex, 1);
-          console.log(`Removing ${normalizedName} from CANDIDATES at index ${candidatesIndex}`);
-          await gapi.client.sheets.spreadsheets.values.update({
+          const sheetRowIndex = candidatesIndex + 1; // Adjust for header row
+          console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
+
+          // Clear the specific row using batchUpdate
+          await gapi.client.sheets.spreadsheets.batchUpdate({
+            spreadsheetId: SHEET_ID,
+            resource: {
+              requests: [{
+                deleteDimension: {
+                  range: {
+                    sheetId: getSheetId('CANDIDATES'), // Replace with actual sheet ID or fetch dynamically
+                    dimension: 'ROWS',
+                    startIndex: sheetRowIndex,
+                    endIndex: sheetRowIndex + 1
+                  }
+                }
+              }]
+            }
+          });
+          console.log(`Deleted row ${sheetRowIndex + 1} from CANDIDATES`);
+
+          // Fetch updated sheet to confirm deletion
+          const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range: 'CANDIDATES!A:Q',
-            valueInputOption: 'RAW',
-            resource: { 
-              values: candidatesValues.length > 0 ? candidatesValues : [[]]
-            },
           });
-          console.log('CANDIDATES sheet updated successfully');
+          console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
         } else {
           console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
         }
@@ -864,9 +898,19 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
       fetchSecretariatCandidates(itemNumber);
     } catch (error) {
       console.error('Error submitting action:', error);
-      showToast('error', 'Error', `Failed to submit action: ${error.message}`);
+      showToast('error', 'Error', `Failed to submit action: ${error.message || error}`);
     }
   });
+}
+
+// Helper function to get sheet ID (replace with actual implementation)
+async function getSheetId(sheetName) {
+  const response = await gapi.client.sheets.spreadsheets.get({
+    spreadsheetId: SHEET_ID,
+  });
+  const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+  if (!sheet) throw new Error(`Sheet ${sheetName} not found`);
+  return sheet.properties.sheetId;
 }
 
 
