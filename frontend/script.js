@@ -1392,7 +1392,9 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   function computePotential() {
     const orgTotal = parseFloat(document.getElementById("organizational-rating-value").textContent) || 0;
     const minTotal = parseFloat(document.getElementById("minimum-rating-value").textContent) || 0;
-    const potential = ((orgTotal + minTotal) / 2) * 2;
+    const leadTotal = salaryGrade >= 24 ? (parseFloat(document.getElementById("leadership-rating-value").textContent) || 0) : 0;
+    const divisor = salaryGrade >= 24 ? 3 : 2;
+    const potential = ((orgTotal + minTotal + leadTotal) / divisor) * 2;
     document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
   }
 
