@@ -102,13 +102,14 @@ app.get('/auth/google/callback', async (req, res) => {
 
     const sessionId = Date.now().toString();
     if (tokenData.refresh_token) {
+      sessionStore.set(sessionId, tokenData.refresh_token);
       res.cookie('refresh_token', tokenData.refresh_token, {
         httpOnly: true,
         secure: true,
         sameSite: 'None',
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
-      console.log('Refresh token cookie set:', tokenData.refresh_token);
+      console.log('Stored session_id:', sessionId, 'with refresh_token:', tokenData.refresh_token);
     } else {
       console.warn('No refresh_token in Google response');
     }
