@@ -333,14 +333,6 @@ select:disabled {
   background-color: #e0e0e0;
 }
 
-.secretariat-table .comment-input {
-  width: 100%;
-  padding: 5px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-}
-
 .secretariat-table .action-dropdown {
   width: 100%;
   padding: 5px;
@@ -955,7 +947,6 @@ select:disabled {
     padding: 8px;
   }
 
-  .secretariat-table .comment-input,
   .secretariat-table .action-dropdown {
     font-size: 12px;
   }
@@ -1122,14 +1113,6 @@ html, body {
 
 .secretariat-table th, .secretariat-table td {
   vertical-align: top; /* Align content to top for better layout */
-}
-
-.secretariat-table .comment-input {
-  width: 100%;
-  padding: 5px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
 }
 
 .secretariat-table .action-dropdown {
