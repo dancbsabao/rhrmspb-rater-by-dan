@@ -744,7 +744,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <th>Name</th>
         <th>Documents</th>
         <th>Action</th>
-        <th>Comment</th>
         <th>Submit</th>
         <th>Status</th>
       </tr>
@@ -779,22 +778,18 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       const submittedStatus = candidate.submitted
         ? `<span class="submitted-indicator">Submitted (${candidate.submitted})</span>`
         : '';
-      const commentValue = row[16] || '';
       tr.innerHTML = `
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
         <td>
-          <select class="action-dropdown" onchange="toggleCommentInput(this)">
+          <select class="action-dropdown" data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">
             <option value="">Select Action</option>
             <option value="FOR DISQUALIFICATION">FOR DISQUALIFICATION</option>
             <option value="FOR LONG LIST">FOR LONG LIST</option>
           </select>
         </td>
-        <td class="comment-cell">
-          <input type="text" class="comment-input" value="${commentValue}" style="display: none;">
-        </td>
         <td>
-          <button class="submit-candidate-button" onclick="submitCandidateAction(this, '${name}', '${itemNumber}', '${sex}')">Submit</button>
+          <button class="submit-candidate-button" onclick="handleActionSelection(this)">Submit</button>
         </td>
         <td>${submittedStatus}</td>
       `;
@@ -807,20 +802,14 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   }
 }
 
-// Toggle comment input based on action selection
-function toggleCommentInput(selectElement) {
-  const commentCell = selectElement.parentElement.nextElementSibling;
-  const commentInput = commentCell.querySelector('.comment-input');
-  commentInput.style.display = selectElement.value === 'FOR DISQUALIFICATION' ? 'block' : 'none';
-}
 
-
-async function submitCandidateAction(button, name, itemNumber, sex) {
-  console.log('submitCandidateAction triggered:', { name, itemNumber, sex });
+async function handleActionSelection(button) {
   const row = button.closest('tr');
-  const action = row.querySelector('.action-dropdown').value;
-  const comment = action === 'FOR DISQUALIFICATION' ? row.querySelector('.comment-input').value : '';
-  console.log('Action:', action, 'Comment:', comment);
+  const select = row.querySelector('.action-dropdown');
+  const action = select.value;
+  const name = select.dataset.name;
+  const itemNumber = select.dataset.item;
+  const sex = select.dataset.sex;
 
   if (!action) {
     showToast('error', 'Error', 'Please select an action');
@@ -832,6 +821,35 @@ async function submitCandidateAction(button, name, itemNumber, sex) {
     showToast('error', 'Error', `Candidate already submitted as ${action} by Member ${secretariatMemberId}.`);
     return;
   }
+
+  let comment = '';
+  if (action === 'FOR DISQUALIFICATION') {
+    const modalContent = `
+      <div class="modal-body">
+        <p>Please enter a comment for disqualifying ${name}:</p>
+        <input type="text" id="disqualificationComment" class="modal-input">
+      </div>
+    `;
+    const commentEntered = await new Promise((resolve) => {
+      showModal('Enter Disqualification Comment', modalContent, () => {
+        const commentInput = document.getElementById('disqualificationComment');
+        comment = commentInput.value.trim();
+        if (!comment) {
+          showToast('error', 'Error', 'Comment is required for disqualification');
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      }, () => resolve(false));
+    });
+    if (!commentEntered) return;
+  }
+
+  submitCandidateAction(button, name, itemNumber, sex, action, comment);
+}
+
+async function submitCandidateAction(button, name, itemNumber, sex, action, comment) {
+  console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment });
 
   const modalContent = `
     <div class="modal-body">
