@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const cookieParser = require('cookie-parser');
+const sessionStore = new Map();
 
 const app = express();
 app.set('trust proxy', true);
@@ -102,13 +103,14 @@ app.get('/auth/google/callback', async (req, res) => {
 
     const sessionId = Date.now().toString();
     if (tokenData.refresh_token) {
+      sessionStore.set(sessionId, tokenData.refresh_token);
       res.cookie('refresh_token', tokenData.refresh_token, {
         httpOnly: true,
         secure: true,
         sameSite: 'None',
         maxAge: 30 * 24 * 60 * 60 * 1000,
       });
-      console.log('Refresh token cookie set:', tokenData.refresh_token);
+      console.log('Stored session_id:', sessionId, 'with refresh_token:', tokenData.refresh_token);
     } else {
       console.warn('No refresh_token in Google response');
     }
