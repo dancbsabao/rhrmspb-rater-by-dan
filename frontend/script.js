@@ -2388,11 +2388,15 @@ function showToast(type, title, message) {
   });
 }
 
-function testRefreshNow() {
+async function testRefreshNow() {
   console.log('Manually triggering token refresh');
-  scheduleTokenRefresh();
+  const success = await refreshAccessToken();
+  console.log('Refresh result:', success ? 'Success' : 'Failed');
+  if (success) {
+    scheduleTokenRefresh(); // Reschedule next refresh if successful
+  }
+  return success;
 }
-
 window.testRefreshNow = testRefreshNow;
 
 window.addEventListener('storage', (event) => {
