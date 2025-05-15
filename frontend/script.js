@@ -54,6 +54,9 @@ function saveAuthState(tokenResponse, evaluator) {
   scheduleTokenRefresh();
 }
 
+
+
+
 let debounceTimeout = null;
 function saveDropdownState() {
   // Clear any existing debounce timeout
@@ -452,44 +455,53 @@ async function isTokenValid() {
   }
 }
 
-async function refreshAccessToken() {
+async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.session_id) {
     console.warn('No session ID available');
-    localStorage.clear();
-    handleAuthClick();
     return false;
   }
-  try {
-    console.log('Attempting token refresh with session_id:', authState.session_id);
-    const response = await fetch(`${API_BASE_URL}/refresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ session_id: authState.session_id }),
-    });
-    const newToken = await response.json();
-    console.log('Refresh response:', newToken);
-    if (!response.ok || newToken.error) {
-      throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt} to refresh token with session_id: ${authState.session_id}`);
+      const response = await fetch(`${API_BASE_URL}/refresh-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ session_id: authState.session_id }),
+      });
+      const responseBody = await response.text();
+      console.log('Full server response:', responseBody);
+      const newToken = await response.json();
+      console.log('Refresh response:', newToken);
+      if (!response.ok || newToken.error) {
+        throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
+      }
+      authState.access_token = newToken.access_token;
+      authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
+      localStorage.setItem('authState', JSON.stringify(authState));
+      gapi.client.setToken({ access_token: newToken.access_token });
+      console.log('Token refreshed successfully');
+      scheduleTokenRefresh();
+      return true;
+    } catch (error) {
+      console.error(`Refresh attempt ${attempt} failed: ${error.message}`);
+      if (attempt === maxRetries) {
+        console.error('Max retries reached, clearing only access token');
+        authState.access_token = null;
+        localStorage.setItem('authState', JSON.stringify(authState));
+        showToast('warning', 'Session Issue', 'Please sign in again.');
+        handleAuthClick();
+      return false;
+}
+      await new Promise(resolve => setTimeout(resolve, retryDelay * Math.pow(2, attempt - 1)));
     }
-    authState.access_token = newToken.access_token;
-    authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
-    localStorage.setItem('authState', JSON.stringify(authState));
-    gapi.client.setToken({ access_token: newToken.access_token });
-    console.log('Token refreshed successfully');
-    scheduleTokenRefresh();
-    return true;
-  } catch (error) {
-    console.error('Token refresh failed:', error.message);
-    showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
-    localStorage.clear();
-    handleAuthClick();
-    return false;
   }
+  return false;
 }
 
-function scheduleTokenRefresh() {
+function scheduleTokenRefresh(maxRetries = 5) {
   if (refreshTimer) clearTimeout(refreshTimer);
 
   const authState = JSON.parse(localStorage.getItem('authState'));
@@ -499,14 +511,23 @@ function scheduleTokenRefresh() {
   }
 
   const timeToExpiry = authState.expires_at - Date.now();
-  const refreshInterval = Math.max(300000, timeToExpiry - 900000); // 15 min before expiry
+  const refreshInterval = Math.max(300000, timeToExpiry - 900000);
 
-  refreshTimer = setTimeout(async () => {
-    console.log('Scheduled token refresh triggered');
+  let retryCount = 0;
+
+  refreshTimer = setTimeout(async function refresh() {
+    console.log(`Scheduled token refresh triggered (retry ${retryCount + 1})`);
     const success = await refreshAccessToken();
     if (!success) {
-      console.warn('Refresh failed, retrying in 1 minute');
-      refreshTimer = setTimeout(scheduleTokenRefresh, 60000);
+      retryCount++;
+      if (retryCount < maxRetries) {
+        console.warn(`Refresh failed, retrying in 1 minute (attempt ${retryCount + 1}/${maxRetries})`);
+        refreshTimer = setTimeout(refresh, 60000);
+      } else {
+        console.error('Max refresh retries reached, prompting re-authentication');
+        showToast('error', 'Session Expired', 'Please sign in again.');
+        handleAuthClick();
+      }
     }
   }, refreshInterval);
 
@@ -2366,6 +2387,17 @@ function showToast(type, title, message) {
     setTimeout(() => toastContainer.remove(), 300);
   });
 }
+
+window.addEventListener('storage', (event) => {
+  if (event.key === 'authState' && event.newValue) {
+    const newAuthState = JSON.parse(event.newValue);
+    if (newAuthState.access_token && newAuthState.expires_at) {
+      gapi.client.setToken({ access_token: newAuthState.access_token });
+      scheduleTokenRefresh();
+      console.log('Token updated from another tab');
+    }
+  }
+});
 
 elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
