@@ -54,7 +54,7 @@ body {
 /* Results Area (Floating Modal) */
 .results-area {
   position: fixed;
-  top: 150px; /* Moved down to avoid blocking title, tabs, and sign-out */
+  top: 120px; /* Below auth-section and tabs */
   left: 20px;
   right: 20px;
   width: calc(100% - 40px);
@@ -74,9 +74,18 @@ body {
   display: block;
 }
 
-/* Push content down when results-area is active */
-.results-area.active + .page-wrapper .container {
-  padding-top: 200px; /* Extra space to prevent overlap */
+.results-area .close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 24px;
+  color: #333;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.results-area .close-button:hover {
+  color: #000;
 }
 
 .results-area .ratings-title {
@@ -152,7 +161,6 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: padding-top 0.3s ease;
   box-sizing: border-box;
 }
 
@@ -206,8 +214,6 @@ body {
 
 .form-group {
   margin-bottom: 15px;
-  width: 100%;
-  max-width: 100%;
 }
 
 .form-group label {
@@ -219,7 +225,6 @@ body {
 
 select {
   width: 100%;
-  max-width: 100%;
   padding: 10px;
   border: 2px solid #333;
   border-radius: 5px;
@@ -227,7 +232,6 @@ select {
   margin-bottom: 10px;
   background-color: white;
   color: black;
-  box-sizing: border-box;
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
@@ -370,7 +374,6 @@ select:disabled {
   background-color: #e0e0e0;
 }
 
-/* Specific column for Select Action */
 .secretariat-table th.action-column,
 .secretariat-table td.action-column {
   min-width: 220px;
@@ -396,6 +399,41 @@ select:disabled {
   outline: none;
   border-color: #333;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+}
+
+.secretariat-table .comment-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.secretariat-table .document-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px;
+}
+
+.secretariat-table .open-link-button {
+  background-color: #333;
+  color: white;
+  border: none;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.secretariat-table .open-link-button:hover {
+  background-color: #000;
+}
+
+.secretariat-table .open-link-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
 }
 
 /* Competency Container */
@@ -489,28 +527,15 @@ select:disabled {
 }
 
 #submitRatings {
-  padding: 14px 28px;
+  padding: 12px 24px;
   border: 2px solid #333;
-  border-radius: 6px;
+  border-radius: 5px;
   cursor: pointer;
   font-size: 16px;
-  font-weight: 600;
   transition: all 0.3s ease;
   background-color: black;
   color: white;
   margin-top: 15px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-#submitRatings:hover {
-  background-color: #222;
-  transform: translateY(-1px);
-}
-
-#submitRatings:disabled {
-  background-color: #666;
-  cursor: not-allowed;
-  box-shadow: none;
 }
 
 #submitSecretariatActions {
@@ -565,6 +590,11 @@ select:disabled {
 
 #submitSecretariatActions:disabled::before {
   opacity: 0;
+}
+
+#submitRatings:disabled {
+  background-color: #666;
+  cursor: not-allowed;
 }
 
 .btn-reset {
@@ -972,11 +1002,7 @@ select:disabled {
     right: 15px;
     width: calc(100% - 30px);
     padding: 15px;
-    top: 120px; /* Adjusted for smaller screens */
-  }
-
-  .results-area.active + .page-wrapper .container {
-    padding-top: 160px; /* Adjusted for smaller screens */
+    top: 100px; /* Adjusted for smaller screens */
   }
 
   .results-area .ratings-title {
@@ -1078,13 +1104,14 @@ select:disabled {
     width: 150px;
   }
 
+  .secretariat-table .comment-input,
   .secretariat-table .action-dropdown {
     font-size: 12px;
     padding: 6px;
   }
 
   #submitRatings {
-    padding: 12px 24px;
+    padding: 10px 20px;
     font-size: 14px;
   }
 
@@ -1101,11 +1128,7 @@ select:disabled {
     right: 20px;
     width: calc(100% - 40px);
     padding: 15px;
-    top: 130px;
-  }
-
-  .results-area.active + .page-wrapper .container {
-    padding-top: 180px;
+    top: 110px;
   }
 
   .results-area .ratings-title {
@@ -1186,8 +1209,10 @@ select:disabled {
     width: 180px;
   }
 
+  .secretariat-table .comment-input,
   .secretariat-table .action-dropdown {
     font-size: 13px;
+    padding: 7px;
   }
 }
 
@@ -1242,33 +1267,6 @@ html, body {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
-}
-
-.secretariat-table .document-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding: 5px;
-}
-
-.secretariat-table .open-link-button {
-  background-color: #333;
-  color: white;
-  border: none;
-  padding: 5px 8px;
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 4px;
-  white-space: nowrap;
-}
-
-.secretariat-table .open-link-button:hover {
-  background-color: #000;
-}
-
-.secretariat-table .open-link-button:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
 }
 
 [hidden] {
