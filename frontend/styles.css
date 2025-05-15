@@ -318,34 +318,66 @@ select:disabled {
   margin: 20px 0;
   background-color: white;
   border: 1px solid #333;
+  table-layout: fixed; /* Ensure consistent column widths */
+  font-size: 14px; /* Slightly larger for readability */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow for depth */
 }
 
 .secretariat-table th,
 .secretariat-table td {
-  padding: 10px;
+  padding: 12px; /* Increased padding for comfort */
   border: 1px solid #ddd;
   text-align: left;
+  vertical-align: middle; /* Center content vertically */
 }
 
 .secretariat-table th {
   background-color: #f4f4f4;
   font-weight: 600;
+  position: sticky; /* Sticky headers */
+  top: 0;
+  z-index: 10;
+}
+
+.secretariat-table td {
+  background-color: white;
+}
+
+.secretariat-table tr:nth-child(even) {
+  background-color: #fafafa; /* Subtle zebra striping */
 }
 
 .secretariat-table tr:hover {
-  background-color: #f9f9f9;
+  background-color: #f9f9f9; /* Existing hover color */
 }
 
 .secretariat-table tr.selected {
   background-color: #e0e0e0;
 }
 
+/* Specific column for Select Action */
+.secretariat-table th.action-column,
+.secretariat-table td.action-column {
+  min-width: 200px; /* Wider column for readability */
+  width: 200px;
+}
+
 .secretariat-table .action-dropdown {
   width: 100%;
-  padding: 5px;
+  padding: 8px; /* Increased padding */
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 14px; /* Match table font size */
+  background-color: white;
+  color: #333;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+.secretariat-table .action-dropdown:focus {
+  outline: none;
+  border-color: #333;
 }
 
 /* Competency Container */
@@ -440,21 +472,30 @@ select:disabled {
 
 #submitRatings,
 #submitSecretariatActions {
-  padding: 12px 24px;
+  padding: 14px 28px; /* Larger padding for prominence */
   border: 2px solid #333;
-  border-radius: 5px;
+  border-radius: 6px; /* Slightly larger radius */
   cursor: pointer;
   font-size: 16px;
+  font-weight: 600; /* Bolder text */
   transition: all 0.3s ease;
   background-color: black;
   color: white;
   margin-top: 15px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+}
+
+#submitRatings:hover,
+#submitSecretariatActions:hover {
+  background-color: #222; /* Slightly darker hover */
+  transform: translateY(-1px); /* Subtle lift effect */
 }
 
 #submitRatings:disabled,
 #submitSecretariatActions:disabled {
   background-color: #666;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btn-reset {
@@ -948,14 +989,30 @@ select:disabled {
     font-size: 10px;
   }
 
+  .secretariat-table {
+    font-size: 12px;
+  }
+
   .secretariat-table th,
   .secretariat-table td {
-    font-size: 12px;
     padding: 8px;
+  }
+
+  .secretariat-table th.action-column,
+  .secretariat-table td.action-column {
+    min-width: 150px; /* Adjusted for smaller screens */
+    width: 150px;
   }
 
   .secretariat-table .action-dropdown {
     font-size: 12px;
+    padding: 6px;
+  }
+
+  #submitRatings,
+  #submitSecretariatActions {
+    padding: 12px 24px;
+    font-size: 14px;
   }
 }
 
@@ -1031,10 +1088,23 @@ select:disabled {
     font-size: 11px;
   }
 
+  .secretariat-table {
+    font-size: 13px;
+  }
+
   .secretariat-table th,
   .secretariat-table td {
+    padding: 10px;
+  }
+
+  .secretariat-table th.action-column,
+  .secretariat-table td.action-column {
+    min-width: 180px; /* Adjusted for medium screens */
+    width: 180px;
+  }
+
+  .secretariat-table .action-dropdown {
     font-size: 13px;
-    padding: 9px;
   }
 }
 
@@ -1116,10 +1186,6 @@ html, body {
 .secretariat-table .open-link-button:disabled {
   background-color: #ccc;
   cursor: not-allowed;
-}
-
-.secretariat-table th, .secretariat-table td {
-  vertical-align: top; /* Align content to top for better layout */
 }
 
 [hidden] {
