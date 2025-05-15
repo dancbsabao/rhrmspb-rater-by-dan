@@ -2388,6 +2388,13 @@ function showToast(type, title, message) {
   });
 }
 
+function testRefreshNow() {
+  console.log('Manually triggering token refresh');
+  scheduleTokenRefresh();
+}
+
+window.testRefreshNow = testRefreshNow;
+
 window.addEventListener('storage', (event) => {
   if (event.key === 'authState' && event.newValue) {
     const newAuthState = JSON.parse(event.newValue);
@@ -2398,6 +2405,8 @@ window.addEventListener('storage', (event) => {
     }
   }
 });
+
+
 
 elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
