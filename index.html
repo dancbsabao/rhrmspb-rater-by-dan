@@ -1,46 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DENR CALABARZON Competency Rating System</title>
-  <link rel="stylesheet" href="./frontend/styles.css">
+  <link rel="stylesheet" href="./frontend/styles.css" />
   <script src="https://apis.google.com/js/api.js"></script>
 </head>
 <body>
   <div class="page-wrapper">
-    <div class="auth-section signed-out">
-      <h1>DENR CALABARZON<br>COMPETENCY RATING SYSTEM</h1>
-      <div id="authStatus">Initializing...</div>
-      <button id="signInBtn">Sign in with Google</button>
-      <button id="signOutBtn">Sign Out</button>
-    </div>
-
-    <div id="tabsContainer" hidden>
-      <div class="tabs">
-        <div id="raterTab" class="tab active">RHRMPSB RATER</div>
-        <div id="secretariatTab" class="tab">SECRETARIAT</div>
+    <div class="container">
+      <div class="auth-section">
+        <img src="/rhrmspb-rater-by-dan/denr-logo.png" alt="DENR Logo" width="100" height="100" />
+        <h1>DENR CALABARZON<br />COMPETENCY RATING SYSTEM</h1>
+        <p id="authStatus">Initializing...</p>
+        <button id="signInBtn" style="display: none">Sign in with Google</button>
+        <button id="signOutBtn" style="display: none">Sign Out</button>
       </div>
-    </div>
 
-    <div id="raterContent" style="display: block;">
-      <div class="container">
+      <div class="tabs" id="tabsContainer" hidden>
+      <div id="raterTab" class="tab active">RHRMPSB RATER</div>
+      <div id="secretariatTab" class="tab">SECRETARIAT</div>
+      </div>
+
+      <div id="raterContent">
         <form class="rating-form">
           <div class="form-group">
             <label for="assignmentDropdown">Assignment:</label>
-            <select id="assignmentDropdown" data-placeholder="Select Assignment"></select>
+            <select id="assignmentDropdown" required>
+              <option value="">Select Assignment</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="positionDropdown">Position:</label>
-            <select id="positionDropdown" disabled data-placeholder="Select Position"></select>
+            <select id="positionDropdown" disabled>
+              <option value="">Select Position</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="itemDropdown">Item:</label>
-            <select id="itemDropdown" disabled data-placeholder="Select Item"></select>
+            <select id="itemDropdown" disabled>
+              <option value="">Select Item</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="nameDropdown">Name:</label>
-            <select id="nameDropdown" disabled data-placeholder="Select Name"></select>
+            <select id="nameDropdown" disabled>
+              <option value="">Select Name</option>
+            </select>
           </div>
           <div id="candidates-table"></div>
           <div id="competencyContainer"></div>
@@ -49,31 +56,29 @@
           </div>
         </form>
       </div>
-    </div>
 
-    <div id="secretariatContent" style="display: none;">
-      <div class="container">
-        <div class="form-group">
-          <label for="secretariatAssignmentDropdown">Assignment:</label>
-          <select id="secretariatAssignmentDropdown" data-placeholder="Select Assignment"></select>
-        </div>
-        <div class="form-group">
-          <label for="secretariatPositionDropdown">Position:</label>
-          <select id="secretariatPositionDropdown" disabled data-placeholder="Select Position"></select>
-        </div>
-        <div class="form-group">
-          <label for="secretariatItemDropdown">Item:</label>
-          <select id="secretariatItemDropdown" disabled data-placeholder="Select Item"></select>
-        </div>
-        <div id="secretariat-candidates-table"></div>
-        <div id="secretariat-candidate-details"></div>
+      <div id="secretariatContent" style="display: none;">
+      <div class="form-group">
+        <label for="secretariatAssignmentDropdown">Assignment:</label>
+        <select id="secretariatAssignmentDropdown" data-placeholder="Select Assignment"></select>
       </div>
+      <div class="form-group">
+        <label for="secretariatPositionDropdown">Position:</label>
+        <select id="secretariatPositionDropdown" data-placeholder="Select Position"></select>
+      </div>
+      <div class="form-group">
+        <label for="secretariatItemDropdown">Item:</label>
+        <select id="secretariatItemDropdown" data-placeholder="Select Item"></select>
+      </div>
+      <div id="secretariat-candidates-table"></div>
+      <div id="secretariat-candidate-details"></div>
     </div>
 
     <footer class="site-footer">
       © 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.
     </footer>
   </div>
+
   <script src="./frontend/script.js"></script>
 </body>
 </html>
