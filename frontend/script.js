@@ -465,6 +465,8 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Attempt ${attempt} to refresh token with session_id: ${authState.session_id}`);
+      console.log('Request headers:', { 'Content-Type': 'application/json' });
+      console.log('Request body:', JSON.stringify({ session_id: authState.session_id }));
       const response = await fetch(`${API_BASE_URL}/refresh-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -473,9 +475,16 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
       });
       const responseBody = await response.text();
       console.log('Full server response:', responseBody);
-      const newToken = await response.json();
-      console.log('Refresh response:', newToken);
+      const newToken = JSON.parse(responseBody);
       if (!response.ok || newToken.error) {
+        if (newToken.error === 'No refresh token') {
+          console.error('Non-retryable error: No refresh token');
+          showToast('error', 'Session Expired', 'No refresh token found. Please sign in again.');
+          authState.access_token = null;
+          localStorage.setItem('authState', JSON.stringify(authState));
+          handleAuthClick();
+          return false;
+        }
         throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
       }
       authState.access_token = newToken.access_token;
@@ -488,13 +497,13 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
     } catch (error) {
       console.error(`Refresh attempt ${attempt} failed: ${error.message}`);
       if (attempt === maxRetries) {
-        console.error('Max retries reached, clearing only access token');
+        console.error('Max retries reached, prompting re-authentication');
+        showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
         authState.access_token = null;
         localStorage.setItem('authState', JSON.stringify(authState));
-        showToast('warning', 'Session Issue', 'Please sign in again.');
         handleAuthClick();
-      return false;
-}
+        return false;
+      }
       await new Promise(resolve => setTimeout(resolve, retryDelay * Math.pow(2, attempt - 1)));
     }
   }
@@ -2388,11 +2397,15 @@ function showToast(type, title, message) {
   });
 }
 
-function testRefreshNow() {
+async function testRefreshNow() {
   console.log('Manually triggering token refresh');
-  scheduleTokenRefresh();
+  const success = await refreshAccessToken();
+  console.log('Refresh result:', success ? 'Success' : 'Failed');
+  if (success) {
+    scheduleTokenRefresh(); // Reschedule next refresh if successful
+  }
+  return success;
 }
-
 window.testRefreshNow = testRefreshNow;
 
 window.addEventListener('storage', (event) => {
