@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const cookieParser = require('cookie-parser');
+const sessionStore = new Map();
 
 const app = express();
 app.set('trust proxy', true);
