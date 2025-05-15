@@ -197,6 +197,8 @@ body {
 
 .form-group {
   margin-bottom: 15px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .form-group label {
@@ -1118,14 +1120,6 @@ html, body {
 
 .secretariat-table th, .secretariat-table td {
   vertical-align: top; /* Align content to top for better layout */
-}
-
-.secretariat-table .action-dropdown {
-  width: 100%;
-  padding: 5px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
 }
 
 [hidden] {
