@@ -26,6 +26,8 @@ body {
   display: flex;
   justify-content: center;
   margin-bottom: 20px;
+  position: relative;
+  z-index: 1100; /* Above results-area */
 }
 
 .tab {
@@ -52,7 +54,7 @@ body {
 /* Results Area (Floating Modal) */
 .results-area {
   position: fixed;
-  top: 10px;
+  top: 150px; /* Moved down to avoid blocking title, tabs, and sign-out */
   left: 20px;
   right: 20px;
   width: calc(100% - 40px);
@@ -70,6 +72,11 @@ body {
 
 .results-area.active {
   display: block;
+}
+
+/* Push content down when results-area is active */
+.results-area.active + .page-wrapper .container {
+  padding-top: 200px; /* Extra space to prevent overlap */
 }
 
 .results-area .ratings-title {
@@ -92,7 +99,7 @@ body {
 
 .results-area .grid-container {
   display: grid;
-  grid-template-columns: 1fr; /* Single column for maximized space */
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -104,7 +111,7 @@ body {
 
 .results-area .data-row {
   display: flex;
-  align-items: center; /* Vertically align items */
+  align-items: center;
   justify-content: flex-start;
   margin: 2px 0;
 }
@@ -126,9 +133,9 @@ body {
   justify-content: center;
   gap: 25px;
   margin-top: 20px;
-  font-size: 16px; /* Larger for prominence */
-  font-weight: 700; /* Bolder for prominence */
-  color: #111; /* Darker for emphasis */
+  font-size: 16px;
+  font-weight: 700;
+  color: #111;
   text-transform: uppercase;
 }
 
@@ -145,7 +152,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: margin-top 0.3s ease;
+  transition: padding-top 0.3s ease;
   box-sizing: border-box;
 }
 
@@ -156,6 +163,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
+  z-index: 1100; /* Above results-area */
 }
 
 .auth-section h1 {
@@ -314,29 +323,34 @@ select:disabled {
 /* Secretariat Table */
 .secretariat-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 20px 0;
   background-color: white;
   border: 1px solid #333;
-  table-layout: fixed; /* Ensure consistent column widths */
-  font-size: 14px; /* Slightly larger for readability */
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow for depth */
+  table-layout: fixed;
+  font-size: 14px;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .secretariat-table th,
 .secretariat-table td {
-  padding: 12px; /* Increased padding for comfort */
+  padding: 14px;
   border: 1px solid #ddd;
   text-align: left;
-  vertical-align: middle; /* Center content vertically */
+  vertical-align: middle;
+  word-wrap: break-word;
 }
 
 .secretariat-table th {
   background-color: #f4f4f4;
-  font-weight: 600;
-  position: sticky; /* Sticky headers */
+  font-weight: 700;
+  position: sticky;
   top: 0;
   z-index: 10;
+  background: linear-gradient(to bottom, #f4f4f4, #ececec);
 }
 
 .secretariat-table td {
@@ -344,11 +358,12 @@ select:disabled {
 }
 
 .secretariat-table tr:nth-child(even) {
-  background-color: #fafafa; /* Subtle zebra striping */
+  background-color: #fafafa;
 }
 
 .secretariat-table tr:hover {
-  background-color: #f9f9f9; /* Existing hover color */
+  background-color: #f9f9f9;
+  transition: background-color 0.2s ease;
 }
 
 .secretariat-table tr.selected {
@@ -358,26 +373,29 @@ select:disabled {
 /* Specific column for Select Action */
 .secretariat-table th.action-column,
 .secretariat-table td.action-column {
-  min-width: 200px; /* Wider column for readability */
-  width: 200px;
+  min-width: 220px;
+  width: 220px;
 }
 
 .secretariat-table .action-dropdown {
   width: 100%;
-  padding: 8px; /* Increased padding */
+  padding: 8px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 14px; /* Match table font size */
+  font-size: 14px;
   background-color: white;
   color: #333;
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
+  position: relative;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"><path fill="%23333" d="M7 10l5 5 5-5z"/></svg>') no-repeat right 10px center;
 }
 
 .secretariat-table .action-dropdown:focus {
   outline: none;
   border-color: #333;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
 }
 
 /* Competency Container */
@@ -387,7 +405,7 @@ select:disabled {
   max-width: 1400px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start; /* Align items to the left */
+  align-items: flex-start;
 }
 
 .competency-section {
@@ -470,32 +488,83 @@ select:disabled {
   text-align: center;
 }
 
-#submitRatings,
-#submitSecretariatActions {
-  padding: 14px 28px; /* Larger padding for prominence */
+#submitRatings {
+  padding: 14px 28px;
   border: 2px solid #333;
-  border-radius: 6px; /* Slightly larger radius */
+  border-radius: 6px;
   cursor: pointer;
   font-size: 16px;
-  font-weight: 600; /* Bolder text */
+  font-weight: 600;
   transition: all 0.3s ease;
   background-color: black;
   color: white;
   margin-top: 15px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-#submitRatings:hover,
-#submitSecretariatActions:hover {
-  background-color: #222; /* Slightly darker hover */
-  transform: translateY(-1px); /* Subtle lift effect */
+#submitRatings:hover {
+  background-color: #222;
+  transform: translateY(-1px);
 }
 
-#submitRatings:disabled,
-#submitSecretariatActions:disabled {
+#submitRatings:disabled {
   background-color: #666;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+#submitSecretariatActions {
+  padding: 16px 32px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: linear-gradient(to bottom, #333, #000);
+  color: white;
+  margin-top: 15px;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+#submitSecretariatActions::before {
+  content: '✔';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#submitSecretariatActions:hover::before {
+  opacity: 1;
+}
+
+#submitSecretariatActions:hover {
+  background: linear-gradient(to bottom, #444, #111);
+  transform: scale(1.05);
+  padding-left: 34px;
+}
+
+#submitSecretariatActions:active {
+  transform: scale(0.98);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+#submitSecretariatActions:disabled {
+  background: #666;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+  padding-left: 32px;
+}
+
+#submitSecretariatActions:disabled::before {
+  opacity: 0;
 }
 
 .btn-reset {
@@ -602,7 +671,7 @@ select:disabled {
   font-size: 20px;
   font-weight: 600;
   color: #333;
-  text-transform: uppercase; /* Uppercase for Confirm Update/Submit */
+  text-transform: uppercase;
 }
 
 .modal-close {
@@ -624,7 +693,7 @@ select:disabled {
 
 .modal-field {
   display: flex;
-  align-items: center; /* Vertically align items */
+  align-items: center;
   justify-content: flex-start;
   margin: 2px 0;
 }
@@ -903,6 +972,11 @@ select:disabled {
     right: 15px;
     width: calc(100% - 30px);
     padding: 15px;
+    top: 120px; /* Adjusted for smaller screens */
+  }
+
+  .results-area.active + .page-wrapper .container {
+    padding-top: 160px; /* Adjusted for smaller screens */
   }
 
   .results-area .ratings-title {
@@ -1000,7 +1074,7 @@ select:disabled {
 
   .secretariat-table th.action-column,
   .secretariat-table td.action-column {
-    min-width: 150px; /* Adjusted for smaller screens */
+    min-width: 150px;
     width: 150px;
   }
 
@@ -1009,9 +1083,13 @@ select:disabled {
     padding: 6px;
   }
 
-  #submitRatings,
-  #submitSecretariatActions {
+  #submitRatings {
     padding: 12px 24px;
+    font-size: 14px;
+  }
+
+  #submitSecretariatActions {
+    padding: 14px 28px;
     font-size: 14px;
   }
 }
@@ -1023,6 +1101,11 @@ select:disabled {
     right: 20px;
     width: calc(100% - 40px);
     padding: 15px;
+    top: 130px;
+  }
+
+  .results-area.active + .page-wrapper .container {
+    padding-top: 180px;
   }
 
   .results-area .ratings-title {
@@ -1099,7 +1182,7 @@ select:disabled {
 
   .secretariat-table th.action-column,
   .secretariat-table td.action-column {
-    min-width: 180px; /* Adjusted for medium screens */
+    min-width: 180px;
     width: 180px;
   }
 
