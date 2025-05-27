@@ -732,10 +732,8 @@ async function fetchSecretariatCandidates(itemNumber) {
 
 function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
-  // Clear previous items
   container.innerHTML = '';
 
-  // Create filter container
   const filterDiv = document.createElement('div');
   filterDiv.innerHTML = `
     <label for="statusFilter">Filter by Status: </label>
@@ -752,7 +750,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
     const table = document.createElement('table');
     table.className = 'secretariat-table';
 
-    // Table header
     const thead = document.createElement('thead');
     thead.innerHTML = `
       <tr>
@@ -763,29 +760,30 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <th>Status</th>
         <th>Comments</th>
       </tr>
+    `;
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
     candidates.forEach(candidate => {
       const row = candidate.data;
       const name = row[0];
-      const sex = row[2]; // Sex from GENERAL_LIST!C
+      const sex = row[2];
       const tr = document.createElement('tr');
       const documentLinks = [
         { label: 'Letter of Intent', url: row[7] },
-        { label: 'Personal Data Sheet', url: row },8,
+        { label: 'Personal Data Sheet', url: row[8] },
         { label: 'Work Experience', url: row[9] },
         { label: 'Proof of Eligibility', url: row[10] },
         { label: 'Certificates', url: row[11] },
-        { label: 'IPCR', url: row[12], },
+        { label: 'IPCR', url: row[12] },
         { label: 'Certificate of Employment', url: row[13] },
-        { label: 'Diploma', label: row[14], },
+        { label: 'Diploma', url: row[14] },
         { label: 'Transcript of Records', url: row[15] },
       ];
       const linksHtml = documentLinks
         .map(link => {
           if (link.url) {
-            return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">$(link.label)</button>`;
+            return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
           }
           return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
         })
@@ -793,7 +791,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       const submittedStatus = candidate.submitted
         ? `<span class="submitted-indicator">Submitted (${candidate.submitted.status})</span>`
         : '';
-      const commentOSHIBA = candidate.submitted?.comment || '';
+      const comment = candidate.submitted?.comment || '';
       tr.innerHTML = `
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
@@ -815,7 +813,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           ` : 'No comments'}
         </td>
       `;
-      // Set data attribute for filtering
       tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'active';
       tbody.appendChild(tr);
     });
