@@ -856,20 +856,23 @@ async function handleActionSelection(button) {
       <input type="text" id="eligibilityComment" class="modal-input">
     </div>
   `;
-  const commentEntered = await new Promise((resolve) => {
-    showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`, modalContent, () => {
+  const commentEntered = await showCommentModal(
+    `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
+    modalContent,
+    () => {
       const education = document.getElementById('educationComment').value.trim();
       const training = document.getElementById('trainingComment').value.trim();
       const experience = document.getElementById('experienceComment').value.trim();
       const eligibility = document.getElementById('eligibilityComment').value.trim();
       if (!education || !training || !experience || !eligibility) {
         showToast('error', 'Error', 'All comment fields are required');
-        resolve(false);
-      } else {
-        resolve({ education, training, experience, eligibility });
+        return false;
       }
-    }, () => resolve(false));
-  });
+      return { education, training, experience, eligibility };
+    },
+    () => false,
+    true
+  );
 
   if (!commentEntered) return;
 
@@ -1149,85 +1152,95 @@ async function editComments(name, itemNumber, status, comment) {
       <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
     </div>
   `;
-  showModal('Edit Comments', modalContent, async () => {
-    const education = document.getElementById('educationComment').value.trim();
-    const training = document.getElementById('trainingComment').value.trim();
-    const experience = document.getElementById('experienceComment').value.trim();
-    const eligibility = document.getElementById('eligibilityComment').value.trim();
-    if (!education || !training || !experience || !eligibility) {
-      showToast('error', 'Error', 'All comment fields are required');
-      return;
-    }
-    const newComment = `${education},${training},${experience},${eligibility}`;
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-      const normalizedItemNumber = itemNumber.trim();
-
-      async function getSheetId(sheetName) {
-        const response = await gapi.client.sheets.spreadsheets.get({
-          spreadsheetId: SHEET_ID,
-        });
-        const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) throw new Error(`Sheet ${sheetName} not found`);
-        return sheet.properties.sheetId;
+  const commentEntered = await showCommentModal(
+    'Edit Comments',
+    modalContent,
+    () => {
+      const education = document.getElementById('educationComment').value.trim();
+      const training = document.getElementById('trainingComment').value.trim();
+      const experience = document.getElementById('experienceComment').value.trim();
+      const eligibility = document.getElementById('eligibilityComment').value.trim();
+      if (!education || !training || !experience || !eligibility) {
+        showToast('error', 'Error', 'All comment fields are required');
+        return false;
       }
+      return { education, training, experience, eligibility };
+    },
+    () => false,
+    true
+  );
 
-      if (status === 'CANDIDATES') {
-        const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R',
-        });
-        const candidatesValues = candidatesResponse.result.values || [];
-        const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const rowMemberId = row[16]?.toString();
-          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-        });
+  if (!commentEntered) return;
 
-        if (candidatesIndex !== -1) {
-          const sheetRowIndex = candidatesIndex + 2;
-          await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID,
-            range: `CANDIDATES!R${sheetRowIndex}`,
-            valueInputOption: 'RAW',
-            resource: { values: [[newComment]] },
-          });
-          console.log('Comment updated in CANDIDATES');
-        }
-      } else if (status === 'DISQUALIFIED') {
-        const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:E',
-        });
-        const disqualifiedValues = disqualifiedResponse.result.values || [];
-        const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const rowMemberId = row[4]?.toString();
-          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-        });
+  const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+    const normalizedItemNumber = itemNumber.trim();
 
-        if (disqualifiedIndex !== -1) {
-          const sheetRowIndex = disqualifiedIndex + 2;
-          await gapi.client.sheets.spreadsheets.values.update({
-            spreadsheetId: SHEET_ID,
-            range: `DISQUALIFIED!D${sheetRowIndex}`,
-            valueInputOption: 'RAW',
-            resource: { values: [[newComment]] },
-          });
-          console.log('Comment updated in DISQUALIFIED');
-        }
-      }
-
-      showToast('success', 'Success', 'Comments updated successfully');
-      fetchSecretariatCandidates(itemNumber);
-    } catch (error) {
-      console.error('Error updating comments:', error);
-      showToast('error', 'Error', `Failed to update comments: ${error.message}`);
+    async function getSheetId(sheetName) {
+      const response = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: SHEET_ID,
+      });
+      const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+      if (!sheet) throw new Error(`Sheet ${sheetName} not found`);
+      return sheet.properties.sheetId;
     }
-  }, () => {}, true);
+
+    if (status === 'CANDIDATES') {
+      const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'CANDIDATES!A:R',
+      });
+      const candidatesValues = candidatesResponse.result.values || [];
+      const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
+        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+        const rowItem = row[1]?.trim();
+        const rowMemberId = row[16]?.toString();
+        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+      });
+
+      if (candidatesIndex !== -1) {
+        const sheetRowIndex = candidatesIndex + 2;
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `CANDIDATES!R${sheetRowIndex}`,
+          valueInputOption: 'RAW',
+          resource: { values: [[newComment]] },
+        });
+        console.log('Comment updated in CANDIDATES');
+      }
+    } else if (status === 'DISQUALIFIED') {
+      const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'DISQUALIFIED!A:E',
+      });
+      const disqualifiedValues = disqualifiedResponse.result.values || [];
+      const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
+        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+        const rowItem = row[1]?.trim();
+        const rowMemberId = row[4]?.toString();
+        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+      });
+
+      if (disqualifiedIndex !== -1) {
+        const sheetRowIndex = disqualifiedIndex + 2;
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `DISQUALIFIED!D${sheetRowIndex}`,
+          valueInputOption: 'RAW',
+          resource: { values: [[newComment]] },
+        });
+        console.log('Comment updated in DISQUALIFIED');
+      }
+    }
+
+    showToast('success', 'Success', 'Comments updated successfully');
+    fetchSecretariatCandidates(itemNumber);
+  } catch (error) {
+    console.error('Error updating comments:', error);
+    showToast('error', 'Error', `Failed to update comments: ${error.message}`);
+  }
 }
 
 
@@ -2537,6 +2550,165 @@ function showFullScreenModal(title, contentHTML) {
     }
   });
 }
+
+
+// New showCommentModal for comment input/edit with minimization
+function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  modalOverlay.innerHTML = `
+    <div class="modal" id="${modalId}">
+      <div class="modal-header">
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="minimizeModal('${modalId}')">×</span>
+      </div>
+      <div class="modal-content">${contentHTML}</div>
+      <div class="modal-actions">
+        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
+        <button id="modalConfirm" class="modal-confirm">Confirm</button>
+        <button class="modal-minimize" onclick="minimizeModal('${modalId}')">Minimize</button>
+      </div>
+    </div>
+  `;
+
+  return new Promise((resolve) => {
+    modalOverlay.classList.add('active');
+    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      minimizedModals.delete(modalId);
+      resolve(result);
+      modalOverlay.removeEventListener('click', outsideClickHandler);
+    };
+
+    confirmBtn.onclick = () => {
+      if (onConfirm) onConfirm();
+      closeHandler(true);
+    };
+
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      };
+    }
+
+    const outsideClickHandler = (event) => {
+      if (event.target === modalOverlay) {
+        minimizeModal(modalId);
+      }
+    };
+    modalOverlay.addEventListener('click', outsideClickHandler);
+  });
+}
+
+function minimizeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+
+  const modalOverlay = modal.closest('.modal-overlay');
+  const inputs = modal.querySelectorAll('.modal-input');
+  const inputValues = Array.from(inputs).map(input => input.value);
+  const title = modal.querySelector('.modal-title').textContent;
+  const contentHTML = modal.querySelector('.modal-content').innerHTML;
+
+  minimizedModals.set(modalId, {
+    title,
+    inputValues,
+    contentHTML,
+    onConfirm: modal.querySelector('#modalConfirm')?.onclick,
+    onCancel: modal.querySelector('.modal-cancel')?.onclick,
+  });
+
+  modalOverlay.classList.remove('active');
+
+  // Create a floating ball
+  const floatingBall = document.createElement('div');
+  floatingBall.className = 'floating-ball';
+  floatingBall.dataset.modalId = modalId;
+  floatingBall.innerHTML = `
+    <span class="floating-ball-label">${title.slice(0, 10)}...</span>
+    <span class="floating-ball-close" onclick="event.stopPropagation(); minimizeModal('${modalId}')">×</span>
+  `;
+  floatingBall.onclick = (e) => {
+    if (!e.target.classList.contains('floating-ball-close')) {
+      restoreMinimizedModal(modalId);
+    }
+  };
+  document.body.appendChild(floatingBall);
+
+  makeDraggable(floatingBall);
+}
+
+function restoreMinimizedModal(modalId) {
+  const state = minimizedModals.get(modalId);
+  if (!state) return;
+
+  showCommentModal(state.title, state.contentHTML, state.onConfirm, state.onCancel, true).then((result) => {
+    // Reassign modalId to maintain state
+    const newModal = document.querySelector('.modal');
+    if (newModal) newModal.id = modalId;
+  });
+  const inputs = document.querySelectorAll('.modal-input');
+  inputs.forEach((input, index) => {
+    input.value = state.inputValues[index] || '';
+  });
+
+  // Remove floating ball
+  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
+  if (floatingBall) floatingBall.remove();
+}
+
+function makeDraggable(element) {
+  let isDragging = false;
+  let currentX;
+  let currentY;
+  let initialX;
+  let initialY;
+
+  element.addEventListener('mousedown', (e) => {
+    initialX = e.clientX - currentX;
+    initialY = e.clientY - currentY;
+    isDragging = true;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      e.preventDefault();
+      currentX = e.clientX - initialX;
+      currentY = e.clientY - initialY;
+      element.style.left = `${currentX}px`;
+      element.style.top = `${currentY}px`;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+
+  // Initialize position
+  currentX = 50;
+  currentY = 50;
+  element.style.position = 'fixed';
+  element.style.left = `${currentX}px`;
+  element.style.top = `${currentY}px`;
+}
+
+
+
+
+
+
+
 
 function showToast(type, title, message) {
   const toastContainer = document.createElement('div');
