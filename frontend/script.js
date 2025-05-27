@@ -687,7 +687,7 @@ async function fetchSecretariatCandidates(itemNumber) {
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:R', // Updated to include column R for comments
+        range: 'CANDIDATES!A:R', // Includes column R for comments
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
@@ -794,7 +794,12 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           <button class="submit-candidate-button" onclick="handleActionSelection(this)">Submit</button>
         </td>
         <td>${submittedStatus}</td>
-        <td>${comment}</td>
+        <td>
+          ${comment ? `
+            <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${comment.replace(/'/g, "\\'")}')">View</button>
+            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${comment.replace(/'/g, "\\'")}')">Edit</button>
+          ` : 'No comments'}
+        </td>
       `;
       tbody.appendChild(tr);
     });
@@ -804,7 +809,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
     container.innerHTML = '<p>No candidates found.</p>';
   }
 }
-
 
 async function handleActionSelection(button) {
   const row = button.closest('tr');
@@ -825,27 +829,37 @@ async function handleActionSelection(button) {
     return;
   }
 
-  let comment = '';
   const modalContent = `
     <div class="modal-body">
-      <p>Please enter a comment for ${action === 'FOR DISQUALIFICATION' ? 'disqualifying' : 'long-listing'} ${name}:</p>
-      <input type="text" id="actionComment" class="modal-input">
+      <p>Please enter comments for ${action === 'FOR DISQUALIFICATION' ? 'disqualifying' : 'long-listing'} ${name}:</p>
+      <label for="educationComment">Education:</label>
+      <input type="text" id="educationComment" class="modal-input">
+      <label for="trainingComment">Training:</label>
+      <input type="text" id="trainingComment" class="modal-input">
+      <label for="experienceComment">Experience:</label>
+      <input type="text" id="experienceComment" class="modal-input">
+      <label for="eligibilityComment">Eligibility:</label>
+      <input type="text" id="eligibilityComment" class="modal-input">
     </div>
   `;
   const commentEntered = await new Promise((resolve) => {
-    showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comment`, modalContent, () => {
-      const commentInput = document.getElementById('actionComment');
-      comment = commentInput.value.trim();
-      if (!comment) {
-        showToast('error', 'Error', 'Comment is required');
+    showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`, modalContent, () => {
+      const education = document.getElementById('educationComment').value.trim();
+      const training = document.getElementById('trainingComment').value.trim();
+      const experience = document.getElementById('experienceComment').value.trim();
+      const eligibility = document.getElementById('eligibilityComment').value.trim();
+      if (!education || !training || !experience || !eligibility) {
+        showToast('error', 'Error', 'All comment fields are required');
         resolve(false);
       } else {
-        resolve(true);
+        resolve({ education, training, experience, eligibility });
       }
     }, () => resolve(false));
   });
+
   if (!commentEntered) return;
 
+  const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
   submitCandidateAction(button, name, itemNumber, sex, action, comment);
 }
 
@@ -862,8 +876,8 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
           <span class="modal-value">${action}</span>
         </div>
         <div class="modal-field">
-          <span class="modal-label">Comment:</span>
-          <span class="modal-value">${comment}</span>
+          <span class="modal-label">Comments:</span>
+          <span class="modal-value">${comment.split(',').join('; ')}</span>
         </div>
       </div>
     </div>
@@ -877,7 +891,6 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         await refreshAccessToken();
       }
 
-      // Normalize data for matching
       const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
       const normalizedItemNumber = itemNumber.trim();
 
@@ -963,7 +976,7 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         console.log('Appending to CANDIDATES:', [candidate]);
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R', // Updated to include column R
+          range: 'CANDIDATES!A:R',
           valueInputOption: 'RAW',
           resource: { values: [candidate] },
         });
@@ -971,7 +984,7 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
       } else if (action === 'FOR DISQUALIFICATION') {
         const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R', // Updated to include column R
+          range: 'CANDIDATES!A:R',
         });
         let candidatesValues = candidatesResponse.result.values || [];
         console.log('CANDIDATES raw values:', candidatesValues);
@@ -1013,7 +1026,7 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
 
           const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: 'CANDIDATES!A:R', // Updated to include column R
+            range: 'CANDIDATES!A:R',
           });
           console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
         } else {
@@ -1054,7 +1067,7 @@ async function getSheetId(sheetName) {
 async function checkDuplicateSubmission(name, itemNumber, action) {
   try {
     const sheetName = action === 'FOR LONG LIST' ? 'CANDIDATES' : 'DISQUALIFIED';
-    const range = sheetName === 'CANDIDATES' ? 'CANDIDATES!A:R' : 'DISQUALIFIED!A:E'; // Updated to include column R
+    const range = sheetName === 'CANDIDATES' ? 'CANDIDATES!A:R' : 'DISQUALIFIED!A:E';
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: range,
@@ -1066,6 +1079,128 @@ async function checkDuplicateSubmission(name, itemNumber, action) {
     showToast('error', 'Error', 'Failed to check for duplicates.');
     return false;
   }
+}
+
+async function viewComments(name, itemNumber, status, comment) {
+  const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+  const modalContent = `
+    <div class="modal-body">
+      <h4>Comments for ${name} (${status})</h4>
+      <div class="modal-field">
+        <span class="modal-label">Education:</span>
+        <span class="modal-value">${education || 'None'}</span>
+      </div>
+      <div class="modal-field">
+        <span class="modal-label">Training:</span>
+        <span class="modal-value">${training || 'None'}</span>
+      </div>
+      <div class="modal-field">
+        <span class="modal-label">Experience:</span>
+        <span class="modal-value">${experience || 'None'}</span>
+      </div>
+      <div class="modal-field">
+        <span class="modal-label">Eligibility:</span>
+        <span class="modal-value">${eligibility || 'None'}</span>
+      </div>
+    </div>
+  `;
+  showModal('View Comments', modalContent, null, null, false);
+}
+
+async function editComments(name, itemNumber, status, comment) {
+  const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+  const modalContent = `
+    <div class="modal-body">
+      <p>Edit comments for ${name} (${status}):</p>
+      <label for="educationComment">Education:</label>
+      <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
+      <label for="trainingComment">Training:</label>
+      <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
+      <label for="experienceComment">Experience:</label>
+      <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
+      <label for="eligibilityComment">Eligibility:</label>
+      <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
+    </div>
+  `;
+  showModal('Edit Comments', modalContent, async () => {
+    const education = document.getElementById('educationComment').value.trim();
+    const training = document.getElementById('trainingComment').value.trim();
+    const experience = document.getElementById('experienceComment').value.trim();
+    const eligibility = document.getElementById('eligibilityComment').value.trim();
+    if (!education || !training || !experience || !eligibility) {
+      showToast('error', 'Error', 'All comment fields are required');
+      return;
+    }
+    const newComment = `${education},${training},${experience},${eligibility}`;
+    try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+      const normalizedItemNumber = itemNumber.trim();
+
+      async function getSheetId(sheetName) {
+        const response = await gapi.client.sheets.spreadsheets.get({
+          spreadsheetId: SHEET_ID,
+        });
+        const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+        if (!sheet) throw new Error(`Sheet ${sheetName} not found`);
+        return sheet.properties.sheetId;
+      }
+
+      if (status === 'CANDIDATES') {
+        const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'CANDIDATES!A:R',
+        });
+        const candidatesValues = candidatesResponse.result.values || [];
+        const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const rowMemberId = row[16]?.toString();
+          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+        });
+
+        if (candidatesIndex !== -1) {
+          const sheetRowIndex = candidatesIndex + 2; // Adjust for header
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `CANDIDATES!R${sheetRowIndex}`,
+            valueInputOption: 'RAW',
+            resource: { values: [[newComment]] },
+          });
+          console.log('Comment updated in CANDIDATES');
+        }
+      } else if (status === 'DISQUALIFIED') {
+        const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'DISQUALIFIED!A:E',
+        });
+        const disqualifiedValues = disqualifiedResponse.result.values || [];
+        const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const rowMemberId = row[4]?.toString();
+          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+        });
+
+        if (disqualifiedIndex !== -1) {
+          const sheetRowIndex = disqualifiedIndex + 2; // Adjust for header
+          await gapi.client.sheets.spreadsheets.values.update({
+            spreadsheetId: SHEET_ID,
+            range: `DISQUALIFIED!D${sheetRowIndex}`,
+            valueInputOption: 'RAW',
+            resource: { values: [[newComment]] },
+          });
+          console.log('Comment updated in DISQUALIFIED');
+        }
+      }
+
+      showToast('success', 'Success', 'Comments updated successfully');
+      fetchSecretariatCandidates(itemNumber);
+    } catch (error) {
+      console.error('Error updating comments:', error);
+      showToast('error', 'Error', `Failed to update comments: ${error.message}`);
+    }
+  });
 }
 
 
