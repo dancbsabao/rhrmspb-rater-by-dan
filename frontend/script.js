@@ -687,7 +687,7 @@ async function fetchSecretariatCandidates(itemNumber) {
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:Q',
+        range: 'CANDIDATES!A:R', // Updated to include column R for comments
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
@@ -703,12 +703,12 @@ async function fetchSecretariatCandidates(itemNumber) {
     const submissions = new Map();
     candidatesSheet.forEach(row => {
       if (row[0] && row[1] && row[16]) {
-        submissions.set(`${row[0]}|${row[1]}|${row[16]}`, 'CANDIDATES');
+        submissions.set(`${row[0]}|${row[1]}|${row[16]}`, { status: 'CANDIDATES', comment: row[17] || '' });
       }
     });
     disqualifiedSheet.forEach(row => {
       if (row[0] && row[1] && row[4]) {
-        submissions.set(`${row[0]}|${row[1]}|${row[4]}`, 'DISQUALIFIED');
+        submissions.set(`${row[0]}|${row[1]}|${row[4]}`, { status: 'DISQUALIFIED', comment: row[3] || '' });
       }
     });
 
@@ -746,6 +746,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <th>Action</th>
         <th>Submit</th>
         <th>Status</th>
+        <th>Comments</th>
       </tr>
     `;
     table.appendChild(thead);
@@ -776,8 +777,9 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         })
         .join('');
       const submittedStatus = candidate.submitted
-        ? `<span class="submitted-indicator">Submitted (${candidate.submitted})</span>`
+        ? `<span class="submitted-indicator">Submitted (${candidate.submitted.status})</span>`
         : '';
+      const comment = candidate.submitted?.comment || '';
       tr.innerHTML = `
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
@@ -792,6 +794,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           <button class="submit-candidate-button" onclick="handleActionSelection(this)">Submit</button>
         </td>
         <td>${submittedStatus}</td>
+        <td>${comment}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -823,27 +826,25 @@ async function handleActionSelection(button) {
   }
 
   let comment = '';
-  if (action === 'FOR DISQUALIFICATION') {
-    const modalContent = `
-      <div class="modal-body">
-        <p>Please enter a comment for disqualifying ${name}:</p>
-        <input type="text" id="disqualificationComment" class="modal-input">
-      </div>
-    `;
-    const commentEntered = await new Promise((resolve) => {
-      showModal('Enter Disqualification Comment', modalContent, () => {
-        const commentInput = document.getElementById('disqualificationComment');
-        comment = commentInput.value.trim();
-        if (!comment) {
-          showToast('error', 'Error', 'Comment is required for disqualification');
-          resolve(false);
-        } else {
-          resolve(true);
-        }
-      }, () => resolve(false));
-    });
-    if (!commentEntered) return;
-  }
+  const modalContent = `
+    <div class="modal-body">
+      <p>Please enter a comment for ${action === 'FOR DISQUALIFICATION' ? 'disqualifying' : 'long-listing'} ${name}:</p>
+      <input type="text" id="actionComment" class="modal-input">
+    </div>
+  `;
+  const commentEntered = await new Promise((resolve) => {
+    showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comment`, modalContent, () => {
+      const commentInput = document.getElementById('actionComment');
+      comment = commentInput.value.trim();
+      if (!comment) {
+        showToast('error', 'Error', 'Comment is required');
+        resolve(false);
+      } else {
+        resolve(true);
+      }
+    }, () => resolve(false));
+  });
+  if (!commentEntered) return;
 
   submitCandidateAction(button, name, itemNumber, sex, action, comment);
 }
@@ -862,7 +863,7 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         </div>
         <div class="modal-field">
           <span class="modal-label">Comment:</span>
-          <span class="modal-value">${comment || 'None'}</span>
+          <span class="modal-value">${comment}</span>
         </div>
       </div>
     </div>
@@ -880,7 +881,6 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
       const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
       const normalizedItemNumber = itemNumber.trim();
 
-      // Helper function to get sheetId
       async function getSheetId(sheetName) {
         try {
           const response = await gapi.client.sheets.spreadsheets.get({
@@ -898,7 +898,6 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         }
       }
 
-      // Remove candidate from the opposite sheet
       if (action === 'FOR LONG LIST') {
         const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
@@ -907,7 +906,6 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         let disqualifiedValues = disqualifiedResponse.result.values || [];
         console.log('DISQUALIFIED raw values:', disqualifiedValues);
 
-        // Skip header row for matching
         const disqualifiedDataRows = disqualifiedValues.slice(1);
         const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
           const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
@@ -920,13 +918,10 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         });
 
         if (disqualifiedIndex !== -1) {
-          const sheetRowIndex = disqualifiedIndex + 1; // Adjust for header row
+          const sheetRowIndex = disqualifiedIndex + 1;
           console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
 
-          // Fetch sheetId for DISQUALIFIED
           const sheetId = await getSheetId('DISQUALIFIED');
-
-          // Delete the specific row using batchUpdate
           const batchUpdateRequest = {
             requests: [{
               deleteDimension: {
@@ -946,7 +941,6 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
           });
           console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
 
-          // Fetch updated sheet to confirm deletion
           const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
             range: 'DISQUALIFIED!A:E',
@@ -965,11 +959,11 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
           row[1]?.trim() === normalizedItemNumber
         );
         if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-        candidate = [...candidate, secretariatMemberId];
+        candidate = [...candidate, secretariatMemberId, comment]; // Append member ID and comment
         console.log('Appending to CANDIDATES:', [candidate]);
         await gapi.client.sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:Q',
+          range: 'CANDIDATES!A:R', // Updated to include column R
           valueInputOption: 'RAW',
           resource: { values: [candidate] },
         });
@@ -977,12 +971,11 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
       } else if (action === 'FOR DISQUALIFICATION') {
         const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:Q',
+          range: 'CANDIDATES!A:R', // Updated to include column R
         });
         let candidatesValues = candidatesResponse.result.values || [];
         console.log('CANDIDATES raw values:', candidatesValues);
 
-        // Skip header row for matching
         const candidatesDataRows = candidatesValues.slice(1);
         const candidatesIndex = candidatesDataRows.findIndex(row => {
           const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
@@ -995,13 +988,10 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         });
 
         if (candidatesIndex !== -1) {
-          const sheetRowIndex = candidatesIndex + 1; // Adjust for header row
+          const sheetRowIndex = candidatesIndex + 1;
           console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
 
-          // Fetch sheetId for CANDIDATES
           const sheetId = await getSheetId('CANDIDATES');
-
-          // Delete the specific row using batchUpdate
           const batchUpdateRequest = {
             requests: [{
               deleteDimension: {
@@ -1021,10 +1011,9 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
           });
           console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
 
-          // Fetch updated sheet to confirm deletion
           const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
-            range: 'CANDIDATES!A:Q',
+            range: 'CANDIDATES!A:R', // Updated to include column R
           });
           console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
         } else {
@@ -1065,7 +1054,7 @@ async function getSheetId(sheetName) {
 async function checkDuplicateSubmission(name, itemNumber, action) {
   try {
     const sheetName = action === 'FOR LONG LIST' ? 'CANDIDATES' : 'DISQUALIFIED';
-    const range = sheetName === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:E';
+    const range = sheetName === 'CANDIDATES' ? 'CANDIDATES!A:R' : 'DISQUALIFIED!A:E'; // Updated to include column R
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: range,
