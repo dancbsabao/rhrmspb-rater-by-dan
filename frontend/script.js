@@ -2455,41 +2455,60 @@ function loadRadioState(candidateName, item) {
   });
 }
 
-function showModal(title, content, onConfirm, onCancel, showCancel = true) {
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal-content">
+function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  modalOverlay.innerHTML = `
+    <div class="modal">
       <div class="modal-header">
-        <span class="modal-title">${title}</span>
-        <span class="modal-close">×</span>
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
       </div>
-      ${content}
-      <div class="modal-footer">
-        ${onConfirm ? '<button class="modal-confirm">Confirm</button>' : ''}
+      <div class="modal-content">${contentHTML}</div>
+      <div class="modal-actions">
         ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
+        <button id="modalConfirm" class="modal-confirm">Confirm</button>
       </div>
     </div>
   `;
-  document.body.appendChild(modal);
 
-  const closeModal = () => {
-    modal.remove();
-    if (onCancel) onCancel();
-  };
+  return new Promise((resolve) => {
+    modalOverlay.classList.add('active');
+    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
 
-  modal.querySelector('.modal-close').addEventListener('click', closeModal);
-  if (onConfirm) {
-    modal.querySelector('.modal-confirm').addEventListener('click', () => {
-      onConfirm();
-      closeModal();
-    });
-  }
-  if (showCancel && onCancel) {
-    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
-  }
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      resolve(result);
+      modalOverlay.removeEventListener('click', outsideClickHandler);
+    };
 
-  return modal;
+    confirmBtn.onclick = () => {
+      if (onConfirm) onConfirm();
+      closeHandler(true);
+    };
+
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      };
+    }
+
+    const outsideClickHandler = (event) => {
+      if (event.target === modalOverlay) {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      }
+    };
+    modalOverlay.addEventListener('click', outsideClickHandler);
+  });
 }
 
 function showFullScreenModal(title, contentHTML) {
