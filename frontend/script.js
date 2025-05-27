@@ -2467,6 +2467,7 @@ function loadRadioState(candidateName, item) {
     }
   });
 }
+let minimizedModals = new Map(); // Store minimized comment modal states
 
 function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
