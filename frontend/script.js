@@ -857,7 +857,7 @@ async function handleActionSelection(button) {
     </div>
   `;
   const commentEntered = await new Promise((resolve) => {
-    const modal = showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`, modalContent, () => {
+    showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`, modalContent, () => {
       const education = document.getElementById('educationComment').value.trim();
       const training = document.getElementById('trainingComment').value.trim();
       const experience = document.getElementById('experienceComment').value.trim();
@@ -868,15 +868,7 @@ async function handleActionSelection(button) {
       } else {
         resolve({ education, training, experience, eligibility });
       }
-    }, () => resolve(false), true);
-    const modalId = modal.querySelector('.modal-content').id;
-    if (minimizedModals.has(modalId)) {
-      const state = minimizedModals.get(modalId);
-      const inputs = modal.querySelectorAll('.modal-input');
-      inputs.forEach((input, index) => {
-        input.value = state.inputValues[index] || '';
-      });
-    }
+    }, () => resolve(false));
   });
 
   if (!commentEntered) return;
@@ -2463,31 +2455,19 @@ function loadRadioState(candidateName, item) {
   });
 }
 
-let minimizedModals = new Map(); // Store minimized modal states
-
 function showModal(title, content, onConfirm, onCancel, showCancel = true) {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
-  const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-  const buttonsHtml = [];
-  if (onConfirm) {
-    buttonsHtml.push('<button class="modal-confirm">Confirm</button>');
-  }
-  if (showCancel) {
-    buttonsHtml.push('<button class="modal-cancel">Cancel</button>');
-  }
-  buttonsHtml.push(`<button class="modal-minimize" onclick="minimizeModal('${modalId}')">Minimize</button>`);
-
   modal.innerHTML = `
-    <div class="modal-content" id="${modalId}">
+    <div class="modal-content">
       <div class="modal-header">
         <span class="modal-title">${title}</span>
         <span class="modal-close">×</span>
       </div>
       ${content}
       <div class="modal-footer">
-        ${buttonsHtml.join('')}
+        ${onConfirm ? '<button class="modal-confirm">Confirm</button>' : ''}
+        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
       </div>
     </div>
   `;
@@ -2496,7 +2476,6 @@ function showModal(title, content, onConfirm, onCancel, showCancel = true) {
   const closeModal = () => {
     modal.remove();
     if (onCancel) onCancel();
-    minimizedModals.delete(modalId);
   };
 
   modal.querySelector('.modal-close').addEventListener('click', closeModal);
@@ -2511,99 +2490,6 @@ function showModal(title, content, onConfirm, onCancel, showCancel = true) {
   }
 
   return modal;
-}
-
-function minimizeModal(modalId) {
-  const modalContent = document.getElementById(modalId);
-  if (!modalContent) return;
-
-  const modal = modalContent.closest('.modal-overlay');
-  const inputs = modalContent.querySelectorAll('.modal-input');
-  const inputValues = Array.from(inputs).map(input => input.value);
-  const title = modalContent.querySelector('.modal-title').textContent;
-
-  minimizedModals.set(modalId, {
-    title,
-    inputValues,
-    content: modalContent.querySelector('.modal-body').outerHTML,
-    onConfirm: modal.querySelector('.modal-confirm')?.onclick,
-    onCancel: modal.querySelector('.modal-cancel')?.onclick,
-  });
-
-  modal.remove();
-
-  // Create a floating ball
-  const floatingBall = document.createElement('div');
-  floatingBall.className = 'floating-ball';
-  floatingBall.dataset.modalId = modalId;
-  floatingBall.innerHTML = `
-    <span class="floating-ball-label">${title.slice(0, 10)}...</span>
-    <span class="floating-ball-close" onclick="closeMinimizedModal('${modalId}')">×</span>
-  `;
-  floatingBall.onclick = (e) => {
-    if (!e.target.classList.contains('floating-ball-close')) {
-      restoreMinimizedModal(modalId);
-    }
-  };
-  document.body.appendChild(floatingBall);
-
-  makeDraggable(floatingBall);
-}
-
-function closeMinimizedModal(modalId) {
-  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
-  if (floatingBall) floatingBall.remove();
-  minimizedModals.delete(modalId);
-}
-
-function restoreMinimizedModal(modalId) {
-  const state = minimizedModals.get(modalId);
-  if (!state) return;
-
-  const modal = showModal(state.title, state.content, state.onConfirm, state.onCancel, true);
-  const inputs = modal.querySelectorAll('.modal-input');
-  inputs.forEach((input, index) => {
-    input.value = state.inputValues[index] || '';
-  });
-
-  // Remove floating ball
-  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
-  if (floatingBall) floatingBall.remove();
-}
-
-function makeDraggable(element) {
-  let isDragging = false;
-  let currentX;
-  let currentY;
-  let initialX;
-  let initialY;
-
-  element.addEventListener('mousedown', (e) => {
-    initialX = e.clientX - currentX;
-    initialY = e.clientY - currentY;
-    isDragging = true;
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (isDragging) {
-      e.preventDefault();
-      currentX = e.clientX - initialX;
-      currentY = e.clientY - initialY;
-      element.style.left = `${currentX}px`;
-      element.style.top = `${currentY}px`;
-    }
-  });
-
-  document.addEventListener('mouseup', () => {
-    isDragging = false;
-  });
-
-  // Initialize position
-  currentX = 50;
-  currentY = 50;
-  element.style.position = 'fixed';
-  element.style.left = `${currentX}px`;
-  element.style.top = `${currentY}px`;
 }
 
 function showFullScreenModal(title, contentHTML) {
