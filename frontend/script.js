@@ -739,9 +739,9 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
     <label for="statusFilter">Filter by Status: </label>
     <select id="statusFilter" onchange="filterTableByStatus(this.value, '${itemNumber}')">
       <option value="">All Statuses</option>
-      <option value="active">Active</option>
+      <option value="not-submitted">Not Submitted</option>
       <option value="CANDIDATES">Submitted (CANDIDATES)</option>
-      <option value="DISQUAL">Disqualified</option>
+      <option value="DISQUALIFIED">Submitted (DISQUALIFIED)</option>
     </select>
   `;
   container.appendChild(filterDiv);
@@ -792,6 +792,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         ? `<span class="submitted-indicator">Submitted (${candidate.submitted.status})</span>`
         : '';
       const comment = candidate.submitted?.comment || '';
+      const escapedComment = comment.replace(/'/g, "\\'").replace(/`/g, "\\`").replace(/"/g, "\\\"");
       tr.innerHTML = `
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
@@ -808,12 +809,12 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <td>${submittedStatus}</td>
         <td>
           ${comment ? `
-            <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${comment.replace(/'/g, "\\'")}')">View</button>
-            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${comment.replace(/'/g, "\\'")}')">Edit</button>
+            <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
+            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
           ` : 'No comments'}
         </td>
       `;
-      tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'active';
+      tr.dataset.status = candidate.submitted ? candidate.submitted.status : '';
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -1125,7 +1126,7 @@ function filterTableByStatus(status, itemNumber) {
   const rows = document.querySelectorAll('#secretariat-candidates-table tbody tr');
   rows.forEach(row => {
     const rowStatus = row.dataset.status;
-    if (!status || (status === 'active' && !rowStatus) || rowStatus === status) {
+    if (!status || (status === 'not-submitted' && rowStatus === '') || rowStatus === status) {
       row.style.display = '';
     } else {
       row.style.display = 'none';
