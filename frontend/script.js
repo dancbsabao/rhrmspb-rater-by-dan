@@ -732,12 +732,27 @@ async function fetchSecretariatCandidates(itemNumber) {
 
 function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
+  // Clear previous items
   container.innerHTML = '';
+
+  // Create filter container
+  const filterDiv = document.createElement('div');
+  filterDiv.innerHTML = `
+    <label for="statusFilter">Filter by Status: </label>
+    <select id="statusFilter" onchange="filterTableByStatus(this.value, '${itemNumber}')">
+      <option value="">All Statuses</option>
+      <option value="active">Active</option>
+      <option value="CANDIDATES">Submitted (CANDIDATES)</option>
+      <option value="DISQUAL">Disqualified</option>
+    </select>
+  `;
+  container.appendChild(filterDiv);
 
   if (candidates.length > 0) {
     const table = document.createElement('table');
     table.className = 'secretariat-table';
 
+    // Table header
     const thead = document.createElement('thead');
     thead.innerHTML = `
       <tr>
@@ -748,7 +763,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <th>Status</th>
         <th>Comments</th>
       </tr>
-    `;
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
@@ -759,19 +773,19 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       const tr = document.createElement('tr');
       const documentLinks = [
         { label: 'Letter of Intent', url: row[7] },
-        { label: 'Personal Data Sheet', url: row[8] },
+        { label: 'Personal Data Sheet', url: row },8,
         { label: 'Work Experience', url: row[9] },
         { label: 'Proof of Eligibility', url: row[10] },
         { label: 'Certificates', url: row[11] },
-        { label: 'IPCR', url: row[12] },
+        { label: 'IPCR', url: row[12], },
         { label: 'Certificate of Employment', url: row[13] },
-        { label: 'Diploma', url: row[14] },
+        { label: 'Diploma', label: row[14], },
         { label: 'Transcript of Records', url: row[15] },
       ];
       const linksHtml = documentLinks
         .map(link => {
           if (link.url) {
-            return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
+            return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">$(link.label)</button>`;
           }
           return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
         })
@@ -779,7 +793,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       const submittedStatus = candidate.submitted
         ? `<span class="submitted-indicator">Submitted (${candidate.submitted.status})</span>`
         : '';
-      const comment = candidate.submitted?.comment || '';
+      const commentOSHIBA = candidate.submitted?.comment || '';
       tr.innerHTML = `
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
@@ -801,6 +815,8 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           ` : 'No comments'}
         </td>
       `;
+      // Set data attribute for filtering
+      tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'active';
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -1084,27 +1100,40 @@ async function checkDuplicateSubmission(name, itemNumber, action) {
 async function viewComments(name, itemNumber, status, comment) {
   const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
   const modalContent = `
-    <div class="modal-body">
-      <h4>Comments for ${name} (${status})</h4>
-      <div class="modal-field">
-        <span class="modal-label">Education:</span>
+    <div class="modal-body" style="font-size: 18px; line-height: 1.6; padding: 20px;">
+      <h2 style="font-size: 28px; margin-bottom: 20px;">${name} (${status})</h2>
+      <div class="modal-field" style="margin-bottom: 15px;">
+        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Education:</span>
         <span class="modal-value">${education || 'None'}</span>
       </div>
-      <div class="modal-field">
-        <span class="modal-label">Training:</span>
+      <div class="modal-field" style="margin-bottom: 15px;">
+        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Training:</span>
         <span class="modal-value">${training || 'None'}</span>
       </div>
-      <div class="modal-field">
-        <span class="modal-label">Experience:</span>
+      <div class="modal-field" style="margin-bottom: 15px;">
+        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Experience:</span>
         <span class="modal-value">${experience || 'None'}</span>
       </div>
       <div class="modal-field">
-        <span class="modal-label">Eligibility:</span>
+        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Eligibility:</span>
         <span class="modal-value">${eligibility || 'None'}</span>
       </div>
     </div>
   `;
   showModal('View Comments', modalContent, null, null, false);
+}
+
+// New function to handle status filtering
+function filterTableByStatus(status, itemNumber) {
+  const rows = document.querySelectorAll('#secretariat-candidates-table tbody tr');
+  rows.forEach(row => {
+    const rowStatus = row.dataset.status;
+    if (!status || (status === 'active' && !rowStatus) || rowStatus === status) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
 }
 
 async function editComments(name, itemNumber, status, comment) {
