@@ -857,7 +857,7 @@ async function handleActionSelection(button) {
     </div>
   `;
   const commentEntered = await new Promise((resolve) => {
-    showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`, modalContent, () => {
+    const modal = showModal(`${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`, modalContent, () => {
       const education = document.getElementById('educationComment').value.trim();
       const training = document.getElementById('trainingComment').value.trim();
       const experience = document.getElementById('experienceComment').value.trim();
@@ -869,6 +869,15 @@ async function handleActionSelection(button) {
         resolve({ education, training, experience, eligibility });
       }
     }, () => resolve(false));
+    // Restore previous inputs if minimized
+    const modalId = modal.querySelector('.modal-content').id;
+    if (minimizedModals.has(modalId)) {
+      const state = minimizedModals.get(modalId);
+      const inputs = modal.querySelectorAll('.modal-input');
+      inputs.forEach((input, index) => {
+        input.value = state.inputValues[index] || '';
+      });
+    }
   });
 
   if (!commentEntered) return;
@@ -1187,7 +1196,7 @@ async function editComments(name, itemNumber, status, comment) {
         });
 
         if (candidatesIndex !== -1) {
-          const sheetRowIndex = candidatesIndex + 2; // Adjust for header
+          const sheetRowIndex = candidatesIndex + 2;
           await gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
             range: `CANDIDATES!R${sheetRowIndex}`,
@@ -1210,7 +1219,7 @@ async function editComments(name, itemNumber, status, comment) {
         });
 
         if (disqualifiedIndex !== -1) {
-          const sheetRowIndex = disqualifiedIndex + 2; // Adjust for header
+          const sheetRowIndex = disqualifiedIndex + 2;
           await gapi.client.sheets.spreadsheets.values.update({
             spreadsheetId: SHEET_ID,
             range: `DISQUALIFIED!D${sheetRowIndex}`,
@@ -1227,7 +1236,7 @@ async function editComments(name, itemNumber, status, comment) {
       console.error('Error updating comments:', error);
       showToast('error', 'Error', `Failed to update comments: ${error.message}`);
     }
-  });
+  }, () => {}, true);
 }
 
 
@@ -2455,60 +2464,99 @@ function loadRadioState(candidateName, item) {
   });
 }
 
-function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
-    document.body.appendChild(modalOverlay);
-  }
+let minimizedModals = new Map(); // Store minimized modal states
 
-  modalOverlay.innerHTML = `
-    <div class="modal">
+function showModal(title, content, onConfirm, onCancel, showCancel = true) {
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.style.display = 'block';
+  const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  const buttonsHtml = [];
+  if (onConfirm) {
+    buttonsHtml.push(`<button class="modal-confirm">Confirm</button>`);
+  }
+  if (showCancel) {
+    buttonsHtml.push(`<button class="modal-cancel">Cancel</button>`);
+  }
+  buttonsHtml.push(`<button class="modal-minimize" onclick="minimizeModal('${modalId}')">Minimize</button>`);
+
+  modal.innerHTML = `
+    <div class="modal-content" id="${modalId}">
       <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+        <span class="modal-title">${title}</span>
+        <span class="modal-close">&times;</span>
       </div>
-      <div class="modal-content">${contentHTML}</div>
-      <div class="modal-actions">
-        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
-        <button id="modalConfirm" class="modal-confirm">Confirm</button>
+      ${content}
+      <div class="modal-footer">
+        ${buttonsHtml.join('')}
       </div>
     </div>
   `;
+  document.body.appendChild(modal);
 
-  return new Promise((resolve) => {
-    modalOverlay.classList.add('active');
-    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
-    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+  const closeModal = () => {
+    modal.remove();
+    if (onCancel) onCancel();
+    minimizedModals.delete(modalId);
+  };
 
-    const closeHandler = (result) => {
-      modalOverlay.classList.remove('active');
-      resolve(result);
-      modalOverlay.removeEventListener('click', outsideClickHandler);
-    };
+  modal.querySelector('.modal-close').addEventListener('click', closeModal);
+  if (onConfirm) {
+    modal.querySelector('.modal-confirm').addEventListener('click', () => {
+      onConfirm();
+      closeModal();
+    });
+  }
+  if (showCancel && onCancel) {
+    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
+  }
 
-    confirmBtn.onclick = () => {
-      if (onConfirm) onConfirm();
-      closeHandler(true);
-    };
+  return modal;
+}
 
-    if (cancelBtn) {
-      cancelBtn.onclick = () => {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      };
-    }
+function minimizeModal(modalId) {
+  const modalContent = document.getElementById(modalId);
+  if (!modalContent) return;
 
-    const outsideClickHandler = (event) => {
-      if (event.target === modalOverlay) {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      }
-    };
-    modalOverlay.addEventListener('click', outsideClickHandler);
+  const modal = modalContent.closest('.modal');
+  const inputs = modalContent.querySelectorAll('.modal-input');
+  const inputValues = Array.from(inputs).map(input => input.value);
+  const title = modalContent.querySelector('.modal-title').textContent;
+
+  minimizedModals.set(modalId, {
+    title,
+    inputValues,
+    content: modalContent.querySelector('.modal-body').outerHTML,
+    onConfirm: modal.querySelector('.modal-confirm')?.onclick,
+    onCancel: modal.querySelector('.modal-cancel')?.onclick,
   });
+
+  modal.remove();
+
+  // Create a restore button in the UI
+  const restoreButton = document.createElement('button');
+  restoreButton.textContent = `Restore: ${title}`;
+  restoreButton.className = 'restore-modal-button';
+  restoreButton.onclick = () => restoreMinimizedModal(modalId);
+  document.body.appendChild(restoreButton);
+}
+
+function restoreMinimizedModal(modalId) {
+  const state = minimizedModals.get(modalId);
+  if (!state) return;
+
+  const modal = showModal(state.title, state.content, state.onConfirm, state.onCancel);
+  const inputs = modal.querySelectorAll('.modal-input');
+  inputs.forEach((input, index) => {
+    input.value = state.inputValues[index] || '';
+  });
+
+  // Remove restore button
+  const restoreButton = document.querySelector(`.restore-modal-button`);
+  if (restoreButton) restoreButton.remove();
+
+  minimizedModals.delete(modalId);
 }
 
 function showFullScreenModal(title, contentHTML) {
