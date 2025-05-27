@@ -2467,16 +2467,15 @@ let minimizedModals = new Map(); // Store minimized modal states
 
 function showModal(title, content, onConfirm, onCancel, showCancel = true) {
   const modal = document.createElement('div');
-  modal.className = 'modal';
-  modal.style.display = 'block';
+  modal.className = 'modal-overlay';
   const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
   const buttonsHtml = [];
   if (onConfirm) {
-    buttonsHtml.push(`<button class="modal-confirm">Confirm</button>`);
+    buttonsHtml.push('<button class="modal-confirm">Confirm</button>');
   }
   if (showCancel) {
-    buttonsHtml.push(`<button class="modal-cancel">Cancel</button>`);
+    buttonsHtml.push('<button class="modal-cancel">Cancel</button>');
   }
   buttonsHtml.push(`<button class="modal-minimize" onclick="minimizeModal('${modalId}')">Minimize</button>`);
 
@@ -2518,7 +2517,7 @@ function minimizeModal(modalId) {
   const modalContent = document.getElementById(modalId);
   if (!modalContent) return;
 
-  const modal = modalContent.closest('.modal');
+  const modal = modalContent.closest('.modal-overlay');
   const inputs = modalContent.querySelectorAll('.modal-input');
   const inputValues = Array.from(inputs).map(input => input.value);
   const title = modalContent.querySelector('.modal-title').textContent;
