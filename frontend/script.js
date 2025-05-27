@@ -859,22 +859,12 @@ async function handleActionSelection(button) {
   const commentEntered = await showCommentModal(
     `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
     modalContent,
-    () => {
-      const education = document.getElementById('educationComment').value.trim();
-      const training = document.getElementById('trainingComment').value.trim();
-      const experience = document.getElementById('experienceComment').value.trim();
-      const eligibility = document.getElementById('eligibilityComment').value.trim();
-      if (!education || !training || !experience || !eligibility) {
-        showToast('error', 'Error', 'All comment fields are required');
-        return false;
-      }
-      return { education, training, experience, eligibility };
-    },
+    null, // onConfirm handled in showCommentModal
     () => false,
     true
   );
 
-  if (!commentEntered) return;
+  if (!commentEntered || commentEntered === false) return;
 
   const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
   submitCandidateAction(button, name, itemNumber, sex, action, comment);
@@ -1155,22 +1145,12 @@ async function editComments(name, itemNumber, status, comment) {
   const commentEntered = await showCommentModal(
     'Edit Comments',
     modalContent,
-    () => {
-      const education = document.getElementById('educationComment').value.trim();
-      const training = document.getElementById('trainingComment').value.trim();
-      const experience = document.getElementById('experienceComment').value.trim();
-      const eligibility = document.getElementById('eligibilityComment').value.trim();
-      if (!education || !training || !experience || !eligibility) {
-        showToast('error', 'Error', 'All comment fields are required');
-        return false;
-      }
-      return { education, training, experience, eligibility };
-    },
+    null, // onConfirm handled in showCommentModal
     () => false,
     true
   );
 
-  if (!commentEntered) return;
+  if (!commentEntered || commentEntered === false) return;
 
   const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
   try {
@@ -2553,7 +2533,7 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-// New showCommentModal for comment input/edit with minimization
+// Updated showCommentModal to fix submission issue
 function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
@@ -2592,8 +2572,18 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
     };
 
     confirmBtn.onclick = () => {
-      if (onConfirm) onConfirm();
-      closeHandler(true);
+      // Capture inputs before closing
+      const inputs = modalOverlay.querySelectorAll('.modal-input');
+      const inputValues = Array.from(inputs).map(input => input.value.trim());
+      const [education, training, experience, eligibility] = inputValues;
+      
+      if (!education || !training || !experience || !eligibility) {
+        showToast('error', 'Error', 'All comment fields are required');
+        return; // Don't close modal
+      }
+
+      const result = onConfirm ? onConfirm() : { education, training, experience, eligibility };
+      closeHandler(result || { education, training, experience, eligibility });
     };
 
     if (cancelBtn) {
@@ -2654,14 +2644,15 @@ function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
 
-  showCommentModal(state.title, state.contentHTML, state.onConfirm, state.onCancel, true).then((result) => {
-    // Reassign modalId to maintain state
+  showCommentModal(state.title, state.contentHTML, state.onConfirm, state.onCancel, true).then(() => {
+    // Reassign modalId
     const newModal = document.querySelector('.modal');
     if (newModal) newModal.id = modalId;
-  });
-  const inputs = document.querySelectorAll('.modal-input');
-  inputs.forEach((input, index) => {
-    input.value = state.inputValues[index] || '';
+    // Restore input values
+    const inputs = document.querySelectorAll('.modal-input');
+    inputs.forEach((input, index) => {
+      input.value = state.inputValues[index] || '';
+    });
   });
 
   // Remove floating ball
