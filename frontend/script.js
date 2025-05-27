@@ -868,8 +868,7 @@ async function handleActionSelection(button) {
       } else {
         resolve({ education, training, experience, eligibility });
       }
-    }, () => resolve(false));
-    // Restore previous inputs if minimized
+    }, () => resolve(false), true);
     const modalId = modal.querySelector('.modal-content').id;
     if (minimizedModals.has(modalId)) {
       const state = minimizedModals.get(modalId);
@@ -2485,7 +2484,7 @@ function showModal(title, content, onConfirm, onCancel, showCancel = true) {
     <div class="modal-content" id="${modalId}">
       <div class="modal-header">
         <span class="modal-title">${title}</span>
-        <span class="modal-close">&times;</span>
+        <span class="modal-close">×</span>
       </div>
       ${content}
       <div class="modal-footer">
@@ -2534,29 +2533,78 @@ function minimizeModal(modalId) {
 
   modal.remove();
 
-  // Create a restore button in the UI
-  const restoreButton = document.createElement('button');
-  restoreButton.textContent = `Restore: ${title}`;
-  restoreButton.className = 'restore-modal-button';
-  restoreButton.onclick = () => restoreMinimizedModal(modalId);
-  document.body.appendChild(restoreButton);
+  // Create a floating ball
+  const floatingBall = document.createElement('div');
+  floatingBall.className = 'floating-ball';
+  floatingBall.dataset.modalId = modalId;
+  floatingBall.innerHTML = `
+    <span class="floating-ball-label">${title.slice(0, 10)}...</span>
+    <span class="floating-ball-close" onclick="closeMinimizedModal('${modalId}')">×</span>
+  `;
+  floatingBall.onclick = (e) => {
+    if (!e.target.classList.contains('floating-ball-close')) {
+      restoreMinimizedModal(modalId);
+    }
+  };
+  document.body.appendChild(floatingBall);
+
+  makeDraggable(floatingBall);
+}
+
+function closeMinimizedModal(modalId) {
+  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
+  if (floatingBall) floatingBall.remove();
+  minimizedModals.delete(modalId);
 }
 
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
 
-  const modal = showModal(state.title, state.content, state.onConfirm, state.onCancel);
+  const modal = showModal(state.title, state.content, state.onConfirm, state.onCancel, true);
   const inputs = modal.querySelectorAll('.modal-input');
   inputs.forEach((input, index) => {
     input.value = state.inputValues[index] || '';
   });
 
-  // Remove restore button
-  const restoreButton = document.querySelector(`.restore-modal-button`);
-  if (restoreButton) restoreButton.remove();
+  // Remove floating ball
+  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
+  if (floatingBall) floatingBall.remove();
+}
 
-  minimizedModals.delete(modalId);
+function makeDraggable(element) {
+  let isDragging = false;
+  let currentX;
+  let currentY;
+  let initialX;
+  let initialY;
+
+  element.addEventListener('mousedown', (e) => {
+    initialX = e.clientX - currentX;
+    initialY = e.clientY - currentY;
+    isDragging = true;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      e.preventDefault();
+      currentX = e.clientX - initialX;
+      currentY = e.clientY - initialY;
+      element.style.left = `${currentX}px`;
+      element.style.top = `${currentY}px`;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+
+  // Initialize position
+  currentX = 50;
+  currentY = 50;
+  element.style.position = 'fixed';
+  element.style.left = `${currentX}px`;
+  element.style.top = `${currentY}px`;
 }
 
 function showFullScreenModal(title, contentHTML) {
