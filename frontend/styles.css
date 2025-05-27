@@ -1140,6 +1140,66 @@ html, body {
   font-size: 14px;
 }
 
+/* Floating Ball for Minimized Comment Modal */
+.floating-ball {
+  position: fixed;
+  width: 60px;
+  height: 60px;
+  background-color: #333; /* Matches .secretariat-table border */
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+  z-index: 2000; /* Above .modal-overlay (z-index: 1000) */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Matches .modal shadow */
+  font-size: 12px; /* Matches .tile-content p */
+  text-align: center;
+  padding: 5px;
+}
+.floating-ball-label {
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Matches body */
+}
+.floating-ball-close {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: #dc3545; /* Matches .modal-cancel */
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px; /* Matches .toast-message */
+  border: 2px solid #333; /* Matches .modal-buttons */
+}
+.floating-ball-close:hover {
+  background-color: #c82333; /* Matches .modal-cancel:hover */
+}
+
+/* Minimize Button for Comment Modal */
+.modal-minimize {
+  padding: 8px 16px;
+  margin: 5px;
+  background-color: #666; /* Matches .toast.info border */
+  color: white;
+  border: 2px solid #333; /* Matches .modal-confirm */
+  border-radius: 4px;
+  font-size: 16px; /* Matches .modal-confirm */
+  cursor: pointer;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+.modal-minimize:hover {
+  background-color: #555; /* Darker shade for hover */
+}
+
 [hidden] {
   display: none !important;
 }
