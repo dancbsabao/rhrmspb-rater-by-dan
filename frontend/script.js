@@ -1131,9 +1131,25 @@ function filterTableByStatus(status, itemNumber) {
   });
 }
 
-// Updated editComments with logging and token retry
+// Updated editComments to check for existing modal
 async function editComments(name, itemNumber, status, comment) {
+  // Check for existing minimized modal for this candidate
+  let existingModalId = null;
+  for (const [modalId, state] of minimizedModals) {
+    if (state.candidateName === name && state.title.includes('Edit Comments')) {
+      existingModalId = modalId;
+      break;
+    }
+  }
+
+  if (existingModalId) {
+    console.log(`Restoring existing modal for ${name}:`, existingModalId); // Debug log
+    restoreMinimizedModal(existingModalId);
+    return;
+  }
+
   const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+  const initialValues = { education, training, experience, eligibility };
   const modalContent = `
     <div class="modal-body">
       <p>Edit comments for ${name} (${status}):</p>
@@ -1147,28 +1163,30 @@ async function editComments(name, itemNumber, status, comment) {
       <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
     </div>
   `;
-  const commentEntered = await showCommentModal(
-    'Edit Comments',
+  const modalResult = await showCommentModal(
+    `Edit Comments (${status})`,
     modalContent,
     name,
     (commentData) => {
-      console.log('editComments received:', commentData); // Debug log
+      console.log('editComments received:', commentData);
       return commentData;
     },
     () => false,
-    true
+    true,
+    initialValues
   );
 
-  console.log('Comment entered:', commentEntered); // Debug log
+  const commentEntered = await modalResult.promise;
+
+  console.log('Comment entered:', commentEntered);
 
   if (!commentEntered || commentEntered === false) return;
 
   const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
   try {
-    // Retry token validation
     let tokenValid = await isTokenValid();
     if (!tokenValid) {
-      console.log('Refreshing token...'); // Debug log
+      console.log('Refreshing token...');
       await refreshAccessToken();
       tokenValid = await isTokenValid();
       if (!tokenValid) throw new Error('Failed to validate token');
@@ -1237,7 +1255,7 @@ async function editComments(name, itemNumber, status, comment) {
     showToast('success', 'Success', 'Comments updated successfully');
     fetchSecretariatCandidates(itemNumber);
   } catch (error) {
-    console.error('Error updating comments:', error); // Debug log
+    console.error('Error updating comments:', error);
     showToast('error', 'Error', `Failed to update comments: ${error.message}`);
   }
 }
@@ -2556,7 +2574,7 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-// Updated showCommentModal with initial input values
+// Updated showCommentModal with consistent return
 function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
@@ -2573,7 +2591,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
   if (initialValues) {
     renderedContentHTML = `
       <div class="modal-body">
-        <p>${title.includes('Edit') ? `Edit comments for ${candidateName}` : `Please enter comments for ${title.toLowerCase().includes('disqualification') ? 'disqualifying' : 'long-listing'} ${candidateName}`}:</p>
+        <p>${title.includes('Edit') ? `Edit comments for ${candidateName}${title.includes('DISQUALIFIED') ? ' (DISQUALIFIED)' : ''}` : `Please enter comments for ${title.toLowerCase().includes('disqualification') ? 'disqualifying' : 'long-listing'} ${candidateName}`}</p>
         <label for="educationComment">Education:</label>
         <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
         <label for="trainingComment">Training:</label>
@@ -2603,59 +2621,59 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 
   console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML); // Debug log
 
-  return new Promise((resolve) => {
-    modalOverlay.classList.add('active');
-    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
-    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+  let isRestoring = false;
 
-    let isRestoring = false; // Flag to prevent premature closing
+  return {
+    promise: new Promise((resolve) => {
+      modalOverlay.classList.add('active');
+      const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+      const cancelBtn = modalOverlay.querySelector('.modal-cancel');
 
-    const closeHandler = (result) => {
-      if (isRestoring) return; // Prevent closing during restoration
-      modalOverlay.classList.remove('active');
-      minimizedModals.delete(modalId);
-      ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-      resolve(result);
-      modalOverlay.removeEventListener('click', outsideClickHandler);
-    };
-
-    confirmBtn.onclick = () => {
-      const inputs = modalOverlay.querySelectorAll('.modal-input');
-      const inputValues = Array.from(inputs).map(input => input.value.trim());
-      const [education, training, experience, eligibility] = inputValues;
-
-      if (!education || !training || !experience || !eligibility) {
-        showToast('error', 'Error', 'All comment fields are required');
-        return;
-      }
-
-      const commentData = { education, training, experience, eligibility };
-      console.log('Confirming with values:', commentData); // Debug log
-      if (onConfirm) onConfirm(commentData);
-      closeHandler(commentData);
-    };
-
-    if (cancelBtn) {
-      cancelBtn.onclick = () => {
-        if (onCancel) onCancel();
-        closeHandler(false);
+      const closeHandler = (result) => {
+        if (isRestoring) return; // Prevent closing during restoration
+        modalOverlay.classList.remove('active');
+        minimizedModals.delete(modalId);
+        ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
+        resolve(result);
+        modalOverlay.removeEventListener('click', outsideClickHandler);
       };
-    };
 
-    const outsideClickHandler = (event) => {
-      if (event.target === modalOverlay && !isRestoring) {
-        minimizeModal(modalId, candidateName);
-      }
-    };
-    modalOverlay.addEventListener('click', outsideClickHandler);
+      confirmBtn.onclick = () => {
+        const inputs = modalOverlay.querySelectorAll('.modal-input');
+        const inputValues = Array.from(inputs).map(input => input.value.trim());
+        const [education, training, experience, eligibility] = inputValues;
 
-    // Expose setRestoring for restoreMinimizedModal
-    return { resolve, setRestoring: (value) => { isRestoring = value; } };
-  });
+        if (!education || !training || !experience || !eligibility) {
+          showToast('error', 'Error', 'All comment fields are required');
+          return;
+        }
+
+        const commentData = { education, training, experience, eligibility };
+        console.log('Confirming with values:', commentData); // Debug log
+        if (onConfirm) onConfirm(commentData);
+        closeHandler(commentData);
+      };
+
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          if (onCancel) onCancel();
+          closeHandler(false);
+        };
+      };
+
+      const outsideClickHandler = (event) => {
+        if (event.target === modalOverlay && !isRestoring) {
+          minimizeModal(modalId, candidateName);
+        }
+      };
+      modalOverlay.addEventListener('click', outsideClickHandler);
+    }),
+    setRestoring: (value) => { isRestoring = value; }
+  };
 }
 
 
-// Updated minimizeModal to save clean template
+// Updated minimizeModal to remove existing balls
 function minimizeModal(modalId, candidateName) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
@@ -2665,7 +2683,7 @@ function minimizeModal(modalId, candidateName) {
   const inputValues = Array.from(inputs).map(input => input.value.trim());
   const title = modal.querySelector('.modal-title').textContent;
 
-  // Create clean contentHTML template
+  // Create clean contentHTML template with consistent labeling
   const contentHTML = `
     <div class="modal-body">
       <p>${modal.querySelector('.modal-body p').textContent}</p>
@@ -2681,6 +2699,18 @@ function minimizeModal(modalId, candidateName) {
   `;
 
   console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName); // Debug log
+
+  // Remove existing floating ball and modal state for this candidate
+  for (const [existingModalId, state] of minimizedModals) {
+    if (state.candidateName === candidateName && existingModalId !== modalId) {
+      const existingBall = document.querySelector(`.floating-ball[data-modal-id="${existingModalId}"]`);
+      if (existingBall) {
+        existingBall.remove();
+        ballPositions = ballPositions.filter(pos => pos.modalId !== existingModalId);
+      }
+      minimizedModals.delete(existingModalId);
+    }
+  }
 
   minimizedModals.set(modalId, {
     title,
@@ -2708,7 +2738,7 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal with requestAnimationFrame
+// Updated restoreMinimizedModal with error handling
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
@@ -2722,7 +2752,7 @@ function restoreMinimizedModal(modalId) {
     eligibility: state.inputValues[3] || '',
   };
 
-  const { resolve, setRestoring } = showCommentModal(
+  const modalResult = showCommentModal(
     state.title,
     state.contentHTML,
     state.candidateName,
@@ -2732,7 +2762,14 @@ function restoreMinimizedModal(modalId) {
     initialValues
   );
 
-  setRestoring(true); // Prevent premature closing
+  const { promise, setRestoring } = modalResult;
+
+  // Fallback if setRestoring is unavailable
+  if (typeof setRestoring === 'function') {
+    setRestoring(true); // Prevent premature closing
+  } else {
+    console.warn('setRestoring is not a function; skipping isRestoring flag'); // Debug log
+  }
 
   const newModal = document.querySelector('.modal');
   if (newModal) newModal.id = modalId;
@@ -2764,7 +2801,7 @@ function restoreMinimizedModal(modalId) {
     if (!allInputsFound) {
       console.error('Not all inputs found, retrying...'); // Debug log
       requestAnimationFrame(applyInputs);
-    } else {
+    } else if (typeof setRestoring === 'function') {
       setRestoring(false); // Allow closing after inputs are applied
     }
   };
@@ -2778,7 +2815,7 @@ function restoreMinimizedModal(modalId) {
     ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
   }
 
-  resolve(); // Ensure promise resolves
+  promise.then(() => {}); // Ensure promise resolves
 }
 
 
