@@ -2556,7 +2556,7 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-// Updated showCommentModal to ensure onConfirm returns values
+// Updated showCommentModal with debug logging
 function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
@@ -2581,6 +2581,8 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
       </div>
     </div>
   `;
+
+  console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML); // Debug log
 
   return new Promise((resolve) => {
     modalOverlay.classList.add('active');
@@ -2681,7 +2683,7 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal to ensure DOM readiness
+// Updated restoreMinimizedModal with retry loop
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
@@ -2702,7 +2704,9 @@ function restoreMinimizedModal(modalId) {
 
     console.log('Applying inputs:', inputMap); // Debug log
 
-    // Use MutationObserver to ensure inputs are ready
+    // Retry applying inputs until DOM is ready
+    let attempts = 0;
+    const maxAttempts = 10;
     const applyInputs = () => {
       let allInputsFound = true;
       Object.entries(inputMap).forEach(([id, value]) => {
@@ -2715,22 +2719,17 @@ function restoreMinimizedModal(modalId) {
           allInputsFound = false;
         }
       });
-      return allInputsFound;
+
+      if (!allInputsFound && attempts < maxAttempts) {
+        attempts++;
+        console.log(`Retry attempt ${attempts}/${maxAttempts}`); // Debug log
+        setTimeout(applyInputs, 100);
+      } else if (!allInputsFound) {
+        console.error('Failed to find all inputs after max attempts'); // Debug log
+      }
     };
 
-    if (!applyInputs()) {
-      const observer = new MutationObserver((mutations, obs) => {
-        if (applyInputs()) {
-          obs.disconnect();
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-      // Fallback timeout to prevent infinite observation
-      setTimeout(() => {
-        observer.disconnect();
-        applyInputs();
-      }, 1000);
-    }
+    applyInputs();
   });
 
   // Remove floating ball
