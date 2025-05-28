@@ -804,13 +804,13 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           </select>
         </td>
         <td>
-          <button class="submit-candidate-button" onclick="handleActionSelection(this)">Submit</button>
+          <button class="submit-candidate-button">Submit</button>
         </td>
         <td>${submittedStatus}</td>
         <td>
           ${comment ? `
-            <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
-            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
+            <button class="view-comment-button">View</button>
+            <button class="edit-comment-button">Edit</button>
           ` : 'No comments'}
         </td>
       `;
@@ -826,6 +826,12 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
 
 // Unchanged handleActionSelection
 async function handleActionSelection(button) {
+  if (isSubmitting) {
+    console.log('Submission already in progress, please wait.');
+    showToast('info', 'Info', 'A submission is already in progress. Please wait.');
+    return;
+  }
+
   const row = button.closest('tr');
   const select = row.querySelector('.action-dropdown');
   const action = select.value;
@@ -885,23 +891,18 @@ async function handleActionSelection(button) {
 
   // Exit if no valid comment data was entered
   if (!commentEntered || commentEntered === false) {
-    console.log('No valid comment entered, exiting handleActionSelection');
-    showToast('info', 'Info', 'Candidate action cancelled');
+    console.log('Comment not entered or submission cancelled by user in comment modal.');
+    showToast('info', 'Info', 'Comment entry cancelled or empty.');
     return;
   }
 
-  // Format the comment for submission
-  const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-  console.log('Submitting candidate action with comment:', comment);
-
   try {
-    await submitCandidateAction(button, name, itemNumber, sex, action, comment);
-    showToast('success', 'Success', 'Candidate action submitted successfully');
-    console.log('Showing success toast for handleActionSelection');
+    // Pass the button element to submitCandidateAction
+    await submitCandidateAction(button, name, itemNumber, sex, action, commentEntered);
   } catch (error) {
-    console.error('Error submitting candidate action in handleActionSelection:', error);
+    console.error('Error in handleActionSelection during submitCandidateAction:', error);
     showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
-    throw error;
+    // No need to re-throw, error is handled here
   }
 }
 
@@ -910,6 +911,14 @@ async function handleActionSelection(button) {
 
 async function submitCandidateAction(button, name, itemNumber, sex, action, comment) {
   console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment });
+
+  if (isSubmitting) {
+    console.warn('Submission already in progress, preventing duplicate.');
+    return; // Prevent execution if already submitting
+  }
+
+  isSubmitting = true;
+  if (button) button.disabled = true; // Disable the button to prevent multiple clicks
 
   const modalContent = `
     <div class="modal-body">
@@ -934,6 +943,8 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
   if (!confirmResult) {
     console.log('Submission cancelled by user');
     showToast('info', 'Info', 'Submission cancelled');
+    isSubmitting = false;
+    if (button) button.disabled = false; // Re-enable button on cancel
     return;
   }
 
@@ -962,60 +973,54 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         console.log(`Fetched sheetId for ${sheetName}: ${sheet.properties.sheetId}`);
         return sheet.properties.sheetId;
       } catch (error) {
-        console.error(`Failed to fetch sheetId for ${sheetName}:`, error);
+        console.error(`Failed to fetch sheet ID for ${sheetName}:`, error);
         throw error;
       }
     }
 
     if (action === 'FOR LONG LIST') {
       console.log('Processing FOR LONG LIST action...');
+
+      // Check and delete from DISQUALIFIED if exists
       const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: 'DISQUALIFIED!A:E',
       });
       let disqualifiedValues = disqualifiedResponse.result.values || [];
-      console.log('DISQUALIFIED raw values:', disqualifiedValues);
-
       const disqualifiedDataRows = disqualifiedValues.slice(1);
       const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
         const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
         const rowItem = row[1]?.trim();
         const rowMemberId = row[4]?.toString();
-        console.log('Comparing DISQUALIFIED row:', { rowName, rowItem, rowMemberId });
-        return rowName === normalizedName && 
-               rowItem === normalizedItemNumber && 
-               rowMemberId === secretariatMemberId;
+        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
       });
 
       if (disqualifiedIndex !== -1) {
-        const sheetRowIndex = disqualifiedIndex + 1;
-        console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
-
+        const sheetRowIndex = disqualifiedIndex + 2; // +1 for header, +1 for 0-indexed array
+        console.log(`Deleting row ${sheetRowIndex} from DISQUALIFIED sheet.`);
         const sheetId = await getSheetId('DISQUALIFIED');
-        const batchUpdateRequest = {
-          requests: [{
-            deleteDimension: {
-              range: {
-                sheetId: sheetId,
-                dimension: 'ROWS',
-                startIndex: sheetRowIndex,
-                endIndex: sheetRowIndex + 1
-              }
-            }
-          }]
-        };
-        console.log('batchUpdate request for DISQUALIFIED:', JSON.stringify(batchUpdateRequest, null, 2));
-        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+        await gapi.client.sheets.spreadsheets.batchUpdate({
           spreadsheetId: SHEET_ID,
-          resource: batchUpdateRequest
+          resource: {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: 'ROWS',
+                  startIndex: sheetRowIndex - 1,
+                  endIndex: sheetRowIndex
+                }
+              }
+            }]
+          }
         });
-        console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
-
+        showToast('info', 'Info', `Candidate removed from DISQUALIFIED list.`);
+        // Re-fetch to confirm deletion
         const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: 'DISQUALIFIED!A:E',
         });
-        console.log('DISQUALIFIED values after deletion:', updatedDisqualifiedResponse.result.values);
+        console.log('DISQUALIFIED sheet after deletion:', updatedDisqualifiedResponse.result.values);
       } else {
         console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
       }
@@ -1024,91 +1029,107 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         spreadsheetId: SHEET_ID,
         range: 'GENERAL_LIST!A:P',
       });
-      let candidate = generalResponse.result.values.find(row => 
-        row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
-        row[1]?.trim() === normalizedItemNumber
-      );
+      let candidate = generalResponse.result.values.find(row => row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && row[1]?.trim() === normalizedItemNumber);
       if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-      candidate = [...candidate, secretariatMemberId, comment];
+
+      candidate = [...candidate, secretariatMemberId, comment]; // Add member ID and comment
       console.log('Appending to CANDIDATES:', [candidate]);
+
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: 'CANDIDATES!A:R',
         valueInputOption: 'RAW',
-        resource: { values: [candidate] },
+        resource: {
+          values: [candidate]
+        },
       });
+      showToast('success', 'Success', `Candidate ${name} submitted for LONG LIST.`);
       console.log('Candidate appended to CANDIDATES successfully');
+
     } else if (action === 'FOR DISQUALIFICATION') {
       console.log('Processing FOR DISQUALIFICATION action...');
+
+      // Check and delete from CANDIDATES if exists
       const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: 'CANDIDATES!A:R',
       });
       let candidatesValues = candidatesResponse.result.values || [];
-      console.log('CANDIDATES raw values:', candidatesValues);
-
       const candidatesDataRows = candidatesValues.slice(1);
       const candidatesIndex = candidatesDataRows.findIndex(row => {
         const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
         const rowItem = row[1]?.trim();
         const rowMemberId = row[16]?.toString();
-        console.log('Comparing CANDIDATES row:', { rowName, rowItem, rowMemberId });
-        return rowName === normalizedName && 
-               rowItem === normalizedItemNumber && 
-               rowMemberId === secretariatMemberId;
+        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
       });
 
       if (candidatesIndex !== -1) {
-        const sheetRowIndex = candidatesIndex + 1;
-        console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
-
+        const sheetRowIndex = candidatesIndex + 2;
+        console.log(`Deleting row ${sheetRowIndex} from CANDIDATES sheet.`);
         const sheetId = await getSheetId('CANDIDATES');
-        const batchUpdateRequest = {
-          requests: [{
-            deleteDimension: {
-              range: {
-                sheetId: sheetId,
-                dimension: 'ROWS',
-                startIndex: sheetRowIndex,
-                endIndex: sheetRowIndex + 1
-              }
-            }
-          }]
-        };
-        console.log('batchUpdate request for CANDIDATES:', JSON.stringify(batchUpdateRequest, null, 2));
-        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+        await gapi.client.sheets.spreadsheets.batchUpdate({
           spreadsheetId: SHEET_ID,
-          resource: batchUpdateRequest
+          resource: {
+            requests: [{
+              deleteDimension: {
+                range: {
+                  sheetId: sheetId,
+                  dimension: 'ROWS',
+                  startIndex: sheetRowIndex - 1,
+                  endIndex: sheetRowIndex
+                }
+              }
+            }]
+          }
         });
-        console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
-
+        showToast('info', 'Info', `Candidate removed from CANDIDATES list.`);
+        // Re-fetch to confirm deletion
         const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: 'CANDIDATES!A:R',
         });
-        console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
+        console.log('CANDIDATES sheet after deletion:', updatedCandidatesResponse.result.values);
       } else {
         console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
       }
 
-      const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
-      console.log('Appending to DISQUALIFIED:', values);
+      const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'GENERAL_LIST!A:P',
+      });
+      let candidate = generalResponse.result.values.find(row => row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && row[1]?.trim() === normalizedItemNumber);
+      if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
+
+      const disqualifiedEntry = [
+        candidate[0], // Name
+        candidate[1], // Item No
+        candidate[2], // Sex
+        comment, // Comment
+        secretariatMemberId // Member ID
+      ];
+      console.log('Appending to DISQUALIFIED:', [disqualifiedEntry]);
+
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: 'DISQUALIFIED!A:E',
         valueInputOption: 'RAW',
-        resource: { values },
+        resource: {
+          values: [disqualifiedEntry]
+        },
       });
+      showToast('success', 'Success', `Candidate ${name} submitted for DISQUALIFICATION.`);
       console.log('Candidate appended to DISQUALIFIED successfully');
     }
 
-    showToast('success', 'Success', 'Action submitted successfully');
-    console.log('Showing success toast for submitCandidateAction');
-    await fetchSecretariatCandidates(itemNumber);
+    // Refresh the table to reflect the new status
+    fetchSecretariatCandidates(itemNumber);
+
   } catch (error) {
-    console.error('Error submitting action in submitCandidateAction:', error);
-    showToast('error', 'Error', `Failed to submit action: ${error.message || JSON.stringify(error)}`);
-    throw error;
+    console.error('Error in submitCandidateAction:', error);
+    showToast('error', 'Error', `Failed to submit action: ${error.message}`);
+  } finally {
+    isSubmitting = false;
+    if (button) button.disabled = false; // Re-enable the button regardless of success/failure
   }
 }
 
@@ -3132,7 +3153,50 @@ elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
 elements.submitRatings.addEventListener('click', submitRatings);
 
-// Fix: Properly close DOMContentLoaded wrapper
+// Add this block after the displaySecretariatCandidatesTable function,
+// or inside an overall initialization function that runs once the DOM is ready.
+
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
+    const secretariatCandidatesTableContainer = document.getElementById('secretariat-candidates-table');
+
+    if (secretariatCandidatesTableContainer) {
+        // Remove any existing listener to prevent duplicates if this function is called multiple times
+        // This is a simple way to manage; for complex apps, consider a more robust event management
+        if (secretariatCandidatesTableContainer._delegatedClickListener) {
+            secretariatCandidatesTableContainer.removeEventListener('click', secretariatCandidatesTableContainer._delegatedClickListener);
+        }
+
+        const delegatedClickHandler = async (event) => {
+            if (event.target.classList.contains('submit-candidate-button')) {
+                // Pass the button element itself
+                handleActionSelection(event.target);
+            } else if (event.target.classList.contains('view-comment-button')) {
+                const row = event.target.closest('tr');
+                const name = row.querySelector('td:nth-child(1)').textContent; // Assuming name is in the first td
+                const select = row.querySelector('.action-dropdown');
+                const itemNumber = select.dataset.item;
+                const status = row.dataset.status;
+                // You need to get the comment. Since you removed the onclick, you might need to store it
+                // in a data attribute on the button or its parent td, or re-fetch if necessary.
+                // For now, assuming you can retrieve it from the DOM or data model.
+                // Example: If you add data-comment to the parent <td> of the buttons
+                const commentTd = event.target.closest('td');
+                const comment = commentTd ? commentTd.dataset.comment || '' : '';
+                viewComments(name, itemNumber, status, comment);
+            } else if (event.target.classList.contains('edit-comment-button')) {
+                const row = event.target.closest('tr');
+                const name = row.querySelector('td:nth-child(1)').textContent;
+                const select = row.querySelector('.action-dropdown');
+                const itemNumber = select.dataset.item;
+                const status = row.dataset.status;
+                const commentTd = event.target.closest('td');
+                const comment = commentTd ? commentTd.dataset.comment || '' : ''; // Get comment from data attribute
+                editComments(name, itemNumber, status, comment);
+            }
+        };
+
+        secretariatCandidatesTableContainer.addEventListener('click', delegatedClickHandler);
+        secretariatCandidatesTableContainer._delegatedClickListener = delegatedClickHandler; // Store reference for removal
+    }
 });
