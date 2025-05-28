@@ -2556,8 +2556,8 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-// Updated showCommentModal with debug logging
-function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true) {
+// Updated showCommentModal with initial input values
+function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
     modalOverlay = document.createElement('div');
@@ -2567,13 +2567,32 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
   }
 
   const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Use provided contentHTML or generate with initial values
+  let renderedContentHTML = contentHTML;
+  if (initialValues) {
+    renderedContentHTML = `
+      <div class="modal-body">
+        <p>${title.includes('Edit') ? `Edit comments for ${candidateName}` : `Please enter comments for ${title.toLowerCase().includes('disqualification') ? 'disqualifying' : 'long-listing'} ${candidateName}`}:</p>
+        <label for="educationComment">Education:</label>
+        <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
+        <label for="trainingComment">Training:</label>
+        <input type="text" id="trainingComment" class="modal-input" value="${initialValues.training || ''}">
+        <label for="experienceComment">Experience:</label>
+        <input type="text" id="experienceComment" class="modal-input" value="${initialValues.experience || ''}">
+        <label for="eligibilityComment">Eligibility:</label>
+        <input type="text" id="eligibilityComment" class="modal-input" value="${initialValues.eligibility || ''}">
+      </div>
+    `;
+  }
+
   modalOverlay.innerHTML = `
     <div class="modal" id="${modalId}">
       <div class="modal-header">
         <h3 class="modal-title">${title}</h3>
         <span class="modal-close" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}')">×</span>
       </div>
-      <div class="modal-content">${contentHTML}</div>
+      <div class="modal-content">${renderedContentHTML}</div>
       <div class="modal-actions">
         ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
         <button id="modalConfirm" class="modal-confirm">Confirm</button>
@@ -2589,7 +2608,10 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
     const confirmBtn = modalOverlay.querySelector('#modalConfirm');
     const cancelBtn = modalOverlay.querySelector('.modal-cancel');
 
+    let isRestoring = false; // Flag to prevent premature closing
+
     const closeHandler = (result) => {
+      if (isRestoring) return; // Prevent closing during restoration
       modalOverlay.classList.remove('active');
       minimizedModals.delete(modalId);
       ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
@@ -2621,11 +2643,14 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
     };
 
     const outsideClickHandler = (event) => {
-      if (event.target === modalOverlay) {
+      if (event.target === modalOverlay && !isRestoring) {
         minimizeModal(modalId, candidateName);
       }
     };
     modalOverlay.addEventListener('click', outsideClickHandler);
+
+    // Expose setRestoring for restoreMinimizedModal
+    return { resolve, setRestoring: (value) => { isRestoring = value; } };
   });
 }
 
@@ -2683,54 +2708,68 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal with retry loop
+// Updated restoreMinimizedModal with requestAnimationFrame
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
 
   console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues); // Debug log
 
-  showCommentModal(state.title, state.contentHTML, state.candidateName, null, () => false, true).then(() => {
-    const newModal = document.querySelector('.modal');
-    if (newModal) newModal.id = modalId;
+  const initialValues = {
+    education: state.inputValues[0] || '',
+    training: state.inputValues[1] || '',
+    experience: state.inputValues[2] || '',
+    eligibility: state.inputValues[3] || '',
+  };
 
-    // Apply input values using IDs
-    const inputMap = {
-      educationComment: state.inputValues[0] || '',
-      trainingComment: state.inputValues[1] || '',
-      experienceComment: state.inputValues[2] || '',
-      eligibilityComment: state.inputValues[3] || '',
-    };
+  const { resolve, setRestoring } = showCommentModal(
+    state.title,
+    state.contentHTML,
+    state.candidateName,
+    null,
+    () => false,
+    true,
+    initialValues
+  );
 
-    console.log('Applying inputs:', inputMap); // Debug log
+  setRestoring(true); // Prevent premature closing
 
-    // Retry applying inputs until DOM is ready
-    let attempts = 0;
-    const maxAttempts = 10;
-    const applyInputs = () => {
-      let allInputsFound = true;
-      Object.entries(inputMap).forEach(([id, value]) => {
-        const input = document.getElementById(id);
-        if (input) {
-          input.value = value;
-          console.log(`Set #${id} to:`, value); // Debug log
-        } else {
-          console.error(`Input #${id} not found`); // Debug log
-          allInputsFound = false;
-        }
-      });
+  const newModal = document.querySelector('.modal');
+  if (newModal) newModal.id = modalId;
 
-      if (!allInputsFound && attempts < maxAttempts) {
-        attempts++;
-        console.log(`Retry attempt ${attempts}/${maxAttempts}`); // Debug log
-        setTimeout(applyInputs, 100);
-      } else if (!allInputsFound) {
-        console.error('Failed to find all inputs after max attempts'); // Debug log
+  // Apply input values using IDs
+  const inputMap = {
+    educationComment: initialValues.education,
+    trainingComment: initialValues.training,
+    experienceComment: initialValues.experience,
+    eligibilityComment: initialValues.eligibility,
+  };
+
+  console.log('Applying inputs:', inputMap); // Debug log
+
+  // Use requestAnimationFrame to ensure DOM is painted
+  const applyInputs = () => {
+    let allInputsFound = true;
+    Object.entries(inputMap).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.value = value;
+        console.log(`Set #${id} to:`, value); // Debug log
+      } else {
+        console.error(`Input #${id} not found`); // Debug log
+        allInputsFound = false;
       }
-    };
+    });
 
-    applyInputs();
-  });
+    if (!allInputsFound) {
+      console.error('Not all inputs found, retrying...'); // Debug log
+      requestAnimationFrame(applyInputs);
+    } else {
+      setRestoring(false); // Allow closing after inputs are applied
+    }
+  };
+
+  requestAnimationFrame(applyInputs);
 
   // Remove floating ball
   const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
@@ -2738,6 +2777,8 @@ function restoreMinimizedModal(modalId) {
     floatingBall.remove();
     ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
   }
+
+  resolve(); // Ensure promise resolves
 }
 
 
