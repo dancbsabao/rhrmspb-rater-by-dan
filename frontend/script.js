@@ -1192,7 +1192,7 @@ async function editComments(name, itemNumber, status, comment) {
   let existingModalId = null;
   let existingModalState = null;
   for (const [modalId, state] of minimizedModals) {
-    if (state.candidateName === name && state.title.includes('Edit Comments')) {
+    if (state.candidateName === name && (state.title || '').toLowerCase().includes('edit comments')) {
       existingModalId = modalId;
       existingModalState = state;
       break;
@@ -1206,8 +1206,14 @@ async function editComments(name, itemNumber, status, comment) {
     console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
     restoreMinimizedModal(existingModalId);
     console.log('Waiting for restored modal promise...');
-    commentEntered = await existingModalState.promise;
-    console.log('Comment entered from restored modal:', commentEntered);
+    try {
+      commentEntered = await existingModalState.promise;
+      console.log('Comment entered from restored modal:', commentEntered);
+    } catch (error) {
+      console.error('Error resolving restored modal promise:', error);
+      showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
+      return;
+    }
   } else {
     // Prepare initial values for the modal
     const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
@@ -2692,7 +2698,7 @@ function showFullScreenModal(title, contentHTML) {
 
 
 // Updated showCommentModal with consistent return
-function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
+function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
     modalOverlay = document.createElement('div');
@@ -2706,9 +2712,13 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
   // Use provided contentHTML or generate with initial values
   let renderedContentHTML = contentHTML;
   if (initialValues) {
+    const isEdit = title.toLowerCase().includes('edit');
+    const isDisqualified = title.toLowerCase().includes('disqualified');
+    const actionText = isEdit ? `Edit comments for ${candidateName}${isDisqualified ? ' (DISQUALIFIED)' : ''}` : 
+      `Please enter comments for ${title.toLowerCase().includes('disqualification') ? 'disqualifying' : 'long-listing'} ${candidateName}`;
     renderedContentHTML = `
       <div class="modal-body">
-        <p>${title.includes('Edit') ? `Edit comments for ${candidateName}${title.includes('DISQUALIFIED') ? ' (DISQUALIFIED)' : ''}` : `Please enter comments for ${title.toLowerCase().includes('disqualification') ? 'disqualifying' : 'long-listing'} ${candidateName}`}</p>
+        <p>${actionText}</p>
         <label for="educationComment">Education:</label>
         <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
         <label for="trainingComment">Training:</label>
@@ -2725,13 +2735,13 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
     <div class="modal" id="${modalId}">
       <div class="modal-header">
         <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}')">×</span>
+        <span class="modal-close" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}', '${title.replace(/'/g, "\\'")}')">×</span>
       </div>
       <div class="modal-content">${renderedContentHTML}</div>
       <div class="modal-actions">
         ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
         <button id="modalConfirm" class="modal-confirm">Confirm</button>
-        <button class="modal-minimize" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}')">Minimize</button>
+        <button class="modal-minimize" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}', '${title.replace(/'/g, "\\'")}')">Minimize</button>
       </div>
     </div>
   `;
@@ -2825,9 +2835,12 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 
 
 // Updated minimizeModal to remove existing balls
-function minimizeModal(modalId, candidateName, title, contentHTML, onConfirm, onCancel) {
+function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentHTML = null, onConfirm = null, onCancel = null) {
   const modal = document.getElementById(modalId);
-  if (!modal) return;
+  if (!modal) {
+    console.error('Modal not found for ID:', modalId);
+    return;
+  }
 
   const modalOverlay = modal.closest('.modal-overlay');
   const inputs = modal.querySelectorAll('.modal-input');
@@ -2899,7 +2912,7 @@ function restoreMinimizedModal(modalId) {
   };
 
   const modalResult = showCommentModal(
-    state.title,
+    state.title || 'Comment Modal',
     state.contentHTML,
     state.candidateName,
     state.onConfirm,
