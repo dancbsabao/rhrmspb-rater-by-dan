@@ -807,7 +807,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           <button class="submit-candidate-button">Submit</button>
         </td>
         <td>${submittedStatus}</td>
-        <td>
+        <td data-comment="${escapedComment}">
           ${comment ? `
             <button class="view-comment-button">View</button>
             <button class="edit-comment-button">Edit</button>
