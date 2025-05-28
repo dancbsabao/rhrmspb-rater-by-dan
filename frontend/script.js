@@ -2687,7 +2687,7 @@ function showFullScreenModal(title, contentHTML) {
 
 
 // Updated showCommentModal with consistent return
-(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
+function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
     modalOverlay = document.createElement('div');
