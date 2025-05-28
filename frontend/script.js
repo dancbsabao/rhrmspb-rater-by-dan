@@ -1188,10 +1188,13 @@ function filterTableByStatus(status, itemNumber) {
 
 // Updated editComments to check for existing modal
 async function editComments(name, itemNumber, status, comment) {
+  // Normalize inputs
+  const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+  const normalizedItemNumber = itemNumber.trim();
+
   // Check for existing minimized modal for this candidate
   let existingModalId = null;
   let existingModalState = null;
-
   for (const [modalId, state] of minimizedModals) {
     if (state.candidateName === name && (state.title || '').toLowerCase().includes('edit comments')) {
       existingModalId = modalId;
@@ -1200,9 +1203,7 @@ async function editComments(name, itemNumber, status, comment) {
     }
   }
 
-  let commentEntered;
-
-  const submitComment = async (commentData, normalizedName, normalizedItemNumber) => {
+  const submitComment = async (commentData) => {
     const newComment = `${commentData.education},${commentData.training},${commentData.experience},${commentData.eligibility}`;
     console.log('Formatted newComment:', newComment);
 
@@ -1303,6 +1304,7 @@ async function editComments(name, itemNumber, status, comment) {
     }
   };
 
+  let commentEntered;
   if (existingModalId) {
     console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
     restoreMinimizedModal(existingModalId);
@@ -1310,10 +1312,9 @@ async function editComments(name, itemNumber, status, comment) {
     try {
       commentEntered = await existingModalState.promise;
       console.log('Comment entered from restored modal:', commentEntered);
+      minimizedModals.delete(existingModalId); // Clear immediately after promise resolution
       if (commentEntered && commentEntered !== false) {
-        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-        const normalizedItemNumber = itemNumber.trim();
-        await submitComment(commentEntered, normalizedName, normalizedItemNumber);
+        await submitComment(commentEntered);
       } else {
         console.log('No valid comment entered from restored modal, exiting');
         showToast('info', 'Info', 'Comment editing cancelled');
@@ -1321,8 +1322,7 @@ async function editComments(name, itemNumber, status, comment) {
     } catch (error) {
       console.error('Error resolving restored modal promise:', error);
       showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
-    } finally {
-      minimizedModals.delete(existingModalId); // Clear immediately
+      minimizedModals.delete(existingModalId); // Clear on error
     }
   } else {
     const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
@@ -1371,9 +1371,7 @@ async function editComments(name, itemNumber, status, comment) {
       commentEntered = await modalResult.promise;
       console.log('Comment entered:', commentEntered);
       if (commentEntered && commentEntered !== false) {
-        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-        const normalizedItemNumber = itemNumber.trim();
-        await submitComment(commentEntered, normalizedName, normalizedItemNumber);
+        await submitComment(commentEntered);
       } else {
         console.log('No valid comment entered, exiting editComments');
         showToast('info', 'Info', 'Comment editing cancelled');
