@@ -834,12 +834,15 @@ async function handleActionSelection(button) {
   const sex = select.dataset.sex;
 
   if (!action) {
+    console.log('No action selected');
     showToast('error', 'Error', 'Please select an action');
     return;
   }
 
+  console.log(`Checking for duplicate submission: ${name}, ${itemNumber}, ${action}`);
   const isDuplicate = await checkDuplicateSubmission(name, itemNumber, action);
   if (isDuplicate) {
+    console.log(`Duplicate submission detected for ${name} as ${action}`);
     showToast('error', 'Error', `Candidate already submitted as ${action} by Member ${secretariatMemberId}.`);
     return;
   }
@@ -857,22 +860,49 @@ async function handleActionSelection(button) {
       <input type="text" id="eligibilityComment" class="modal-input">
     </div>
   `;
+
+  console.log(`Opening handleActionSelection modal for ${name}, action: ${action}`);
+
   const modalResult = await showCommentModal(
     `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
     modalContent,
     name,
-    (commentData) => commentData,
-    () => false,
+    (commentData) => {
+      console.log('handleActionSelection onConfirm received:', commentData);
+      return commentData;
+    },
+    () => {
+      console.log('handleActionSelection onCancel triggered');
+      return false;
+    },
     true,
-    null // No initial values for new comments
+    null
   );
 
+  console.log('Waiting for modalResult.promise...');
   const commentEntered = await modalResult.promise;
+  console.log('Comment entered:', commentEntered);
 
-  if (!commentEntered || commentEntered === false) return;
+  // Exit if no valid comment data was entered
+  if (!commentEntered || commentEntered === false) {
+    console.log('No valid comment entered, exiting handleActionSelection');
+    showToast('info', 'Info', 'Candidate action cancelled');
+    return;
+  }
 
+  // Format the comment for submission
   const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-  submitCandidateAction(button, name, itemNumber, sex, action, comment);
+  console.log('Submitting candidate action with comment:', comment);
+
+  try {
+    await submitCandidateAction(button, name, itemNumber, sex, action, comment);
+    showToast('success', 'Success', 'Candidate action submitted successfully');
+    console.log('Showing success toast for handleActionSelection');
+  } catch (error) {
+    console.error('Error submitting candidate action in handleActionSelection:', error);
+    showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
+    throw error; // Rethrow to allow caller to handle if needed
+  }
 }
 
 
@@ -1147,12 +1177,13 @@ async function editComments(name, itemNumber, status, comment) {
   }
 
   if (existingModalId) {
-    console.log(`Restoring existing modal for ${name}:`, existingModalId); // Debug log
+    console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
     restoreMinimizedModal(existingModalId);
     return;
   }
 
-  const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+  // Prepare initial values for the modal
+  const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
   const initialValues = { education, training, experience, eligibility };
   const modalContent = `
     <div class="modal-body">
@@ -1167,48 +1198,77 @@ async function editComments(name, itemNumber, status, comment) {
       <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
     </div>
   `;
+
+  console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
+
+  // Show the comment modal and await its result
   const modalResult = await showCommentModal(
     `Edit Comments (${status})`,
     modalContent,
     name,
     (commentData) => {
-      console.log('editComments received:', commentData);
+      console.log('editComments onConfirm received:', commentData);
       return commentData;
     },
-    () => false,
+    () => {
+      console.log('editComments onCancel triggered');
+      return false;
+    },
     true,
     initialValues
   );
 
+  console.log('Waiting for modalResult.promise...');
   const commentEntered = await modalResult.promise;
-
   console.log('Comment entered:', commentEntered);
 
-  if (!commentEntered || commentEntered === false) return;
+  // Exit if no valid comment data was entered
+  if (!commentEntered || commentEntered === false) {
+    console.log('No valid comment entered, exiting editComments');
+    showToast('info', 'Info', 'Comment editing cancelled');
+    return;
+  }
 
+  // Format the comment for submission
   const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
+  console.log('Formatted newComment:', newComment);
+
   try {
+    // Validate and refresh token if necessary
     let tokenValid = await isTokenValid();
+    console.log('Token valid:', tokenValid);
     if (!tokenValid) {
       console.log('Refreshing token...');
       await refreshAccessToken();
       tokenValid = await isTokenValid();
-      if (!tokenValid) throw new Error('Failed to validate token');
+      console.log('Token valid after refresh:', tokenValid);
+      if (!tokenValid) {
+        throw new Error('Failed to validate token after refresh');
+      }
     }
 
     const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
     const normalizedItemNumber = itemNumber.trim();
 
+    // Helper function to get sheet ID
     async function getSheetId(sheetName) {
-      const response = await gapi.client.sheets.spreadsheets.get({
-        spreadsheetId: SHEET_ID,
-      });
-      const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-      if (!sheet) throw new Error(`Sheet ${sheetName} not found`);
-      return sheet.properties.sheetId;
+      try {
+        const response = await gapi.client.sheets.spreadsheets.get({
+          spreadsheetId: SHEET_ID,
+        });
+        const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+        if (!sheet) {
+          throw new Error(`Sheet ${sheetName} not found`);
+        }
+        return sheet.properties.sheetId;
+      } catch (error) {
+        console.error(`Error fetching sheet ID for ${sheetName}:`, error);
+        throw error;
+      }
     }
 
     if (status === 'CANDIDATES') {
+      console.log('Fetching CANDIDATES sheet...');
       const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: 'CANDIDATES!A:R',
@@ -1221,17 +1281,21 @@ async function editComments(name, itemNumber, status, comment) {
         return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
       });
 
-      if (candidatesIndex !== -1) {
-        const sheetRowIndex = candidatesIndex + 2;
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: `CANDIDATES!R${sheetRowIndex}`,
-          valueInputOption: 'RAW',
-          resource: { values: [[newComment]] },
-        });
-        console.log('Comment updated in CANDIDATES');
+      if (candidatesIndex === -1) {
+        throw new Error(`Candidate ${normalizedName} not found in CANDIDATES sheet for item ${normalizedItemNumber}`);
       }
+
+      const sheetRowIndex = candidatesIndex + 2;
+      console.log(`Updating CANDIDATES row ${sheetRowIndex} with comment: ${newComment}`);
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `CANDIDATES!R${sheetRowIndex}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[newComment]] },
+      });
+      console.log('Comment updated in CANDIDATES');
     } else if (status === 'DISQUALIFIED') {
+      console.log('Fetching DISQUALIFIED sheet...');
       const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: 'DISQUALIFIED!A:E',
@@ -1244,23 +1308,31 @@ async function editComments(name, itemNumber, status, comment) {
         return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
       });
 
-      if (disqualifiedIndex !== -1) {
-        const sheetRowIndex = disqualifiedIndex + 2;
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: `DISQUALIFIED!D${sheetRowIndex}`,
-          valueInputOption: 'RAW',
-          resource: { values: [[newComment]] },
-        });
-        console.log('Comment updated in DISQUALIFIED');
+      if (disqualifiedIndex === -1) {
+        throw new Error(`Candidate ${normalizedName} not found in DISQUALIFIED sheet for item ${normalizedItemNumber}`);
       }
+
+      const sheetRowIndex = disqualifiedIndex + 2;
+      console.log(`Updating DISQUALIFIED row ${sheetRowIndex} with comment: ${newComment}`);
+      await gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `DISQUALIFIED!D${sheetRowIndex}`,
+        valueInputOption: 'RAW',
+        resource: { values: [[newComment]] },
+      });
+      console.log('Comment updated in DISQUALIFIED');
+    } else {
+      throw new Error(`Invalid status: ${status}`);
     }
 
+    // Show success toast and refresh candidates
     showToast('success', 'Success', 'Comments updated successfully');
-    fetchSecretariatCandidates(itemNumber);
+    console.log('Showing success toast for editComments');
+    await fetchSecretariatCandidates(itemNumber);
   } catch (error) {
-    console.error('Error updating comments:', error);
+    console.error('Error updating comments in editComments:', error);
     showToast('error', 'Error', `Failed to update comments: ${error.message}`);
+    throw error; // Rethrow to allow caller to handle if needed
   }
 }
 
