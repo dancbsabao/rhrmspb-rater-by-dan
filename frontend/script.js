@@ -4,6 +4,7 @@ let tokenClient = null;
 let currentEvaluator = null;
 let fetchTimeout;
 let isSubmitting = false;
+let activeModalPromises = {}; // Stores { modalId: { resolve: Function, reject: Function, promise: Promise, inputs: Object, candidateName: string } }
 let refreshTimer = null;
 let sessionId = null; // To track server session
 let submissionQueue = []; // Queue for pending submissions
@@ -2626,61 +2627,197 @@ function loadRadioState(candidateName, item) {
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 
-function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
-    document.body.appendChild(modalOverlay);
-  }
+async function showModal(id, title, content, onConfirmCallback, onCancelCallback, canMinimize, initialInputs = {}) {
+    const modalId = id || `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  modalOverlay.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
-      </div>
-      <div class="modal-content">${contentHTML}</div>
-      <div class="modal-actions">
-        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
-        <button id="modalConfirm" class="modal-confirm">Confirm</button>
-      </div>
-    </div>
-  `;
+    let resolveFn, rejectFn;
+    let modalElement = document.getElementById(modalId); // Try to find existing modal element
 
-  return new Promise((resolve) => {
-    modalOverlay.classList.add('active');
-    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
-    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+    if (activeModalPromises[modalId] && activeModalPromises[modalId].promise) {
+        // CASE 1: Modal is being restored or re-displayed, and there's a pending promise.
+        // Reuse the existing promise's resolve/reject.
+        resolveFn = activeModalPromises[modalId].resolve;
+        rejectFn = activeModalPromises[modalId].reject;
+        console.log(`[showModal] Re-activating existing modal promise for ID: ${modalId}`);
 
-    const closeHandler = (result) => {
-      modalOverlay.classList.remove('active');
-      resolve(result);
-      modalOverlay.removeEventListener('click', outsideClickHandler);
-    };
+        // If the modal element doesn't exist (e.g., was completely removed from DOM), re-create it.
+        // Otherwise, just show it.
+        if (!modalElement) {
+             console.log(`[showModal] Modal element not found, re-creating DOM for ${modalId}.`);
+            modalElement = createModalDOM(modalId, title, content); // Helper to create DOM structure
+            document.body.appendChild(modalElement);
+        } else {
+            console.log(`[showModal] Modal element exists, just showing ${modalId}.`);
+            // Update content in case it changed (e.g., in edit modal)
+            modalElement.querySelector('.modal-title').textContent = title;
+            modalElement.querySelector('.modal-body').innerHTML = content;
+            modalElement.style.display = 'block'; // Ensure it's visible
+            modalElement.classList.add('active'); // Add active class if you use it for styling
+        }
 
-    confirmBtn.onclick = () => {
-      if (onConfirm) onConfirm();
-      closeHandler(true);
-    };
+        // Apply initial inputs to the re-rendered modal (for restored state)
+        applyInputsToModal(modalElement, initialInputs);
 
-    if (cancelBtn) {
-      cancelBtn.onclick = () => {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      };
-    };
+    } else {
+        // CASE 2: New modal creation. Create a new promise.
+        console.log(`[showModal] Creating new modal promise for ID: ${modalId}`);
+        let newPromiseResolve, newPromiseReject;
+        const newModalPromise = new Promise((resolve, reject) => {
+            newPromiseResolve = resolve;
+            newPromiseReject = reject;
+        });
 
-    const outsideClickHandler = (event) => {
-      if (event.target === modalOverlay) {
-        if (onCancel) onCancel();
-        closeHandler(false);
-      }
-    };
-    modalOverlay.addEventListener('click', outsideClickHandler);
-  });
+        resolveFn = newPromiseResolve;
+        rejectFn = newPromiseReject;
+        activeModalPromises[modalId] = {
+            resolve: resolveFn,
+            reject: rejectFn,
+            promise: newModalPromise,
+            inputs: initialInputs, // Store initial inputs with the promise
+            candidateName: title // Store candidate name or title for context
+        };
+
+        // Create modal DOM elements for the first time
+        modalElement = createModalDOM(modalId, title, content); // Helper function for DOM
+        document.body.appendChild(modalElement);
+
+        // Apply initial inputs for a new modal
+        applyInputsToModal(modalElement, initialInputs);
+    }
+
+    // Common logic for setting up event listeners for Confirm/Cancel/Close buttons
+    // These listeners MUST call `resolveFn` or `rejectFn` (which are now linked to the persistent promise)
+
+    const confirmButton = modalElement.querySelector('.modal-confirm-btn'); // Assuming this class
+    const cancelButton = modalElement.querySelector('.modal-cancel-btn'); // Assuming this class
+    const closeButton = modalElement.querySelector('.modal-close'); // Assuming this class for 'X'
+
+    // Remove previous listeners to prevent duplicates (important for restored modals)
+    if (confirmButton) confirmButton.removeEventListener('click', confirmButton._modalClickListener);
+    if (cancelButton) cancelButton.removeEventListener('click', cancelButton._modalClickListener);
+    if (closeButton) closeButton.removeEventListener('click', closeButton._modalClickListener);
+
+    // Add new listeners, ensuring they call the correct resolveFn/rejectFn
+    if (confirmButton) {
+        confirmButton._modalClickListener = () => {
+            const result = onConfirmCallback ? onConfirmCallback(getModalInputValues(modalId)) : true;
+            resolveFn(result); // Resolve the persistent promise
+            closeModalHandler(modalId); // Close and clean up
+        };
+        confirmButton.addEventListener('click', confirmButton._modalClickListener);
+    }
+    if (cancelButton) {
+        cancelButton._modalClickListener = () => {
+            const result = onCancelCallback ? onCancelCallback() : false;
+            resolveFn(result); // Resolve the persistent promise
+            closeModalHandler(modalId); // Close and clean up
+        };
+        cancelButton.addEventListener('click', cancelButton._modalClickListener);
+    }
+    if (closeButton) {
+        closeButton._modalClickListener = () => {
+            const result = onCancelCallback ? onCancelCallback() : false;
+            resolveFn(result); // Resolve the persistent promise
+            closeModalHandler(modalId); // Close and clean up
+        };
+        closeButton.addEventListener('click', closeButton._modalClickListener);
+    }
+
+    // Minimize button and outside click handler
+    if (canMinimize) {
+        const minimizeButton = modalElement.querySelector('.modal-minimize-btn');
+        if (minimizeButton) {
+            minimizeButton.removeEventListener('click', minimizeButton._modalClickListener);
+            minimizeButton._modalClickListener = () => {
+                minimizeModal(modalId); // Just pass ID, logic handles state
+            };
+            minimizeButton.addEventListener('click', minimizeButton._modalClickListener);
+        }
+        // Outside click handler for minimization
+        modalElement.removeEventListener('click', modalElement._outsideClickListener);
+        modalElement._outsideClickListener = (event) => {
+            if (event.target === modalElement) { // Clicked on the modal overlay, not content
+                minimizeModal(modalId);
+            }
+        };
+        modalElement.addEventListener('click', modalElement._outsideClickListener);
+    }
+
+    return { element: modalElement, promise: activeModalPromises[modalId].promise };
 }
+
+// --- Helper Functions (Add these to your script) ---
+
+// Helper to create the basic modal DOM structure
+function createModalDOM(modalId, title, content) {
+    const modalElement = document.createElement('div');
+    modalElement.className = 'modal'; // Assuming 'modal' is your base class
+    modalElement.id = modalId;
+    modalElement.innerHTML = `
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <div class="modal-header">
+                <h2 class="modal-title">${title}</h2>
+                <button class="modal-minimize-btn" title="Minimize Modal">-</button>
+            </div>
+            <div class="modal-body">${content}</div>
+            <div class="modal-footer">
+                <button class="modal-confirm-btn">Confirm</button>
+                <button class="modal-cancel-btn">Cancel</button>
+            </div>
+        </div>
+    `;
+    return modalElement;
+}
+
+// Helper to get input values from a modal
+function getModalInputValues(modalId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) return {};
+    const inputs = modal.querySelectorAll('.modal-input'); // Assuming input class
+    const values = {};
+    inputs.forEach(input => {
+        values[input.id] = input.value;
+    });
+    return values;
+}
+
+// Helper to apply input values to a modal
+function applyInputsToModal(modalElement, inputs) {
+    for (const id in inputs) {
+        const inputElement = modalElement.querySelector(`#${id}`);
+        if (inputElement) {
+            inputElement.value = inputs[id];
+        }
+    }
+}
+
+// Unified modal close handler
+function closeModalHandler(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        // Clean up event listeners to prevent memory leaks, especially for restored modals
+        const confirmButton = modal.querySelector('.modal-confirm-btn');
+        const cancelButton = modal.querySelector('.modal-cancel-btn');
+        const closeButton = modal.querySelector('.modal-close');
+        const minimizeButton = modal.querySelector('.modal-minimize-btn');
+
+        if (confirmButton) confirmButton.removeEventListener('click', confirmButton._modalClickListener);
+        if (cancelButton) cancelButton.removeEventListener('click', cancelButton._modalClickListener);
+        if (closeButton) closeButton.removeEventListener('click', closeButton._modalClickListener);
+        if (minimizeButton) minimizeButton.removeEventListener('click', minimizeButton._modalClickListener);
+        if (modal._outsideClickListener) modal.removeEventListener('click', modal._outsideClickListener);
+
+        // Remove the modal from the DOM
+        modal.parentNode.removeChild(modal);
+    }
+    // Remove the promise from the active map as it's now resolved/closed
+    delete activeModalPromises[modalId];
+    console.log(`[showModal] Modal ${modalId} closed and promise cleared from map.`);
+}
+
+
+
 
 // Unchanged showFullScreenModal
 function showFullScreenModal(title, contentHTML) {
@@ -2866,150 +3003,73 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
 
 
 // Updated minimizeModal to remove existing balls
-function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentHTML = null, onConfirm = null, onCancel = null) {
-  const modal = document.getElementById(modalId);
-  if (!modal) {
-    console.warn('Modal not found for ID:', modalId);
-    return;
-  }
+function minimizeModal(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.style.display = 'none'; // Hide the modal
+        modal.classList.remove('active'); // Remove active class if you use it for styling
 
-  const modalOverlay = modal.closest('.modal-overlay');
-  const inputs = modal.querySelectorAll('.modal-input');
-  const inputValues = Array.from(inputs).map(input => input.value.trim());
+        // Save current inputs to the activeModalPromises context
+        if (activeModalPromises[modalId]) {
+            activeModalPromises[modalId].inputs = getModalInputValues(modalId);
+        }
 
-  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName);
+        // Store this state in localStorage so it can be restored on page refresh
+        const savedState = {
+            id: modalId,
+            inputs: activeModalPromises[modalId].inputs,
+            candidateName: activeModalPromises[modalId].candidateName // Use the stored name
+        };
+        localStorage.setItem(`minimizedModalState_${modalId}`, JSON.stringify(savedState));
 
-  // Remove existing floating ball and modal state for this candidate
-  for (const [existingModalId, state] of minimizedModals) {
-    if (state.candidateName === candidateName && existingModalId !== modalId) {
-      const existingBall = document.querySelector(`.floating-ball[data-modal-id="${existingModalId}"]`);
-      if (existingBall) {
-        existingBall.remove();
-        ballPositions = ballPositions.filter(pos => pos.modalId !== existingModalId);
-      }
-      minimizedModals.delete(existingModalId);
+        console.log(`[minimizeModal] Minimizing modal: ${modalId}. Saved inputs to activeModalPromises and localStorage.`);
+    } else {
+        console.warn(`[minimizeModal] Modal not found for ID: ${modalId}. Cannot minimize.`);
     }
-  }
-
-  // Store the promise resolver to keep it pending
-  let resolvePromise;
-  const modalPromise = new Promise((resolve) => {
-    resolvePromise = resolve;
-  });
-
-  minimizedModals.set(modalId, {
-    title,
-    inputValues,
-    contentHTML: contentHTML || modal.querySelector('.modal-content').innerHTML,
-    candidateName,
-    onConfirm,
-    onCancel,
-    promise: modalPromise,
-    resolvePromise
-  });
-
-  modalOverlay.classList.remove('active');
-
-  // Create a floating ball with candidate name
-  const floatingBall = document.createElement('div');
-  floatingBall.className = 'floating-ball';
-  floatingBall.dataset.modalId = modalId;
-  floatingBall.innerHTML = `
-    <span class="floating-ball-label">${candidateName.slice(0, 10)}...</span>
-  `;
-  floatingBall.onclick = () => restoreMinimizedModal(modalId);
-  document.body.appendChild(floatingBall);
-
-  makeDraggable(floatingBall, modalId);
 }
 
 
 
-// Updated restoreMinimizedModal with error handling
-function restoreMinimizedModal(modalId) {
-  const state = minimizedModals.get(modalId);
-  if (!state) {
-    console.log('No state found for modalId:', modalId);
-    return;
-  }
-
-  console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues);
-
-  const initialValues = {
-    education: state.inputValues[0] || '',
-    training: state.inputValues[1] || '',
-    experience: state.inputValues[2] || '',
-    eligibility: state.inputValues[3] || '',
-  };
-
-  const modalResult = showCommentModal(
-    state.title || 'Comment Modal',
-    state.contentHTML,
-    state.candidateName,
-    state.onConfirm,
-    state.onCancel,
-    true,
-    initialValues
-  );
-
-  const { promise, setRestoring } = modalResult;
-
-  if (typeof setRestoring === 'function') {
-    setRestoring(true);
-  } else {
-    console.warn('setRestoring is not a function; skipping isRestoring flag');
-  }
-
-  const newModal = document.querySelector('.modal');
-  if (newModal) newModal.id = modalId;
-
-  // Apply input values using IDs
-  const inputMap = {
-    educationComment: initialValues.education,
-    trainingComment: initialValues.training,
-    experienceComment: initialValues.experience,
-    eligibilityComment: initialValues.eligibility,
-  };
-
-  console.log('Applying inputs:', inputMap);
-
-  const applyInputs = () => {
-    let allInputsFound = true;
-    Object.entries(inputMap).forEach(([id, value]) => {
-      const input = document.getElementById(id);
-      if (input) {
-        input.value = value;
-        console.log(`Set #${id} to:`, value);
-      } else {
-        console.error(`Input #${id} not found`);
-        allInputsFound = false;
-      }
-    });
-
-    if (!allInputsFound) {
-      console.error('Not all inputs found, retrying...');
-      requestAnimationFrame(applyInputs);
-    } else if (typeof setRestoring === 'function') {
-      setRestoring(false);
+async function restoreModal(modalId) {
+    const savedStateStr = localStorage.getItem(`minimizedModalState_${modalId}`);
+    if (!savedStateStr) {
+        console.warn(`[restoreModal] No saved state found for modal ID: ${modalId}`);
+        return null;
     }
-  };
 
-  requestAnimationFrame(applyInputs);
+    const savedState = JSON.parse(savedStateStr);
+    console.log(`[restoreModal] Restoring modal: ${savedState.id} Saved inputs:`, savedState.inputs);
 
-  // Remove floating ball
-  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
-  if (floatingBall) {
-    floatingBall.remove();
-    ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-  }
+    // Call showModal with the original ID and saved inputs.
+    // showModal will detect the existing promise and re-hook into it.
+    const modalResult = await showModal(
+        savedState.id,
+        `Restore Comments for ${savedState.candidateName}`, // Reconstruct title
+        // NOTE: The content for the modal body should be passed here.
+        // If your showCommentModal dynamically generates this, you'll need to adapt.
+        // For simplicity, let's assume it's part of the showModal's internal logic.
+        `<div class="modal-body">
+            <p>Please enter comments for ${savedState.candidateName}:</p>
+            <label for="educationComment">Education:</label>
+            <input type="text" id="educationComment" class="modal-input">
+            <label for="trainingComment">Training:</label>
+            <input type="text" id="trainingComment" class="modal-input">
+            <label for="experienceComment">Experience:</label>
+            <input type="text" id="experienceComment" class="modal-input">
+            <label for="eligibilityComment">Eligibility:</label>
+            <input type="text" id="eligibilityComment" class="modal-input">
+        </div>`,
+        (commentData) => { /* original onConfirm logic here if needed */ return commentData; },
+        () => { /* original onCancel logic here if needed */ return false; },
+        true, // canMinimize
+        savedState.inputs // Pass saved inputs
+    );
 
-  // Resolve the stored promise when the restored modal is confirmed
-  promise.then((result) => {
-    console.log('Restored modal promise resolved with:', result);
-    if (state.resolvePromise) {
-      state.resolvePromise(result);
-    }
-  });
+    // After restoration, clear the saved state from localStorage
+    localStorage.removeItem(`minimizedModalState_${modalId}`);
+
+    console.log(`[restoreModal] Modal ${modalId} restored. Returning its promise.`);
+    return modalResult;
 }
 
 
