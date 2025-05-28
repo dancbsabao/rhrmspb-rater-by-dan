@@ -2913,90 +2913,85 @@ function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentH
 
 
 // Updated restoreMinimizedModal with error handling
+// Updated restoreMinimizedModal to pass original onConfirm/onCancel
 function restoreMinimizedModal(modalId) {
-  const state = minimizedModals.get(modalId);
-  if (!state) {
-    console.log('No state found for modalId:', modalId);
-    return;
-  }
+    const state = minimizedModals.get(modalId);
+    if (!state) return;
 
-  console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues);
+    console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues); // Debug log
 
-  const initialValues = {
-    education: state.inputValues[0] || '',
-    training: state.inputValues[1] || '',
-    experience: state.inputValues[2] || '',
-    eligibility: state.inputValues[3] || '',
-  };
+    const initialValues = {
+        education: state.inputValues[0] || '',
+        training: state.inputValues[1] || '',
+        experience: state.inputValues[2] || '',
+        eligibility: state.inputValues[3] || '',
+    };
 
-  const modalResult = showCommentModal(
-    state.title || 'Comment Modal',
-    state.contentHTML,
-    state.candidateName,
-    state.onConfirm,
-    state.onCancel,
-    true,
-    initialValues
-  );
+    // Correctly pass the saved onConfirm and onCancel
+    const modalResult = showCommentModal(
+        state.title,
+        state.contentHTML,
+        state.candidateName,
+        state.onConfirm, // Pass the saved onConfirm
+        state.onCancel,  // Pass the saved onCancel
+        true,
+        initialValues
+    );
 
-  const { promise, setRestoring } = modalResult;
+    const { promise, setRestoring } = modalResult;
 
-  if (typeof setRestoring === 'function') {
-    setRestoring(true);
-  } else {
-    console.warn('setRestoring is not a function; skipping isRestoring flag');
-  }
-
-  const newModal = document.querySelector('.modal');
-  if (newModal) newModal.id = modalId;
-
-  // Apply input values using IDs
-  const inputMap = {
-    educationComment: initialValues.education,
-    trainingComment: initialValues.training,
-    experienceComment: initialValues.experience,
-    eligibilityComment: initialValues.eligibility,
-  };
-
-  console.log('Applying inputs:', inputMap);
-
-  const applyInputs = () => {
-    let allInputsFound = true;
-    Object.entries(inputMap).forEach(([id, value]) => {
-      const input = document.getElementById(id);
-      if (input) {
-        input.value = value;
-        console.log(`Set #${id} to:`, value);
-      } else {
-        console.error(`Input #${id} not found`);
-        allInputsFound = false;
-      }
-    });
-
-    if (!allInputsFound) {
-      console.error('Not all inputs found, retrying...');
-      requestAnimationFrame(applyInputs);
-    } else if (typeof setRestoring === 'function') {
-      setRestoring(false);
+    // Fallback if setRestoring is unavailable
+    if (typeof setRestoring === 'function') {
+        setRestoring(true); // Prevent premature closing
+    } else {
+        console.warn('setRestoring is not a function; skipping isRestoring flag'); // Debug log
     }
-  };
 
-  requestAnimationFrame(applyInputs);
+    const newModal = document.querySelector('.modal');
+    if (newModal) newModal.id = modalId;
 
-  // Remove floating ball
-  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
-  if (floatingBall) {
-    floatingBall.remove();
-    ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-  }
+    // Apply input values using IDs
+    const inputMap = {
+        educationComment: initialValues.education,
+        trainingComment: initialValues.training,
+        experienceComment: initialValues.experience,
+        eligibilityComment: initialValues.eligibility,
+    };
 
-  // Resolve the stored promise when the restored modal is confirmed
-  promise.then((result) => {
-    console.log('Restored modal promise resolved with:', result);
-    if (state.resolvePromise) {
-      state.resolvePromise(result);
+    console.log('Applying inputs:', inputMap); // Debug log
+
+    // Use requestAnimationFrame to ensure DOM is painted
+    const applyInputs = () => {
+        let allInputsFound = true;
+        Object.entries(inputMap).forEach(([id, value]) => {
+            const input = document.getElementById(id);
+            if (input) {
+                input.value = value;
+                console.log(`Set #${id} to:`, value); // Debug log
+            } else {
+                console.error(`Input #${id} not found`); // Debug log
+                allInputsFound = false;
+            }
+        });
+
+        if (!allInputsFound) {
+            console.error('Not all inputs found, retrying...'); // Debug log
+            requestAnimationFrame(applyInputs);
+        } else if (typeof setRestoring === 'function') {
+            setRestoring(false); // Allow closing after inputs are applied
+        }
+    };
+
+    requestAnimationFrame(applyInputs);
+
+    // Remove floating ball
+    const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
+    if (floatingBall) {
+        floatingBall.remove();
+        ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
     }
-  });
+
+    promise.then(() => {}); // Ensure promise resolves
 }
 
 
