@@ -2533,7 +2533,6 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-// Updated showCommentModal to fix submission issue
 function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
@@ -2576,7 +2575,7 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
       const inputs = modalOverlay.querySelectorAll('.modal-input');
       const inputValues = Array.from(inputs).map(input => input.value.trim());
       const [education, training, experience, eligibility] = inputValues;
-      
+
       if (!education || !training || !experience || !eligibility) {
         showToast('error', 'Error', 'All comment fields are required');
         return; // Don't close modal
@@ -2603,6 +2602,8 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
 }
 
 
+// Corrected minimizeModal function
+function minimizeModal(modalId) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
 
@@ -2639,6 +2640,8 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
 
   makeDraggable(floatingBall);
 }
+
+
 
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
