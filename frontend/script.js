@@ -1209,9 +1209,11 @@ async function editComments(name, itemNumber, status, comment) {
     try {
       commentEntered = await existingModalState.promise;
       console.log('Comment entered from restored modal:', commentEntered);
+      minimizedModals.delete(existingModalId); // Clear after processing
     } catch (error) {
       console.error('Error resolving restored modal promise:', error);
       showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
+      minimizedModals.delete(existingModalId); // Clear on error
       return;
     }
   } else {
@@ -1272,6 +1274,7 @@ async function editComments(name, itemNumber, status, comment) {
   if (!commentEntered || commentEntered === false) {
     console.log('No valid comment entered, exiting editComments');
     showToast('info', 'Info', 'Comment editing cancelled');
+    minimizedModals.delete(existingModalId); // Clear if cancelled
     return;
   }
 
@@ -1379,6 +1382,8 @@ async function editComments(name, itemNumber, status, comment) {
     console.error('Error updating comments in editComments:', error);
     showToast('error', 'Error', `Failed to update comments: ${error.message}`);
     throw error;
+  } finally {
+    minimizedModals.delete(existingModalId); // Clear after submission
   }
 }
 
@@ -2735,13 +2740,13 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
     <div class="modal" id="${modalId}">
       <div class="modal-header">
         <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}', '${title.replace(/'/g, "\\'")}')">×</span>
+        <span class="modal-close" data-modal-id="${modalId}">×</span>
       </div>
       <div class="modal-content">${renderedContentHTML}</div>
       <div class="modal-actions">
         ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
         <button id="modalConfirm" class="modal-confirm">Confirm</button>
-        <button class="modal-minimize" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}', '${title.replace(/'/g, "\\'")}')">Minimize</button>
+        <button class="modal-minimize" data-modal-id="${modalId}">Minimize</button>
       </div>
     </div>
   `;
@@ -2750,12 +2755,15 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
 
   let isRestoring = false;
   let isConfirming = false;
+  let isMinimizing = false;
 
   return {
     promise: new Promise((resolve) => {
       modalOverlay.classList.add('active');
       const confirmBtn = modalOverlay.querySelector('#modalConfirm');
       const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+      const closeBtn = modalOverlay.querySelector('.modal-close');
+      const minimizeBtn = modalOverlay.querySelector('.modal-minimize');
       const modalContent = modalOverlay.querySelector('.modal');
 
       const closeHandler = (result) => {
@@ -2767,8 +2775,8 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         modalOverlay.classList.remove('active');
         minimizedModals.delete(modalId);
         ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-        resolve(result);
         modalOverlay.removeEventListener('click', outsideClickHandler);
+        resolve(result);
       };
 
       confirmBtn.onclick = (event) => {
@@ -2814,10 +2822,24 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         };
       }
 
+      closeBtn.onclick = (event) => {
+        event.stopPropagation();
+        console.log('Close button clicked');
+        minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel);
+      };
+
+      minimizeBtn.onclick = (event) => {
+        event.stopPropagation();
+        console.log('Minimize button clicked');
+        minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel);
+      };
+
       const outsideClickHandler = (event) => {
-        if (event.target === modalOverlay && !isRestoring && !isConfirming) {
+        if (event.target === modalOverlay && !isRestoring && !isConfirming && !isMinimizing) {
           console.log('Outside click detected, minimizing modal');
+          isMinimizing = true;
           minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel);
+          setTimeout(() => { isMinimizing = false; }, 100);
         }
       };
       modalOverlay.addEventListener('click', outsideClickHandler);
@@ -2838,7 +2860,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
 function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentHTML = null, onConfirm = null, onCancel = null) {
   const modal = document.getElementById(modalId);
   if (!modal) {
-    console.error('Modal not found for ID:', modalId);
+    console.warn('Modal not found for ID:', modalId);
     return;
   }
 
