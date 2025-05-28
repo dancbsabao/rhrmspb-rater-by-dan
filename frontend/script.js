@@ -2681,7 +2681,7 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal to ensure input application
+// Updated restoreMinimizedModal to ensure DOM readiness
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
@@ -2702,15 +2702,35 @@ function restoreMinimizedModal(modalId) {
 
     console.log('Applying inputs:', inputMap); // Debug log
 
-    Object.entries(inputMap).forEach(([id, value]) => {
-      const input = document.getElementById(id);
-      if (input) {
-        input.value = value;
-        console.log(`Set #${id} to:`, value); // Debug log
-      } else {
-        console.error(`Input #${id} not found`); // Debug log
-      }
-    });
+    // Use MutationObserver to ensure inputs are ready
+    const applyInputs = () => {
+      let allInputsFound = true;
+      Object.entries(inputMap).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input) {
+          input.value = value;
+          console.log(`Set #${id} to:`, value); // Debug log
+        } else {
+          console.error(`Input #${id} not found`); // Debug log
+          allInputsFound = false;
+        }
+      });
+      return allInputsFound;
+    };
+
+    if (!applyInputs()) {
+      const observer = new MutationObserver((mutations, obs) => {
+        if (applyInputs()) {
+          obs.disconnect();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      // Fallback timeout to prevent infinite observation
+      setTimeout(() => {
+        observer.disconnect();
+        applyInputs();
+      }, 1000);
+    }
   });
 
   // Remove floating ball
