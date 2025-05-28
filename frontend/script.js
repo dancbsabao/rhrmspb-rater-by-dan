@@ -2936,7 +2936,6 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
                 minimizedModals.delete(modalId);
             }
             ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-            modalOverlay.removeEventListener('click', outsideClickHandler);
             _resolve(result); // Use the captured resolve
         };
 
@@ -2987,26 +2986,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
             event.stopPropagation();
             console.log('Close button clicked');
             isMinimizing = true;
-            // Check for existing minimized modal for this candidate
-            let existingModalId = null;
-            for (const [id, state] of minimizedModals) {
-                if (state.candidateName === candidateName && state.title === title) {
-                    existingModalId = id;
-                    break;
-                }
-            }
-            if (existingModalId) {
-                console.log(`Existing minimized modal found for ${candidateName}: ${existingModalId}`);
-                // Restore the existing modal instead of creating a new one
-                restoreMinimizedModal(existingModalId);
-                // Clean up the current modal
-                modalOverlay.classList.remove('active');
-                minimizedModals.delete(modalId); // Remove the current modal from minimizedModals
-                ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-            } else {
-                // Pass the original resolve/reject to minimizeModal
-                minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
-            }
+            minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
             setTimeout(() => { isMinimizing = false; }, 100);
         };
 
@@ -3014,58 +2994,9 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
             event.stopPropagation();
             console.log('Minimize button clicked');
             isMinimizing = true;
-            // Check for existing minimized modal for this candidate
-            let existingModalId = null;
-            for (const [id, state] of minimizedModals) {
-                if (state.candidateName === candidateName && state.title === title) {
-                    existingModalId = id;
-                    break;
-                }
-            }
-            if (existingModalId) {
-                console.log(`Existing minimized modal found for ${candidateName}: ${existingModalId}`);
-                // Restore the existing modal instead of creating a new one
-                restoreMinimizedModal(existingModalId);
-                // Clean up the current modal
-                modalOverlay.classList.remove('active');
-                minimizedModals.delete(modalId); // Remove the current modal from minimizedModals
-                ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-            } else {
-                // Pass the original resolve/reject to minimizeModal
-                minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
-            }
+            minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
             setTimeout(() => { isMinimizing = false; }, 100);
         };
-
-        const outsideClickHandler = (event) => {
-            if (event.target === modalOverlay && !isRestoring && !isConfirming && !isMinimizing) {
-                console.log('Outside click detected, checking for existing minimized modal');
-                isMinimizing = true;
-                // Check for existing minimized modal for this candidate
-                let existingModalId = null;
-                for (const [id, state] of minimizedModals) {
-                    if (state.candidateName === candidateName && state.title === title) {
-                        existingModalId = id;
-                        break;
-                    }
-                }
-                if (existingModalId) {
-                    console.log(`Existing minimized modal found for ${candidateName}: ${existingModalId}`);
-                    // Restore the existing modal instead of creating a new one
-                    restoreMinimizedModal(existingModalId);
-                    // Clean up the current modal
-                    modalOverlay.classList.remove('active');
-                    minimizedModals.delete(modalId); // Remove the current modal from minimizedModals
-                    ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-                } else {
-                    console.log('No existing minimized modal found, minimizing current modal');
-                    // Pass the original resolve/reject to minimizeModal
-                    minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
-                }
-                setTimeout(() => { isMinimizing = false; }, 100);
-            }
-        };
-        modalOverlay.addEventListener('click', outsideClickHandler);
 
         modalContent.addEventListener('click', (event) => {
             event.stopPropagation();
