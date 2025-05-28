@@ -1191,6 +1191,7 @@ async function editComments(name, itemNumber, status, comment) {
   // Check for existing minimized modal for this candidate
   let existingModalId = null;
   let existingModalState = null;
+
   for (const [modalId, state] of minimizedModals) {
     if (state.candidateName === name && (state.title || '').toLowerCase().includes('edit comments')) {
       existingModalId = modalId;
@@ -1199,8 +1200,108 @@ async function editComments(name, itemNumber, status, comment) {
     }
   }
 
-  let modalResult;
   let commentEntered;
+
+  const submitComment = async (commentData, normalizedName, normalizedItemNumber) => {
+    const newComment = `${commentData.education},${commentData.training},${commentData.experience},${commentData.eligibility}`;
+    console.log('Formatted newComment:', newComment);
+
+    try {
+      let tokenValid = await isTokenValid();
+      console.log('Token valid:', tokenValid);
+      if (!tokenValid) {
+        console.log('Refreshing token...');
+        await refreshAccessToken();
+        tokenValid = await isTokenValid();
+        console.log('Token valid after refresh:', tokenValid);
+        if (!tokenValid) {
+          throw new Error('Failed to validate token after refresh');
+        }
+      }
+
+      async function getSheetId(sheetName) {
+        try {
+          const response = await gapi.client.sheets.spreadsheets.get({
+            spreadsheetId: SHEET_ID,
+          });
+          const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+          if (!sheet) {
+            throw new Error(`Sheet ${sheetName} not found`);
+          }
+          return sheet.properties.sheetId;
+        } catch (error) {
+          console.error(`Error fetching sheet ID for ${sheetName}:`, error);
+          throw error;
+        }
+      }
+
+      if (status === 'CANDIDATES') {
+        console.log('Fetching CANDIDATES sheet...');
+        const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'CANDIDATES!A:R',
+        });
+        const candidatesValues = candidatesResponse.result.values || [];
+        const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const rowMemberId = row[16]?.toString();
+          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+        });
+
+        if (candidatesIndex === -1) {
+          throw new Error(`Candidate ${normalizedName} not found in CANDIDATES sheet for item ${normalizedItemNumber}`);
+        }
+
+        const sheetRowIndex = candidatesIndex + 2;
+        console.log(`Updating CANDIDATES row ${sheetRowIndex} with comment: ${newComment}`);
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `CANDIDATES!R${sheetRowIndex}`,
+          valueInputOption: 'RAW',
+          resource: { values: [[newComment]] },
+        });
+        console.log('Comment updated in CANDIDATES');
+      } else if (status === 'DISQUALIFIED') {
+        console.log('Fetching DISQUALIFIED sheet...');
+        const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'DISQUALIFIED!A:E',
+        });
+        const disqualifiedValues = disqualifiedResponse.result.values || [];
+        const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const rowMemberId = row[4]?.toString();
+          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+        });
+
+        if (disqualifiedIndex === -1) {
+          throw new Error(`Candidate ${normalizedName} not found in DISQUALIFIED sheet for item ${normalizedItemNumber}`);
+        }
+
+        const sheetRowIndex = disqualifiedIndex + 2;
+        console.log(`Updating DISQUALIFIED row ${sheetRowIndex} with comment: ${newComment}`);
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `DISQUALIFIED!D${sheetRowIndex}`,
+          valueInputOption: 'RAW',
+          resource: { values: [[newComment]] },
+        });
+        console.log('Comment updated in DISQUALIFIED');
+      } else {
+        throw new Error(`Invalid status: ${status}`);
+      }
+
+      showToast('success', 'Success', 'Comments updated successfully');
+      console.log('Showing success toast for editComments');
+      await fetchSecretariatCandidates(itemNumber);
+    } catch (error) {
+      console.error('Error updating comments:', error);
+      showToast('error', 'Error', `Failed to update comments: ${error.message}`);
+      throw error;
+    }
+  };
 
   if (existingModalId) {
     console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
@@ -1209,15 +1310,21 @@ async function editComments(name, itemNumber, status, comment) {
     try {
       commentEntered = await existingModalState.promise;
       console.log('Comment entered from restored modal:', commentEntered);
-      minimizedModals.delete(existingModalId); // Clear after processing
+      if (commentEntered && commentEntered !== false) {
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const normalizedItemNumber = itemNumber.trim();
+        await submitComment(commentEntered, normalizedName, normalizedItemNumber);
+      } else {
+        console.log('No valid comment entered from restored modal, exiting');
+        showToast('info', 'Info', 'Comment editing cancelled');
+      }
     } catch (error) {
       console.error('Error resolving restored modal promise:', error);
       showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
-      minimizedModals.delete(existingModalId); // Clear on error
-      return;
+    } finally {
+      minimizedModals.delete(existingModalId); // Clear immediately
     }
   } else {
-    // Prepare initial values for the modal
     const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
     const initialValues = { education, training, experience, eligibility };
     const modalContent = `
@@ -1236,7 +1343,7 @@ async function editComments(name, itemNumber, status, comment) {
 
     console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
 
-    // Show the comment modal and await its result
+    let modalResult;
     try {
       modalResult = await showCommentModal(
         `Edit Comments (${status})`,
@@ -1263,127 +1370,18 @@ async function editComments(name, itemNumber, status, comment) {
     try {
       commentEntered = await modalResult.promise;
       console.log('Comment entered:', commentEntered);
+      if (commentEntered && commentEntered !== false) {
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const normalizedItemNumber = itemNumber.trim();
+        await submitComment(commentEntered, normalizedName, normalizedItemNumber);
+      } else {
+        console.log('No valid comment entered, exiting editComments');
+        showToast('info', 'Info', 'Comment editing cancelled');
+      }
     } catch (error) {
       console.error('Error resolving modal promise:', error);
       showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
-      return;
     }
-  }
-
-  // Exit if no valid comment data was entered
-  if (!commentEntered || commentEntered === false) {
-    console.log('No valid comment entered, exiting editComments');
-    showToast('info', 'Info', 'Comment editing cancelled');
-    minimizedModals.delete(existingModalId); // Clear if cancelled
-    return;
-  }
-
-  // Format the comment for submission
-  const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-  console.log('Formatted newComment:', newComment);
-
-  try {
-    // Validate and refresh token if necessary
-    let tokenValid = await isTokenValid();
-    console.log('Token valid:', tokenValid);
-    if (!tokenValid) {
-      console.log('Refreshing token...');
-      await refreshAccessToken();
-      tokenValid = await isTokenValid();
-      console.log('Token valid after refresh:', tokenValid);
-      if (!tokenValid) {
-        throw new Error('Failed to validate token after refresh');
-      }
-    }
-
-    const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-    const normalizedItemNumber = itemNumber.trim();
-
-    // Helper function to get sheet ID
-    async function getSheetId(sheetName) {
-      try {
-        const response = await gapi.client.sheets.spreadsheets.get({
-          spreadsheetId: SHEET_ID,
-        });
-        const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) {
-          throw new Error(`Sheet ${sheetName} not found`);
-        }
-        return sheet.properties.sheetId;
-      } catch (error) {
-        console.error(`Error fetching sheet ID for ${sheetName}:`, error);
-        throw error;
-      }
-    }
-
-    if (status === 'CANDIDATES') {
-      console.log('Fetching CANDIDATES sheet...');
-      const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:R',
-      });
-      const candidatesValues = candidatesResponse.result.values || [];
-      const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
-        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-        const rowItem = row[1]?.trim();
-        const rowMemberId = row[16]?.toString();
-        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-      });
-
-      if (candidatesIndex === -1) {
-        throw new Error(`Candidate ${normalizedName} not found in CANDIDATES sheet for item ${normalizedItemNumber}`);
-      }
-
-      const sheetRowIndex = candidatesIndex + 2;
-      console.log(`Updating CANDIDATES row ${sheetRowIndex} with comment: ${newComment}`);
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `CANDIDATES!R${sheetRowIndex}`,
-        valueInputOption: 'RAW',
-        resource: { values: [[newComment]] },
-      });
-      console.log('Comment updated in CANDIDATES');
-    } else if (status === 'DISQUALIFIED') {
-      console.log('Fetching DISQUALIFIED sheet...');
-      const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: 'DISQUALIFIED!A:E',
-      });
-      const disqualifiedValues = disqualifiedResponse.result.values || [];
-      const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
-        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-        const rowItem = row[1]?.trim();
-        const rowMemberId = row[4]?.toString();
-        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-      });
-
-      if (disqualifiedIndex === -1) {
-        throw new Error(`Candidate ${normalizedName} not found in DISQUALIFIED sheet for item ${normalizedItemNumber}`);
-      }
-
-      const sheetRowIndex = disqualifiedIndex + 2;
-      console.log(`Updating DISQUALIFIED row ${sheetRowIndex} with comment: ${newComment}`);
-      await gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `DISQUALIFIED!D${sheetRowIndex}`,
-        valueInputOption: 'RAW',
-        resource: { values: [[newComment]] },
-      });
-      console.log('Comment updated in DISQUALIFIED');
-    } else {
-      throw new Error(`Invalid status: ${status}`);
-    }
-
-    // Show success toast and refresh candidates
-    showToast('success', 'Success', 'Comments updated successfully');
-    console.log('Showing success toast for editComments');
-    await fetchSecretariatCandidates(itemNumber);
-  } catch (error) {
-    console.error('Error updating comments in editComments:', error);
-    showToast('error', 'Error', `Failed to update comments: ${error.message}`);
-    throw error;
-  } finally {
-    minimizedModals.delete(existingModalId); // Clear after submission
   }
 }
 
@@ -2703,54 +2701,52 @@ function showFullScreenModal(title, contentHTML) {
 
 
 // Updated showCommentModal with consistent return
-function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
-  let modalOverlay = document.getElementById('modalOverlay');
-  if (!modalOverlay) {
-    modalOverlay = document.createElement('div');
-    modalOverlay.id = 'modalOverlay';
-    modalOverlay.className = 'modal-overlay';
+function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = {}) {
+  let modalOverlay = document.getElement('div');
+  modalOverlay = document.getElement('div');
+  modalOverlay.id = 'modalOverlay';
+  modalOverlay.className = 'modal-overlay';
+  if (!document.getElementById('modalOverlay')) {
     document.body.appendChild(modalOverlay);
   }
 
-  const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const modalId = 'modal-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
   
-  // Use provided contentHTML or generate with initial values
+  // Use provided contentHTML or generate with initialValues if provided
   let renderedContentHTML = contentHTML;
   if (initialValues) {
     const isEdit = title.toLowerCase().includes('edit');
     const isDisqualified = title.toLowerCase().includes('disqualified');
-    const actionText = isEdit ? `Edit comments for ${candidateName}${isDisqualified ? ' (DISQUALIFIED)' : ''}` : 
-      `Please enter comments for ${title.toLowerCase().includes('disqualification') ? 'disqualifying' : 'long-listing'} ${candidateName}`;
-    renderedContentHTML = `
+    const actionText = isEdit ? 'Edit comments for ' + candidateName + ' ' + (isDisqualified ? ' (DISQUALIFIED)' : '') + : 
+      'Please enter comments for ' + title.toLowerCase().includes('disqualified') ? 'disqualifying' : 'long-listing' + ' ' + candidateName;
+    renderedContentHTML = '
       <div class="modal-body">
-        <p>${actionText}</p>
-        <label for="educationComment">Education:</label>
-        <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
-        <label for="trainingComment">Training:</label>
-        <input type="text" id="trainingComment" class="modal-input" value="${initialValues.training || ''}">
+        <p>' + actionText + '</p>
+        <label for="education">Education:</label>
+        <input type="text" id="education-input" class="modal-input" value="' + (initialValues.education || '') + '">
+        <label> for="trainingComment">Training:</label>
+        <input type="text" id="training-input" class="modal-input" value="' + (initialValues.training || '') + '">
         <label for="experienceComment">Experience:</label>
-        <input type="text" id="experienceComment" class="modal-input" value="${initialValues.experience || ''}">
-        <label for="eligibilityComment">Eligibility:</label>
-        <input type="text" id="eligibilityComment" class="modal-input" value="${initialValues.eligibility || ''}">
+        <input type="text" id="experience-input" class="modal-input" value="' + (initialValues.training || '') + '">
+        <label for="eligibility">Eligibility:</label>
+        <input type="text" id="eligibility-input" class="modal-input" value="' + (initialValues.eligibility || '') + '">
       </div>
-    `;
+    );
   }
 
-  modalOverlay.innerHTML = `
-    <div class="modal" id="${modalId}">
+  modalOverlay.innerHTML = '
+    <div class="modal" id="' + modalId + '">
       <div class="modal-header">
-        <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" data-modal-id="${modalId}">×</span>
+        <h3 class="modal-title">' + title + '</h3>
+        <span class="modal-close" data-modal-id="' + modalId + '">×</span>
       </div>
-      <div class="modal-content">${renderedContentHTML}</div>
-      <div class="modal-actions">
-        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
+      <div class="modal-content">' + renderedContentHTML + '</div>
+      <div>
+        ' + (showCancel ? '<button class="modal-cancel">Cancel</button>' : '') + '
         <button id="modalConfirm" class="modal-confirm">Confirm</button>
-        <button class="modal-minimize" data-modal-id="${modalId}">Minimize</button>
+        <button class="modal-minimize" data-modal-id="' + modalId + '">Minimize</button>
       </div>
     </div>
-  `;
-
   console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML);
 
   let isRestoring = false;
@@ -2762,8 +2758,8 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
       modalOverlay.classList.add('active');
       const confirmBtn = modalOverlay.querySelector('#modalConfirm');
       const cancelBtn = modalOverlay.querySelector('.modal-cancel');
-      const closeBtn = modalOverlay.querySelector('.modal-close');
-      const minimizeBtn = modalOverlay.querySelector('.modal-minimize');
+      const closeBtn = modal.querySelector('.modal-close');
+      const minimizeBtn = modal.querySelector('.modal-minimize');
       const modalContent = modalOverlay.querySelector('.modal');
 
       const closeHandler = (result) => {
@@ -2807,7 +2803,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
           closeHandler(result || commentData);
         } catch (error) {
           console.error('Error in onConfirm callback:', error);
-          showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
+          showToast('error', 'Error', 'Failed to process confirmation: ' + error.message);
         } finally {
           isConfirming = false;
         }
@@ -2838,7 +2834,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         if (event.target === modalOverlay && !isRestoring && !isConfirming && !isMinimizing) {
           console.log('Outside click detected, minimizing modal');
           isMinimizing = true;
-          minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel);
+          minimizeModal(modalId, candidateName, title, contentHTML, onConfirm, onCancel);
           setTimeout(() => { isMinimizing = false; }, 100);
         }
       };
