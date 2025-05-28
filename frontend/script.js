@@ -1304,42 +1304,7 @@ async function editComments(name, itemNumber, status, comment) {
     }
   };
 
-  let commentEntered;
-  if (existingModalId) {
-    console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
-    restoreMinimizedModal(existingModalId);
-    console.log('Waiting for restored modal promise...');
-    try {
-      // Check if the promise is already resolved
-      let isPromiseResolved = false;
-      existingModalState.promise.then(() => {
-        isPromiseResolved = true;
-      });
-      await new Promise(resolve => setTimeout(resolve, 0)); // Allow promise check
-      if (isPromiseResolved) {
-        console.log('Existing modal promise already resolved, creating new modal');
-        minimizedModals.delete(existingModalId); // Clear stale state
-        existingModalId = null; // Force new modal creation
-      } else {
-        commentEntered = await existingModalState.promise;
-        console.log('Comment entered from restored modal:', commentEntered);
-        minimizedModals.delete(existingModalId); // Clear immediately
-        if (commentEntered && commentEntered !== false) {
-          await submitComment(commentEntered);
-        } else {
-          console.log('No valid comment entered from restored modal, exiting');
-          showToast('info', 'Info', 'Comment editing cancelled');
-        }
-        return; // Exit to avoid duplicate modal creation
-      }
-    } catch (error) {
-      console.error('Error resolving restored modal promise:', error);
-      showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
-      minimizedModals.delete(existingModalId); // Clear on error
-    }
-  }
-
-  // Create new modal if no valid existing modal or promise was resolved
+  // Prepare initial values
   const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
   const initialValues = { education, training, experience, eligibility };
   const modalContent = `
@@ -1356,30 +1321,43 @@ async function editComments(name, itemNumber, status, comment) {
     </div>
   `;
 
-  console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
-
-  let modalResult;
-  try {
-    modalResult = await showCommentModal(
-      `Edit Comments (${status})`,
-      modalContent,
-      name,
-      (commentData) => {
-        console.log('editComments onConfirm received:', commentData);
-        return commentData;
-      },
-      () => {
-        console.log('editComments onCancel triggered');
-        return false;
-      },
-      true,
-      initialValues
-    );
-  } catch (error) {
-    console.error('Error showing comment modal:', error);
-    showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
-    return;
+  let commentEntered;
+  if (existingModalId) {
+    console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
+    // Clear existing modal state and floating ball
+    const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${existingModalId}"]`);
+    if (floatingBall) {
+      floatingBall.remove();
+      ballPositions = ballPositions.filter(pos => pos.modalId !== existingModalId);
+    }
+    minimizedModals.delete(existingModalId); // Clear immediately
+    // Use saved input values if available
+    if (existingModalState.inputValues && existingModalState.inputValues.length === 4) {
+      initialValues.education = existingModalState.inputValues[0] || initialValues.education;
+      initialValues.training = existingModalState.inputValues[1] || initialValues.training;
+      initialValues.experience = existingModalState.inputValues[2] || initialValues.experience;
+      initialValues.eligibility = existingModalState.inputValues[3] || initialValues.eligibility;
+      console.log(`Using saved inputs for ${name}:`, initialValues);
+    }
   }
+
+  // Always create a new modal
+  console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
+  const modalResult = await showCommentModal(
+    `Edit Comments (${status})`,
+    modalContent,
+    name,
+    (commentData) => {
+      console.log('editComments onConfirm received:', commentData);
+      return commentData;
+    },
+    () => {
+      console.log('editComments onCancel triggered');
+      return false;
+    },
+    true,
+    initialValues
+  );
 
   console.log('Waiting for modalResult.promise...');
   try {
