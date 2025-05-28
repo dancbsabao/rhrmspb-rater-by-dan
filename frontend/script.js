@@ -2610,7 +2610,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 }
 
 
-/ Updated minimizeModal with logging
+// Updated minimizeModal with logging
 function minimizeModal(modalId, candidateName) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
