@@ -860,7 +860,7 @@ async function handleActionSelection(button) {
     `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
     modalContent,
     name,
-    null,
+    (commentData) => commentData, // Pass through commentData
     () => false,
     true
   );
@@ -1131,6 +1131,7 @@ function filterTableByStatus(status, itemNumber) {
   });
 }
 
+// Updated editComments with logging and token retry
 async function editComments(name, itemNumber, status, comment) {
   const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
   const modalContent = `
@@ -1150,16 +1151,29 @@ async function editComments(name, itemNumber, status, comment) {
     'Edit Comments',
     modalContent,
     name,
-    null,
+    (commentData) => {
+      console.log('editComments received:', commentData); // Debug log
+      return commentData;
+    },
     () => false,
     true
   );
+
+  console.log('Comment entered:', commentEntered); // Debug log
 
   if (!commentEntered || commentEntered === false) return;
 
   const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
   try {
-    if (!await isTokenValid()) await refreshAccessToken();
+    // Retry token validation
+    let tokenValid = await isTokenValid();
+    if (!tokenValid) {
+      console.log('Refreshing token...'); // Debug log
+      await refreshAccessToken();
+      tokenValid = await isTokenValid();
+      if (!tokenValid) throw new Error('Failed to validate token');
+    }
+
     const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
     const normalizedItemNumber = itemNumber.trim();
 
@@ -1223,10 +1237,12 @@ async function editComments(name, itemNumber, status, comment) {
     showToast('success', 'Success', 'Comments updated successfully');
     fetchSecretariatCandidates(itemNumber);
   } catch (error) {
-    console.error('Error updating comments:', error);
+    console.error('Error updating comments:', error); // Debug log
     showToast('error', 'Error', `Failed to update comments: ${error.message}`);
   }
 }
+
+
 
 
 async function displaySecretariatCandidateDetails(name, itemNumber) {
@@ -2540,7 +2556,7 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-// Updated showCommentModal to accept candidate name
+// Updated showCommentModal to ensure onConfirm returns values
 function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
@@ -2589,8 +2605,10 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
         return;
       }
 
-      const result = onConfirm ? onConfirm() : { education, training, experience, eligibility };
-      closeHandler(result || { education, training, experience, eligibility });
+      const commentData = { education, training, experience, eligibility };
+      console.log('Confirming with values:', commentData); // Debug log
+      if (onConfirm) onConfirm(commentData);
+      closeHandler(commentData);
     };
 
     if (cancelBtn) {
@@ -2598,7 +2616,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
         if (onCancel) onCancel();
         closeHandler(false);
       };
-    }
+    };
 
     const outsideClickHandler = (event) => {
       if (event.target === modalOverlay) {
@@ -2610,7 +2628,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 }
 
 
-// Updated minimizeModal to save clean contentHTML
+// Updated minimizeModal to save clean template
 function minimizeModal(modalId, candidateName) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
@@ -2620,12 +2638,20 @@ function minimizeModal(modalId, candidateName) {
   const inputValues = Array.from(inputs).map(input => input.value.trim());
   const title = modal.querySelector('.modal-title').textContent;
 
-  // Create clean contentHTML without input values
-  const contentDiv = modal.querySelector('.modal-content').cloneNode(true);
-  const inputElements = contentDiv.querySelectorAll('.modal-input');
-  inputElements.forEach(input => input.value = '');
-
-  const contentHTML = contentDiv.innerHTML;
+  // Create clean contentHTML template
+  const contentHTML = `
+    <div class="modal-body">
+      <p>${modal.querySelector('.modal-body p').textContent}</p>
+      <label for="educationComment">Education:</label>
+      <input type="text" id="educationComment" class="modal-input">
+      <label for="trainingComment">Training:</label>
+      <input type="text" id="trainingComment" class="modal-input">
+      <label for="experienceComment">Experience:</label>
+      <input type="text" id="experienceComment" class="modal-input">
+      <label for="eligibilityComment">Eligibility:</label>
+      <input type="text" id="eligibilityComment" class="modal-input">
+    </div>
+  `;
 
   console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName); // Debug log
 
@@ -2655,7 +2681,7 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal to apply edited inputs
+// Updated restoreMinimizedModal to ensure input application
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
