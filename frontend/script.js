@@ -874,7 +874,6 @@ async function handleActionSelection(button) {
 
 
 
-
 async function submitCandidateAction(button, name, itemNumber, sex, action, comment) {
   console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment });
 
@@ -2611,7 +2610,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 }
 
 
-// Updated minimizeModal to use candidate name and save inputs
+/ Updated minimizeModal with logging
 function minimizeModal(modalId, candidateName) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
@@ -2621,6 +2620,8 @@ function minimizeModal(modalId, candidateName) {
   const inputValues = Array.from(inputs).map(input => input.value.trim());
   const title = modal.querySelector('.modal-title').textContent;
   const contentHTML = modal.querySelector('.modal-content').innerHTML;
+
+  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues); // Debug log
 
   minimizedModals.set(modalId, {
     title,
@@ -2648,10 +2649,12 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal to restore inputs correctly
+// Updated restoreMinimizedModal to fix input restoration
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
+
+  console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues); // Debug log
 
   showCommentModal(state.title, state.contentHTML, state.candidateName, null, () => false, true).then(() => {
     const newModal = document.querySelector('.modal');
@@ -2665,10 +2668,19 @@ function restoreMinimizedModal(modalId) {
       eligibilityComment: state.inputValues[3] || '',
     };
 
-    Object.entries(inputMap).forEach(([id, value]) => {
-      const input = document.getElementById(id);
-      if (input) input.value = value;
-    });
+    console.log('Applying inputs:', inputMap); // Debug log
+
+    // Ensure DOM is updated before setting values
+    setTimeout(() => {
+      Object.entries(inputMap).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input) {
+          input.value = value;
+        } else {
+          console.error(`Input #${id} not found`); // Debug log
+        }
+      });
+    }, 0);
   });
 
   // Remove floating ball
