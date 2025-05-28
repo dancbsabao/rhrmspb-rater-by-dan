@@ -1310,76 +1310,90 @@ async function editComments(name, itemNumber, status, comment) {
     restoreMinimizedModal(existingModalId);
     console.log('Waiting for restored modal promise...');
     try {
-      commentEntered = await existingModalState.promise;
-      console.log('Comment entered from restored modal:', commentEntered);
-      minimizedModals.delete(existingModalId); // Clear immediately after promise resolution
-      if (commentEntered && commentEntered !== false) {
-        await submitComment(commentEntered);
+      // Check if the promise is already resolved
+      let isPromiseResolved = false;
+      existingModalState.promise.then(() => {
+        isPromiseResolved = true;
+      });
+      await new Promise(resolve => setTimeout(resolve, 0)); // Allow promise check
+      if (isPromiseResolved) {
+        console.log('Existing modal promise already resolved, creating new modal');
+        minimizedModals.delete(existingModalId); // Clear stale state
+        existingModalId = null; // Force new modal creation
       } else {
-        console.log('No valid comment entered from restored modal, exiting');
-        showToast('info', 'Info', 'Comment editing cancelled');
+        commentEntered = await existingModalState.promise;
+        console.log('Comment entered from restored modal:', commentEntered);
+        minimizedModals.delete(existingModalId); // Clear immediately
+        if (commentEntered && commentEntered !== false) {
+          await submitComment(commentEntered);
+        } else {
+          console.log('No valid comment entered from restored modal, exiting');
+          showToast('info', 'Info', 'Comment editing cancelled');
+        }
+        return; // Exit to avoid duplicate modal creation
       }
     } catch (error) {
       console.error('Error resolving restored modal promise:', error);
       showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
       minimizedModals.delete(existingModalId); // Clear on error
     }
-  } else {
-    const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
-    const initialValues = { education, training, experience, eligibility };
-    const modalContent = `
-      <div class="modal-body">
-        <p>Edit comments for ${name} (${status}):</p>
-        <label for="educationComment">Education:</label>
-        <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
-        <label for="trainingComment">Training:</label>
-        <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
-        <label for="experienceComment">Experience:</label>
-        <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
-        <label for="eligibilityComment">Eligibility:</label>
-        <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
-      </div>
-    `;
+  }
 
-    console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
+  // Create new modal if no valid existing modal or promise was resolved
+  const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
+  const initialValues = { education, training, experience, eligibility };
+  const modalContent = `
+    <div class="modal-body">
+      <p>Edit comments for ${name} (${status}):</p>
+      <label for="educationComment">Education:</label>
+      <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
+      <label for="trainingComment">Training:</label>
+      <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
+      <label for="experienceComment">Experience:</label>
+      <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
+      <label for="eligibilityComment">Eligibility:</label>
+      <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
+    </div>
+  `;
 
-    let modalResult;
-    try {
-      modalResult = await showCommentModal(
-        `Edit Comments (${status})`,
-        modalContent,
-        name,
-        (commentData) => {
-          console.log('editComments onConfirm received:', commentData);
-          return commentData;
-        },
-        () => {
-          console.log('editComments onCancel triggered');
-          return false;
-        },
-        true,
-        initialValues
-      );
-    } catch (error) {
-      console.error('Error showing comment modal:', error);
-      showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
-      return;
+  console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
+
+  let modalResult;
+  try {
+    modalResult = await showCommentModal(
+      `Edit Comments (${status})`,
+      modalContent,
+      name,
+      (commentData) => {
+        console.log('editComments onConfirm received:', commentData);
+        return commentData;
+      },
+      () => {
+        console.log('editComments onCancel triggered');
+        return false;
+      },
+      true,
+      initialValues
+    );
+  } catch (error) {
+    console.error('Error showing comment modal:', error);
+    showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
+    return;
+  }
+
+  console.log('Waiting for modalResult.promise...');
+  try {
+    commentEntered = await modalResult.promise;
+    console.log('Comment entered:', commentEntered);
+    if (commentEntered && commentEntered !== false) {
+      await submitComment(commentEntered);
+    } else {
+      console.log('No valid comment entered, exiting editComments');
+      showToast('info', 'Info', 'Comment editing cancelled');
     }
-
-    console.log('Waiting for modalResult.promise...');
-    try {
-      commentEntered = await modalResult.promise;
-      console.log('Comment entered:', commentEntered);
-      if (commentEntered && commentEntered !== false) {
-        await submitComment(commentEntered);
-      } else {
-        console.log('No valid comment entered, exiting editComments');
-        showToast('info', 'Info', 'Comment editing cancelled');
-      }
-    } catch (error) {
-      console.error('Error resolving modal promise:', error);
-      showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
-    }
+  } catch (error) {
+    console.error('Error resolving modal promise:', error);
+    showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
   }
 }
 
