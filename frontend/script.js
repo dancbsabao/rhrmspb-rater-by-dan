@@ -4,7 +4,6 @@ let tokenClient = null;
 let currentEvaluator = null;
 let fetchTimeout;
 let isSubmitting = false;
-let activeModalPromises = {}; // Stores { modalId: { resolve: Function, reject: Function, promise: Promise, inputs: Object, candidateName: string } }
 let refreshTimer = null;
 let sessionId = null; // To track server session
 let submissionQueue = []; // Queue for pending submissions
@@ -805,13 +804,13 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           </select>
         </td>
         <td>
-          <button class="submit-candidate-button">Submit</button>
+          <button class="submit-candidate-button" onclick="handleActionSelection(this)">Submit</button>
         </td>
         <td>${submittedStatus}</td>
-        <td data-comment="${escapedComment}">
+        <td>
           ${comment ? `
-            <button class="view-comment-button">View</button>
-            <button class="edit-comment-button">Edit</button>
+            <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
+            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
           ` : 'No comments'}
         </td>
       `;
@@ -827,12 +826,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
 
 // Unchanged handleActionSelection
 async function handleActionSelection(button) {
-  if (isSubmitting) {
-    console.log('Submission already in progress, please wait.');
-    showToast('info', 'Info', 'A submission is already in progress. Please wait.');
-    return;
-  }
-
   const row = button.closest('tr');
   const select = row.querySelector('.action-dropdown');
   const action = select.value;
@@ -892,18 +885,23 @@ async function handleActionSelection(button) {
 
   // Exit if no valid comment data was entered
   if (!commentEntered || commentEntered === false) {
-    console.log('Comment not entered or submission cancelled by user in comment modal.');
-    showToast('info', 'Info', 'Comment entry cancelled or empty.');
+    console.log('No valid comment entered, exiting handleActionSelection');
+    showToast('info', 'Info', 'Candidate action cancelled');
     return;
   }
 
+  // Format the comment for submission
+  const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
+  console.log('Submitting candidate action with comment:', comment);
+
   try {
-    // Pass the button element to submitCandidateAction
-    await submitCandidateAction(button, name, itemNumber, sex, action, commentEntered);
+    await submitCandidateAction(button, name, itemNumber, sex, action, comment);
+    showToast('success', 'Success', 'Candidate action submitted successfully');
+    console.log('Showing success toast for handleActionSelection');
   } catch (error) {
-    console.error('Error in handleActionSelection during submitCandidateAction:', error);
+    console.error('Error submitting candidate action in handleActionSelection:', error);
     showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
-    // No need to re-throw, error is handled here
+    throw error;
   }
 }
 
@@ -912,14 +910,6 @@ async function handleActionSelection(button) {
 
 async function submitCandidateAction(button, name, itemNumber, sex, action, comment) {
   console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment });
-
-  if (isSubmitting) {
-    console.warn('Submission already in progress, preventing duplicate.');
-    return; // Prevent execution if already submitting
-  }
-
-  isSubmitting = true;
-  if (button) button.disabled = true; // Disable the button to prevent multiple clicks
 
   const modalContent = `
     <div class="modal-body">
@@ -944,8 +934,6 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
   if (!confirmResult) {
     console.log('Submission cancelled by user');
     showToast('info', 'Info', 'Submission cancelled');
-    isSubmitting = false;
-    if (button) button.disabled = false; // Re-enable button on cancel
     return;
   }
 
@@ -974,54 +962,60 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         console.log(`Fetched sheetId for ${sheetName}: ${sheet.properties.sheetId}`);
         return sheet.properties.sheetId;
       } catch (error) {
-        console.error(`Failed to fetch sheet ID for ${sheetName}:`, error);
+        console.error(`Failed to fetch sheetId for ${sheetName}:`, error);
         throw error;
       }
     }
 
     if (action === 'FOR LONG LIST') {
       console.log('Processing FOR LONG LIST action...');
-
-      // Check and delete from DISQUALIFIED if exists
       const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: 'DISQUALIFIED!A:E',
       });
       let disqualifiedValues = disqualifiedResponse.result.values || [];
+      console.log('DISQUALIFIED raw values:', disqualifiedValues);
+
       const disqualifiedDataRows = disqualifiedValues.slice(1);
       const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
         const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
         const rowItem = row[1]?.trim();
         const rowMemberId = row[4]?.toString();
-        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+        console.log('Comparing DISQUALIFIED row:', { rowName, rowItem, rowMemberId });
+        return rowName === normalizedName && 
+               rowItem === normalizedItemNumber && 
+               rowMemberId === secretariatMemberId;
       });
 
       if (disqualifiedIndex !== -1) {
-        const sheetRowIndex = disqualifiedIndex + 2; // +1 for header, +1 for 0-indexed array
-        console.log(`Deleting row ${sheetRowIndex} from DISQUALIFIED sheet.`);
+        const sheetRowIndex = disqualifiedIndex + 1;
+        console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
+
         const sheetId = await getSheetId('DISQUALIFIED');
-        await gapi.client.sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SHEET_ID,
-          resource: {
-            requests: [{
-              deleteDimension: {
-                range: {
-                  sheetId: sheetId,
-                  dimension: 'ROWS',
-                  startIndex: sheetRowIndex - 1,
-                  endIndex: sheetRowIndex
-                }
+        const batchUpdateRequest = {
+          requests: [{
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRowIndex,
+                endIndex: sheetRowIndex + 1
               }
-            }]
-          }
+            }
+          }]
+        };
+        console.log('batchUpdate request for DISQUALIFIED:', JSON.stringify(batchUpdateRequest, null, 2));
+        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          resource: batchUpdateRequest
         });
-        showToast('info', 'Info', `Candidate removed from DISQUALIFIED list.`);
-        // Re-fetch to confirm deletion
+        console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
+
         const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: 'DISQUALIFIED!A:E',
         });
-        console.log('DISQUALIFIED sheet after deletion:', updatedDisqualifiedResponse.result.values);
+        console.log('DISQUALIFIED values after deletion:', updatedDisqualifiedResponse.result.values);
       } else {
         console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
       }
@@ -1030,107 +1024,91 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         spreadsheetId: SHEET_ID,
         range: 'GENERAL_LIST!A:P',
       });
-      let candidate = generalResponse.result.values.find(row => row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && row[1]?.trim() === normalizedItemNumber);
+      let candidate = generalResponse.result.values.find(row => 
+        row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
+        row[1]?.trim() === normalizedItemNumber
+      );
       if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-
-      candidate = [...candidate, secretariatMemberId, comment]; // Add member ID and comment
+      candidate = [...candidate, secretariatMemberId, comment];
       console.log('Appending to CANDIDATES:', [candidate]);
-
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: 'CANDIDATES!A:R',
         valueInputOption: 'RAW',
-        resource: {
-          values: [candidate]
-        },
+        resource: { values: [candidate] },
       });
-      showToast('success', 'Success', `Candidate ${name} submitted for LONG LIST.`);
       console.log('Candidate appended to CANDIDATES successfully');
-
     } else if (action === 'FOR DISQUALIFICATION') {
       console.log('Processing FOR DISQUALIFICATION action...');
-
-      // Check and delete from CANDIDATES if exists
       const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
         range: 'CANDIDATES!A:R',
       });
       let candidatesValues = candidatesResponse.result.values || [];
+      console.log('CANDIDATES raw values:', candidatesValues);
+
       const candidatesDataRows = candidatesValues.slice(1);
       const candidatesIndex = candidatesDataRows.findIndex(row => {
         const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
         const rowItem = row[1]?.trim();
         const rowMemberId = row[16]?.toString();
-        return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+        console.log('Comparing CANDIDATES row:', { rowName, rowItem, rowMemberId });
+        return rowName === normalizedName && 
+               rowItem === normalizedItemNumber && 
+               rowMemberId === secretariatMemberId;
       });
 
       if (candidatesIndex !== -1) {
-        const sheetRowIndex = candidatesIndex + 2;
-        console.log(`Deleting row ${sheetRowIndex} from CANDIDATES sheet.`);
+        const sheetRowIndex = candidatesIndex + 1;
+        console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
+
         const sheetId = await getSheetId('CANDIDATES');
-        await gapi.client.sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SHEET_ID,
-          resource: {
-            requests: [{
-              deleteDimension: {
-                range: {
-                  sheetId: sheetId,
-                  dimension: 'ROWS',
-                  startIndex: sheetRowIndex - 1,
-                  endIndex: sheetRowIndex
-                }
+        const batchUpdateRequest = {
+          requests: [{
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRowIndex,
+                endIndex: sheetRowIndex + 1
               }
-            }]
-          }
+            }
+          }]
+        };
+        console.log('batchUpdate request for CANDIDATES:', JSON.stringify(batchUpdateRequest, null, 2));
+        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          resource: batchUpdateRequest
         });
-        showToast('info', 'Info', `Candidate removed from CANDIDATES list.`);
-        // Re-fetch to confirm deletion
+        console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
+
         const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
           spreadsheetId: SHEET_ID,
           range: 'CANDIDATES!A:R',
         });
-        console.log('CANDIDATES sheet after deletion:', updatedCandidatesResponse.result.values);
+        console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
       } else {
         console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
       }
 
-      const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: 'GENERAL_LIST!A:P',
-      });
-      let candidate = generalResponse.result.values.find(row => row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && row[1]?.trim() === normalizedItemNumber);
-      if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-
-      const disqualifiedEntry = [
-        candidate[0], // Name
-        candidate[1], // Item No
-        candidate[2], // Sex
-        comment, // Comment
-        secretariatMemberId // Member ID
-      ];
-      console.log('Appending to DISQUALIFIED:', [disqualifiedEntry]);
-
+      const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
+      console.log('Appending to DISQUALIFIED:', values);
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
         range: 'DISQUALIFIED!A:E',
         valueInputOption: 'RAW',
-        resource: {
-          values: [disqualifiedEntry]
-        },
+        resource: { values },
       });
-      showToast('success', 'Success', `Candidate ${name} submitted for DISQUALIFICATION.`);
       console.log('Candidate appended to DISQUALIFIED successfully');
     }
 
-    // Refresh the table to reflect the new status
-    fetchSecretariatCandidates(itemNumber);
-
+    showToast('success', 'Success', 'Action submitted successfully');
+    console.log('Showing success toast for submitCandidateAction');
+    await fetchSecretariatCandidates(itemNumber);
   } catch (error) {
-    console.error('Error in submitCandidateAction:', error);
-    showToast('error', 'Error', `Failed to submit action: ${error.message}`);
-  } finally {
-    isSubmitting = false;
-    if (button) button.disabled = false; // Re-enable the button regardless of success/failure
+    console.error('Error submitting action in submitCandidateAction:', error);
+    showToast('error', 'Error', `Failed to submit action: ${error.message || JSON.stringify(error)}`);
+    throw error;
   }
 }
 
@@ -2627,197 +2605,61 @@ function loadRadioState(candidateName, item) {
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 
-async function showModal(id, title, content, onConfirmCallback, onCancelCallback, canMinimize, initialInputs = {}) {
-    const modalId = id || `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
 
-    let resolveFn, rejectFn;
-    let modalElement = document.getElementById(modalId); // Try to find existing modal element
+  modalOverlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" onclick="this.closest('.modal-overlay').classList.remove('active')">×</span>
+      </div>
+      <div class="modal-content">${contentHTML}</div>
+      <div class="modal-actions">
+        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
+        <button id="modalConfirm" class="modal-confirm">Confirm</button>
+      </div>
+    </div>
+  `;
 
-    if (activeModalPromises[modalId] && activeModalPromises[modalId].promise) {
-        // CASE 1: Modal is being restored or re-displayed, and there's a pending promise.
-        // Reuse the existing promise's resolve/reject.
-        resolveFn = activeModalPromises[modalId].resolve;
-        rejectFn = activeModalPromises[modalId].reject;
-        console.log(`[showModal] Re-activating existing modal promise for ID: ${modalId}`);
+  return new Promise((resolve) => {
+    modalOverlay.classList.add('active');
+    const confirmBtn = modalOverlay.querySelector('#modalConfirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
 
-        // If the modal element doesn't exist (e.g., was completely removed from DOM), re-create it.
-        // Otherwise, just show it.
-        if (!modalElement) {
-             console.log(`[showModal] Modal element not found, re-creating DOM for ${modalId}.`);
-            modalElement = createModalDOM(modalId, title, content); // Helper to create DOM structure
-            document.body.appendChild(modalElement);
-        } else {
-            console.log(`[showModal] Modal element exists, just showing ${modalId}.`);
-            // Update content in case it changed (e.g., in edit modal)
-            modalElement.querySelector('.modal-title').textContent = title;
-            modalElement.querySelector('.modal-body').innerHTML = content;
-            modalElement.style.display = 'block'; // Ensure it's visible
-            modalElement.classList.add('active'); // Add active class if you use it for styling
-        }
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      resolve(result);
+      modalOverlay.removeEventListener('click', outsideClickHandler);
+    };
 
-        // Apply initial inputs to the re-rendered modal (for restored state)
-        applyInputsToModal(modalElement, initialInputs);
+    confirmBtn.onclick = () => {
+      if (onConfirm) onConfirm();
+      closeHandler(true);
+    };
 
-    } else {
-        // CASE 2: New modal creation. Create a new promise.
-        console.log(`[showModal] Creating new modal promise for ID: ${modalId}`);
-        let newPromiseResolve, newPromiseReject;
-        const newModalPromise = new Promise((resolve, reject) => {
-            newPromiseResolve = resolve;
-            newPromiseReject = reject;
-        });
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      };
+    };
 
-        resolveFn = newPromiseResolve;
-        rejectFn = newPromiseReject;
-        activeModalPromises[modalId] = {
-            resolve: resolveFn,
-            reject: rejectFn,
-            promise: newModalPromise,
-            inputs: initialInputs, // Store initial inputs with the promise
-            candidateName: title // Store candidate name or title for context
-        };
-
-        // Create modal DOM elements for the first time
-        modalElement = createModalDOM(modalId, title, content); // Helper function for DOM
-        document.body.appendChild(modalElement);
-
-        // Apply initial inputs for a new modal
-        applyInputsToModal(modalElement, initialInputs);
-    }
-
-    // Common logic for setting up event listeners for Confirm/Cancel/Close buttons
-    // These listeners MUST call `resolveFn` or `rejectFn` (which are now linked to the persistent promise)
-
-    const confirmButton = modalElement.querySelector('.modal-confirm-btn'); // Assuming this class
-    const cancelButton = modalElement.querySelector('.modal-cancel-btn'); // Assuming this class
-    const closeButton = modalElement.querySelector('.modal-close'); // Assuming this class for 'X'
-
-    // Remove previous listeners to prevent duplicates (important for restored modals)
-    if (confirmButton) confirmButton.removeEventListener('click', confirmButton._modalClickListener);
-    if (cancelButton) cancelButton.removeEventListener('click', cancelButton._modalClickListener);
-    if (closeButton) closeButton.removeEventListener('click', closeButton._modalClickListener);
-
-    // Add new listeners, ensuring they call the correct resolveFn/rejectFn
-    if (confirmButton) {
-        confirmButton._modalClickListener = () => {
-            const result = onConfirmCallback ? onConfirmCallback(getModalInputValues(modalId)) : true;
-            resolveFn(result); // Resolve the persistent promise
-            closeModalHandler(modalId); // Close and clean up
-        };
-        confirmButton.addEventListener('click', confirmButton._modalClickListener);
-    }
-    if (cancelButton) {
-        cancelButton._modalClickListener = () => {
-            const result = onCancelCallback ? onCancelCallback() : false;
-            resolveFn(result); // Resolve the persistent promise
-            closeModalHandler(modalId); // Close and clean up
-        };
-        cancelButton.addEventListener('click', cancelButton._modalClickListener);
-    }
-    if (closeButton) {
-        closeButton._modalClickListener = () => {
-            const result = onCancelCallback ? onCancelCallback() : false;
-            resolveFn(result); // Resolve the persistent promise
-            closeModalHandler(modalId); // Close and clean up
-        };
-        closeButton.addEventListener('click', closeButton._modalClickListener);
-    }
-
-    // Minimize button and outside click handler
-    if (canMinimize) {
-        const minimizeButton = modalElement.querySelector('.modal-minimize-btn');
-        if (minimizeButton) {
-            minimizeButton.removeEventListener('click', minimizeButton._modalClickListener);
-            minimizeButton._modalClickListener = () => {
-                minimizeModal(modalId); // Just pass ID, logic handles state
-            };
-            minimizeButton.addEventListener('click', minimizeButton._modalClickListener);
-        }
-        // Outside click handler for minimization
-        modalElement.removeEventListener('click', modalElement._outsideClickListener);
-        modalElement._outsideClickListener = (event) => {
-            if (event.target === modalElement) { // Clicked on the modal overlay, not content
-                minimizeModal(modalId);
-            }
-        };
-        modalElement.addEventListener('click', modalElement._outsideClickListener);
-    }
-
-    return { element: modalElement, promise: activeModalPromises[modalId].promise };
+    const outsideClickHandler = (event) => {
+      if (event.target === modalOverlay) {
+        if (onCancel) onCancel();
+        closeHandler(false);
+      }
+    };
+    modalOverlay.addEventListener('click', outsideClickHandler);
+  });
 }
-
-// --- Helper Functions (Add these to your script) ---
-
-// Helper to create the basic modal DOM structure
-function createModalDOM(modalId, title, content) {
-    const modalElement = document.createElement('div');
-    modalElement.className = 'modal'; // Assuming 'modal' is your base class
-    modalElement.id = modalId;
-    modalElement.innerHTML = `
-        <div class="modal-content">
-            <span class="modal-close">&times;</span>
-            <div class="modal-header">
-                <h2 class="modal-title">${title}</h2>
-                <button class="modal-minimize-btn" title="Minimize Modal">-</button>
-            </div>
-            <div class="modal-body">${content}</div>
-            <div class="modal-footer">
-                <button class="modal-confirm-btn">Confirm</button>
-                <button class="modal-cancel-btn">Cancel</button>
-            </div>
-        </div>
-    `;
-    return modalElement;
-}
-
-// Helper to get input values from a modal
-function getModalInputValues(modalId) {
-    const modal = document.getElementById(modalId);
-    if (!modal) return {};
-    const inputs = modal.querySelectorAll('.modal-input'); // Assuming input class
-    const values = {};
-    inputs.forEach(input => {
-        values[input.id] = input.value;
-    });
-    return values;
-}
-
-// Helper to apply input values to a modal
-function applyInputsToModal(modalElement, inputs) {
-    for (const id in inputs) {
-        const inputElement = modalElement.querySelector(`#${id}`);
-        if (inputElement) {
-            inputElement.value = inputs[id];
-        }
-    }
-}
-
-// Unified modal close handler
-function closeModalHandler(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        // Clean up event listeners to prevent memory leaks, especially for restored modals
-        const confirmButton = modal.querySelector('.modal-confirm-btn');
-        const cancelButton = modal.querySelector('.modal-cancel-btn');
-        const closeButton = modal.querySelector('.modal-close');
-        const minimizeButton = modal.querySelector('.modal-minimize-btn');
-
-        if (confirmButton) confirmButton.removeEventListener('click', confirmButton._modalClickListener);
-        if (cancelButton) cancelButton.removeEventListener('click', cancelButton._modalClickListener);
-        if (closeButton) closeButton.removeEventListener('click', closeButton._modalClickListener);
-        if (minimizeButton) minimizeButton.removeEventListener('click', minimizeButton._modalClickListener);
-        if (modal._outsideClickListener) modal.removeEventListener('click', modal._outsideClickListener);
-
-        // Remove the modal from the DOM
-        modal.parentNode.removeChild(modal);
-    }
-    // Remove the promise from the active map as it's now resolved/closed
-    delete activeModalPromises[modalId];
-    console.log(`[showModal] Modal ${modalId} closed and promise cleared from map.`);
-}
-
-
-
 
 // Unchanged showFullScreenModal
 function showFullScreenModal(title, contentHTML) {
@@ -3003,73 +2845,150 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
 
 
 // Updated minimizeModal to remove existing balls
-function minimizeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.style.display = 'none'; // Hide the modal
-        modal.classList.remove('active'); // Remove active class if you use it for styling
+function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentHTML = null, onConfirm = null, onCancel = null) {
+  const modal = document.getElementById(modalId);
+  if (!modal) {
+    console.warn('Modal not found for ID:', modalId);
+    return;
+  }
 
-        // Save current inputs to the activeModalPromises context
-        if (activeModalPromises[modalId]) {
-            activeModalPromises[modalId].inputs = getModalInputValues(modalId);
-        }
+  const modalOverlay = modal.closest('.modal-overlay');
+  const inputs = modal.querySelectorAll('.modal-input');
+  const inputValues = Array.from(inputs).map(input => input.value.trim());
 
-        // Store this state in localStorage so it can be restored on page refresh
-        const savedState = {
-            id: modalId,
-            inputs: activeModalPromises[modalId].inputs,
-            candidateName: activeModalPromises[modalId].candidateName // Use the stored name
-        };
-        localStorage.setItem(`minimizedModalState_${modalId}`, JSON.stringify(savedState));
+  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName);
 
-        console.log(`[minimizeModal] Minimizing modal: ${modalId}. Saved inputs to activeModalPromises and localStorage.`);
-    } else {
-        console.warn(`[minimizeModal] Modal not found for ID: ${modalId}. Cannot minimize.`);
+  // Remove existing floating ball and modal state for this candidate
+  for (const [existingModalId, state] of minimizedModals) {
+    if (state.candidateName === candidateName && existingModalId !== modalId) {
+      const existingBall = document.querySelector(`.floating-ball[data-modal-id="${existingModalId}"]`);
+      if (existingBall) {
+        existingBall.remove();
+        ballPositions = ballPositions.filter(pos => pos.modalId !== existingModalId);
+      }
+      minimizedModals.delete(existingModalId);
     }
+  }
+
+  // Store the promise resolver to keep it pending
+  let resolvePromise;
+  const modalPromise = new Promise((resolve) => {
+    resolvePromise = resolve;
+  });
+
+  minimizedModals.set(modalId, {
+    title,
+    inputValues,
+    contentHTML: contentHTML || modal.querySelector('.modal-content').innerHTML,
+    candidateName,
+    onConfirm,
+    onCancel,
+    promise: modalPromise,
+    resolvePromise
+  });
+
+  modalOverlay.classList.remove('active');
+
+  // Create a floating ball with candidate name
+  const floatingBall = document.createElement('div');
+  floatingBall.className = 'floating-ball';
+  floatingBall.dataset.modalId = modalId;
+  floatingBall.innerHTML = `
+    <span class="floating-ball-label">${candidateName.slice(0, 10)}...</span>
+  `;
+  floatingBall.onclick = () => restoreMinimizedModal(modalId);
+  document.body.appendChild(floatingBall);
+
+  makeDraggable(floatingBall, modalId);
 }
 
 
 
-async function restoreModal(modalId) {
-    const savedStateStr = localStorage.getItem(`minimizedModalState_${modalId}`);
-    if (!savedStateStr) {
-        console.warn(`[restoreModal] No saved state found for modal ID: ${modalId}`);
-        return null;
+// Updated restoreMinimizedModal with error handling
+function restoreMinimizedModal(modalId) {
+  const state = minimizedModals.get(modalId);
+  if (!state) {
+    console.log('No state found for modalId:', modalId);
+    return;
+  }
+
+  console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues);
+
+  const initialValues = {
+    education: state.inputValues[0] || '',
+    training: state.inputValues[1] || '',
+    experience: state.inputValues[2] || '',
+    eligibility: state.inputValues[3] || '',
+  };
+
+  const modalResult = showCommentModal(
+    state.title || 'Comment Modal',
+    state.contentHTML,
+    state.candidateName,
+    state.onConfirm,
+    state.onCancel,
+    true,
+    initialValues
+  );
+
+  const { promise, setRestoring } = modalResult;
+
+  if (typeof setRestoring === 'function') {
+    setRestoring(true);
+  } else {
+    console.warn('setRestoring is not a function; skipping isRestoring flag');
+  }
+
+  const newModal = document.querySelector('.modal');
+  if (newModal) newModal.id = modalId;
+
+  // Apply input values using IDs
+  const inputMap = {
+    educationComment: initialValues.education,
+    trainingComment: initialValues.training,
+    experienceComment: initialValues.experience,
+    eligibilityComment: initialValues.eligibility,
+  };
+
+  console.log('Applying inputs:', inputMap);
+
+  const applyInputs = () => {
+    let allInputsFound = true;
+    Object.entries(inputMap).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.value = value;
+        console.log(`Set #${id} to:`, value);
+      } else {
+        console.error(`Input #${id} not found`);
+        allInputsFound = false;
+      }
+    });
+
+    if (!allInputsFound) {
+      console.error('Not all inputs found, retrying...');
+      requestAnimationFrame(applyInputs);
+    } else if (typeof setRestoring === 'function') {
+      setRestoring(false);
     }
+  };
 
-    const savedState = JSON.parse(savedStateStr);
-    console.log(`[restoreModal] Restoring modal: ${savedState.id} Saved inputs:`, savedState.inputs);
+  requestAnimationFrame(applyInputs);
 
-    // Call showModal with the original ID and saved inputs.
-    // showModal will detect the existing promise and re-hook into it.
-    const modalResult = await showModal(
-        savedState.id,
-        `Restore Comments for ${savedState.candidateName}`, // Reconstruct title
-        // NOTE: The content for the modal body should be passed here.
-        // If your showCommentModal dynamically generates this, you'll need to adapt.
-        // For simplicity, let's assume it's part of the showModal's internal logic.
-        `<div class="modal-body">
-            <p>Please enter comments for ${savedState.candidateName}:</p>
-            <label for="educationComment">Education:</label>
-            <input type="text" id="educationComment" class="modal-input">
-            <label for="trainingComment">Training:</label>
-            <input type="text" id="trainingComment" class="modal-input">
-            <label for="experienceComment">Experience:</label>
-            <input type="text" id="experienceComment" class="modal-input">
-            <label for="eligibilityComment">Eligibility:</label>
-            <input type="text" id="eligibilityComment" class="modal-input">
-        </div>`,
-        (commentData) => { /* original onConfirm logic here if needed */ return commentData; },
-        () => { /* original onCancel logic here if needed */ return false; },
-        true, // canMinimize
-        savedState.inputs // Pass saved inputs
-    );
+  // Remove floating ball
+  const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
+  if (floatingBall) {
+    floatingBall.remove();
+    ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
+  }
 
-    // After restoration, clear the saved state from localStorage
-    localStorage.removeItem(`minimizedModalState_${modalId}`);
-
-    console.log(`[restoreModal] Modal ${modalId} restored. Returning its promise.`);
-    return modalResult;
+  // Resolve the stored promise when the restored modal is confirmed
+  promise.then((result) => {
+    console.log('Restored modal promise resolved with:', result);
+    if (state.resolvePromise) {
+      state.resolvePromise(result);
+    }
+  });
 }
 
 
@@ -3213,50 +3132,7 @@ elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
 elements.submitRatings.addEventListener('click', submitRatings);
 
-// Add this block after the displaySecretariatCandidatesTable function,
-// or inside an overall initialization function that runs once the DOM is ready.
-
+// Fix: Properly close DOMContentLoaded wrapper
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
-    const secretariatCandidatesTableContainer = document.getElementById('secretariat-candidates-table');
-
-    if (secretariatCandidatesTableContainer) {
-        // Remove any existing listener to prevent duplicates if this function is called multiple times
-        // This is a simple way to manage; for complex apps, consider a more robust event management
-        if (secretariatCandidatesTableContainer._delegatedClickListener) {
-            secretariatCandidatesTableContainer.removeEventListener('click', secretariatCandidatesTableContainer._delegatedClickListener);
-        }
-
-        const delegatedClickHandler = async (event) => {
-            if (event.target.classList.contains('submit-candidate-button')) {
-                // Pass the button element itself
-                handleActionSelection(event.target);
-            } else if (event.target.classList.contains('view-comment-button')) {
-                const row = event.target.closest('tr');
-                const name = row.querySelector('td:nth-child(1)').textContent; // Assuming name is in the first td
-                const select = row.querySelector('.action-dropdown');
-                const itemNumber = select.dataset.item;
-                const status = row.dataset.status;
-                // You need to get the comment. Since you removed the onclick, you might need to store it
-                // in a data attribute on the button or its parent td, or re-fetch if necessary.
-                // For now, assuming you can retrieve it from the DOM or data model.
-                // Example: If you add data-comment to the parent <td> of the buttons
-                const commentTd = event.target.closest('td');
-                const comment = commentTd ? commentTd.dataset.comment || '' : '';
-                viewComments(name, itemNumber, status, comment);
-            } else if (event.target.classList.contains('edit-comment-button')) {
-                const row = event.target.closest('tr');
-                const name = row.querySelector('td:nth-child(1)').textContent;
-                const select = row.querySelector('.action-dropdown');
-                const itemNumber = select.dataset.item;
-                const status = row.dataset.status;
-                const commentTd = event.target.closest('td');
-                const comment = commentTd ? commentTd.dataset.comment || '' : ''; // Get comment from data attribute
-                editComments(name, itemNumber, status, comment);
-            }
-        };
-
-        secretariatCandidatesTableContainer.addEventListener('click', delegatedClickHandler);
-        secretariatCandidatesTableContainer._delegatedClickListener = delegatedClickHandler; // Store reference for removal
-    }
 });
