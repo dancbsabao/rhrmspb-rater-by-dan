@@ -1187,200 +1187,198 @@ function filterTableByStatus(status, itemNumber) {
 }
 
 // Updated editComments to check for existing modal
+// Updated editComments to check for existing modal and include robust error handling/token refresh
 async function editComments(name, itemNumber, status, comment) {
-  // Normalize inputs
-  const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-  const normalizedItemNumber = itemNumber.trim();
-
-  // Check for existing minimized modal for this candidate
-  let existingModalId = null;
-  let existingModalState = null;
-  for (const [modalId, state] of minimizedModals) {
-    if (state.candidateName === name && (state.title || '').toLowerCase().includes('edit comments')) {
-      existingModalId = modalId;
-      existingModalState = state;
-      break;
+    // Check for existing minimized modal for this candidate
+    let existingModalId = null;
+    for (const [modalId, state] of minimizedModals) {
+        // Ensure we are matching the correct modal type (e.g., 'Edit Comments')
+        // This prevents restoring a 'Long List' or 'Disqualification' modal when 'Edit Comments' is intended.
+        if (state.candidateName === name && state.title.includes('Edit Comments')) {
+            existingModalId = modalId;
+            break;
+        }
     }
-  }
 
-  const submitComment = async (commentData) => {
-    const newComment = `${commentData.education},${commentData.training},${commentData.experience},${commentData.eligibility}`;
-    console.log('Formatted newComment:', newComment);
-
-    try {
-      let tokenValid = await isTokenValid();
-      console.log('Token valid:', tokenValid);
-      if (!tokenValid) {
-        console.log('Refreshing token...');
-        await refreshAccessToken();
-        tokenValid = await isTokenValid();
-        console.log('Token valid after refresh:', tokenValid);
-        if (!tokenValid) {
-          throw new Error('Failed to validate token after refresh');
-        }
-      }
-
-      async function getSheetId(sheetName) {
-        try {
-          const response = await gapi.client.sheets.spreadsheets.get({
-            spreadsheetId: SHEET_ID,
-          });
-          const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-          if (!sheet) {
-            throw new Error(`Sheet ${sheetName} not found`);
-          }
-          return sheet.properties.sheetId;
-        } catch (error) {
-          console.error(`Error fetching sheet ID for ${sheetName}:`, error);
-          throw error;
-        }
-      }
-
-      if (status === 'CANDIDATES') {
-        console.log('Fetching CANDIDATES sheet...');
-        const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R',
-        });
-        const candidatesValues = candidatesResponse.result.values || [];
-        const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const rowMemberId = row[16]?.toString();
-          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-        });
-
-        if (candidatesIndex === -1) {
-          throw new Error(`Candidate ${normalizedName} not found in CANDIDATES sheet for item ${normalizedItemNumber}`);
-        }
-
-        const sheetRowIndex = candidatesIndex + 2;
-        console.log(`Updating CANDIDATES row ${sheetRowIndex} with comment: ${newComment}`);
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: `CANDIDATES!R${sheetRowIndex}`,
-          valueInputOption: 'RAW',
-          resource: { values: [[newComment]] },
-        });
-        console.log('Comment updated in CANDIDATES');
-      } else if (status === 'DISQUALIFIED') {
-        console.log('Fetching DISQUALIFIED sheet...');
-        const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:E',
-        });
-        const disqualifiedValues = disqualifiedResponse.result.values || [];
-        const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const rowMemberId = row[4]?.toString();
-          return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-        });
-
-        if (disqualifiedIndex === -1) {
-          throw new Error(`Candidate ${normalizedName} not found in DISQUALIFIED sheet for item ${normalizedItemNumber}`);
-        }
-
-        const sheetRowIndex = disqualifiedIndex + 2;
-        console.log(`Updating DISQUALIFIED row ${sheetRowIndex} with comment: ${newComment}`);
-        await gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID,
-          range: `DISQUALIFIED!D${sheetRowIndex}`,
-          valueInputOption: 'RAW',
-          resource: { values: [[newComment]] },
-        });
-        console.log('Comment updated in DISQUALIFIED');
-      } else {
-        throw new Error(`Invalid status: ${status}`);
-      }
-
-      showToast('success', 'Success', 'Comments updated successfully');
-      console.log('Showing success toast for editComments');
-      await fetchSecretariatCandidates(itemNumber);
-    } catch (error) {
-      console.error('Error updating comments:', error);
-      showToast('error', 'Error', `Failed to update comments: ${error.message}`);
-      throw error;
+    if (existingModalId) {
+        console.log(`Restoring existing modal for ${name}:`, existingModalId); // Debug log
+        restoreMinimizedModal(existingModalId);
+        return; // Important: Exit the function after restoring
     }
-  };
 
-  let commentEntered;
-  if (existingModalId) {
-    console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
-    restoreMinimizedModal(existingModalId);
-    console.log('Waiting for restored modal promise...');
-    try {
-      commentEntered = await existingModalState.promise;
-      console.log('Comment entered from restored modal:', commentEntered);
-      minimizedModals.delete(existingModalId); // Clear immediately after promise resolution
-      if (commentEntered && commentEntered !== false) {
-        await submitComment(commentEntered);
-      } else {
-        console.log('No valid comment entered from restored modal, exiting');
-        showToast('info', 'Info', 'Comment editing cancelled');
-      }
-    } catch (error) {
-      console.error('Error resolving restored modal promise:', error);
-      showToast('error', 'Error', `Failed to process restored modal: ${error.message}`);
-      minimizedModals.delete(existingModalId); // Clear on error
-    }
-  } else {
-    const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
+    // Parse initial comment values if available
+    const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
     const initialValues = { education, training, experience, eligibility };
+
+    // Construct modal content with current values
     const modalContent = `
-      <div class="modal-body">
-        <p>Edit comments for ${name} (${status}):</p>
-        <label for="educationComment">Education:</label>
-        <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
-        <label for="trainingComment">Training:</label>
-        <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
-        <label for="experienceComment">Experience:</label>
-        <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
-        <label for="eligibilityComment">Eligibility:</label>
-        <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
-      </div>
+        <div class="modal-body">
+            <p>Edit comments for ${name} (${status}):</p>
+            <label for="educationComment">Education:</label>
+            <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
+            <label for="trainingComment">Training:</label>
+            <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
+            <label for="experienceComment">Experience:</label>
+            <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
+            <label for="eligibilityComment">Eligibility:</label>
+            <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
+        </div>
     `;
 
-    console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
+    // Show the comment modal and wait for its result
+    // The onConfirm callback here is what gets executed when the modal's Confirm button is clicked.
+    // It returns the collected commentData, which then resolves the modalResult.promise.
+    const modalResult = await showCommentModal(
+        `Edit Comments (${status})`, // Modal Title
+        modalContent,                // Modal Content HTML
+        name,                        // Candidate Name
+        (commentData) => {           // onConfirm callback
+            console.log('editComments: onConfirm received commentData:', commentData);
+            // This data will be the resolved value of modalResult.promise
+            return commentData;
+        },
+        () => {                      // onCancel callback
+            console.log('editComments: Modal canceled.');
+            return false; // Indicate cancellation
+        },
+        true,                        // showCancel button
+        initialValues                // initial values for the form fields
+    );
 
-    let modalResult;
-    try {
-      modalResult = await showCommentModal(
-        `Edit Comments (${status})`,
-        modalContent,
-        name,
-        (commentData) => {
-          console.log('editComments onConfirm received:', commentData);
-          return commentData;
-        },
-        () => {
-          console.log('editComments onCancel triggered');
-          return false;
-        },
-        true,
-        initialValues
-      );
-    } catch (error) {
-      console.error('Error showing comment modal:', error);
-      showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
-      return;
+    // Wait for the modal to be confirmed or canceled
+    const commentEntered = await modalResult.promise;
+
+    console.log('editComments: Promise resolved. Comment entered:', commentEntered);
+
+    // If modal was canceled or no data returned, exit
+    if (!commentEntered || commentEntered === false) {
+        console.log('editComments: No comment entered or modal canceled. Aborting update.');
+        return;
     }
 
-    console.log('Waiting for modalResult.promise...');
+    // Construct the new comment string from the entered data
+    const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
+
+    // --- Start of Google Sheets API Interaction ---
     try {
-      commentEntered = await modalResult.promise;
-      console.log('Comment entered:', commentEntered);
-      if (commentEntered && commentEntered !== false) {
-        await submitComment(commentEntered);
-      } else {
-        console.log('No valid comment entered, exiting editComments');
-        showToast('info', 'Info', 'Comment editing cancelled');
-      }
+        console.log('editComments: Attempting to update Google Sheet...');
+
+        // 1. Token Validation and Refresh
+        let tokenValid = await isTokenValid();
+        if (!tokenValid) {
+            console.log('editComments: Access token invalid or expired. Attempting refresh...');
+            await refreshAccessToken();
+            tokenValid = await isTokenValid(); // Re-check token validity after refresh
+            if (!tokenValid) {
+                throw new Error('Failed to validate token after refresh. Please re-authenticate.');
+            }
+            console.log('editComments: Access token refreshed successfully.');
+        }
+
+        // Normalize name and item number for consistent matching
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const normalizedItemNumber = itemNumber.trim();
+
+        // Helper function to get sheet ID (if needed, though often just range is enough for update)
+        // This function might not be strictly necessary for values.update if you know the sheet names.
+        async function getSheetId(sheetName) {
+            const response = await gapi.client.sheets.spreadsheets.get({
+                spreadsheetId: SHEET_ID,
+            });
+            const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+            if (!sheet) throw new Error(`Sheet "${sheetName}" not found in spreadsheet.`);
+            return sheet.properties.sheetId;
+        }
+
+        // Determine which sheet to update based on status
+        if (status === 'CANDIDATES') {
+            console.log('editComments: Updating CANDIDATES sheet...');
+            const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SHEET_ID,
+                range: 'CANDIDATES!A:R', // Fetch enough columns to find all relevant data
+            });
+            const candidatesValues = candidatesResponse.result.values || [];
+            // Find the row index for the specific candidate and secretariat member
+            const candidatesIndex = candidatesValues.slice(1).findIndex(row => { // .slice(1) to skip header
+                const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+                const rowItem = row[1]?.trim();
+                const rowMemberId = row[16]?.toString(); // Assuming Member ID is in column Q (index 16)
+                return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+            });
+
+            if (candidatesIndex !== -1) {
+                // +2 because of 0-based index and skipping header row
+                const sheetRowIndex = candidatesIndex + 2;
+                console.log(`editComments: Found CANDIDATE row at Sheets index ${sheetRowIndex}. Updating R${sheetRowIndex}.`);
+                await gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId: SHEET_ID,
+                    range: `CANDIDATES!R${sheetRowIndex}`, // Column R for comments
+                    valueInputOption: 'RAW',
+                    resource: { values: [[newComment]] },
+                });
+                console.log('editComments: Comment updated successfully in CANDIDATES sheet.');
+            } else {
+                console.warn(`editComments: Candidate not found in CANDIDATES sheet for update: ${name} (Item: ${itemNumber}, Member: ${secretariatMemberId})`);
+                showToast('warning', 'Warning', `Candidate not found in CANDIDATES sheet for update.`);
+            }
+        } else if (status === 'DISQUALIFIED') {
+            console.log('editComments: Updating DISQUALIFIED sheet...');
+            const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SHEET_ID,
+                range: 'DISQUALIFIED!A:E', // Fetch enough columns
+            });
+            const disqualifiedValues = disqualifiedResponse.result.values || [];
+            // Find the row index for the specific candidate and secretariat member
+            const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => { // .slice(1) to skip header
+                const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+                const rowItem = row[1]?.trim();
+                const rowMemberId = row[4]?.toString(); // Assuming Member ID is in column E (index 4)
+                return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
+            });
+
+            if (disqualifiedIndex !== -1) {
+                // +2 because of 0-based index and skipping header row
+                const sheetRowIndex = disqualifiedIndex + 2;
+                console.log(`editComments: Found DISQUALIFIED row at Sheets index ${sheetRowIndex}. Updating D${sheetRowIndex}.`);
+                await gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId: SHEET_ID,
+                    range: `DISQUALIFIED!D${sheetRowIndex}`, // Column D for comments
+                    valueInputOption: 'RAW',
+                    resource: { values: [[newComment]] },
+                });
+                console.log('editComments: Comment updated successfully in DISQUALIFIED sheet.');
+            } else {
+                console.warn(`editComments: Candidate not found in DISQUALIFIED sheet for update: ${name} (Item: ${itemNumber}, Member: ${secretariatMemberId})`);
+                showToast('warning', 'Warning', `Candidate not found in DISQUALIFIED sheet for update.`);
+            }
+        } else {
+            console.warn(`editComments: Unrecognized status for update: ${status}. No sheet updated.`);
+            showToast('warning', 'Warning', `Cannot update comments for status: ${status}.`);
+        }
+
+        // Show success toast and re-fetch data to update UI
+        showToast('success', 'Success', 'Comments updated successfully');
+        console.log('editComments: Calling fetchSecretariatCandidates to refresh UI...');
+        fetchSecretariatCandidates(itemNumber); // Assuming this refreshes the relevant part of your UI
+
     } catch (error) {
-      console.error('Error resolving modal promise:', error);
-      showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
+        console.error('editComments: Error during Google Sheet update:', error);
+        // Provide more specific error message if available
+        let errorMessage = error.message || 'An unknown error occurred.';
+        if (error.result && error.result.error && error.result.error.message) {
+            errorMessage = error.result.error.message;
+        } else if (error.body) {
+             try {
+                const errorBody = JSON.parse(error.body);
+                if (errorBody.error && errorBody.error.message) {
+                    errorMessage = errorBody.error.message;
+                }
+             } catch (e) {
+                 // ignore JSON parse error
+             }
+        }
+        showToast('error', 'Error', `Failed to update comments: ${errorMessage}`);
     }
-  }
 }
 
 
