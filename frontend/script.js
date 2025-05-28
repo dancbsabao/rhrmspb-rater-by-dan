@@ -901,7 +901,7 @@ async function handleActionSelection(button) {
   } catch (error) {
     console.error('Error submitting candidate action in handleActionSelection:', error);
     showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
-    throw error; // Rethrow to allow caller to handle if needed
+    throw error;
   }
 }
 
@@ -1332,7 +1332,7 @@ async function editComments(name, itemNumber, status, comment) {
   } catch (error) {
     console.error('Error updating comments in editComments:', error);
     showToast('error', 'Error', `Failed to update comments: ${error.message}`);
-    throw error; // Rethrow to allow caller to handle if needed
+    throw error;
   }
 }
 
@@ -2696,7 +2696,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
     </div>
   `;
 
-  console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML); // Debug log
+  console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML);
 
   let isRestoring = false;
 
@@ -2707,7 +2707,11 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
       const cancelBtn = modalOverlay.querySelector('.modal-cancel');
 
       const closeHandler = (result) => {
-        if (isRestoring) return; // Prevent closing during restoration
+        if (isRestoring) {
+          console.log('closeHandler skipped due to isRestoring=true');
+          return;
+        }
+        console.log('closeHandler called with result:', result);
         modalOverlay.classList.remove('active');
         minimizedModals.delete(modalId);
         ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
@@ -2715,37 +2719,59 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
         modalOverlay.removeEventListener('click', outsideClickHandler);
       };
 
-      confirmBtn.onclick = () => {
+      confirmBtn.onclick = (event) => {
+        event.stopPropagation(); // Prevent click from bubbling to modalOverlay
+        console.log('Confirm button clicked');
         const inputs = modalOverlay.querySelectorAll('.modal-input');
         const inputValues = Array.from(inputs).map(input => input.value.trim());
         const [education, training, experience, eligibility] = inputValues;
 
         if (!education || !training || !experience || !eligibility) {
+          console.log('Validation failed: All comment fields are required');
           showToast('error', 'Error', 'All comment fields are required');
           return;
         }
 
         const commentData = { education, training, experience, eligibility };
-        console.log('Confirming with values:', commentData); // Debug log
-        if (onConfirm) onConfirm(commentData);
-        closeHandler(commentData);
+        console.log('Confirming with values:', commentData);
+        try {
+          if (onConfirm) {
+            const result = onConfirm(commentData);
+            console.log('onConfirm executed with result:', result);
+            closeHandler(result || commentData);
+          } else {
+            console.log('No onConfirm callback provided, resolving with commentData');
+            closeHandler(commentData);
+          }
+        } catch (error) {
+          console.error('Error in onConfirm callback:', error);
+          showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
+        }
       };
 
       if (cancelBtn) {
-        cancelBtn.onclick = () => {
+        cancelBtn.onclick = (event) => {
+          event.stopPropagation(); // Prevent click from bubbling to modalOverlay
+          console.log('Cancel button clicked');
           if (onCancel) onCancel();
           closeHandler(false);
         };
-      };
+      }
 
       const outsideClickHandler = (event) => {
         if (event.target === modalOverlay && !isRestoring) {
+          console.log('Outside click detected, minimizing modal');
           minimizeModal(modalId, candidateName);
+          if (onCancel) onCancel();
+          closeHandler(false);
         }
       };
       modalOverlay.addEventListener('click', outsideClickHandler);
     }),
-    setRestoring: (value) => { isRestoring = value; }
+    setRestoring: (value) => {
+      console.log('Setting isRestoring to:', value);
+      isRestoring = value;
+    }
   };
 }
 
