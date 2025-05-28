@@ -2702,51 +2702,53 @@ function showFullScreenModal(title, contentHTML) {
 
 // Updated showCommentModal with consistent return
 function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = {}) {
-  let modalOverlay = document.getElement('div');
-  modalOverlay = document.getElement('div');
-  modalOverlay.id = 'modalOverlay';
-  modalOverlay.className = 'modal-overlay';
-  if (!document.getElementById('modalOverlay')) {
+  let modalOverlay = document.getElementById('modalOverlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
     document.body.appendChild(modalOverlay);
   }
 
-  const modalId = 'modal-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
   // Use provided contentHTML or generate with initialValues if provided
   let renderedContentHTML = contentHTML;
-  if (initialValues) {
+  if (initialValues && Object.keys(initialValues).length > 0) {
     const isEdit = title.toLowerCase().includes('edit');
     const isDisqualified = title.toLowerCase().includes('disqualified');
-    const actionText = isEdit ? 'Edit comments for ' + candidateName + ' ' + (isDisqualified ? ' (DISQUALIFIED)' : '') + : 
-      'Please enter comments for ' + title.toLowerCase().includes('disqualified') ? 'disqualifying' : 'long-listing' + ' ' + candidateName;
-    renderedContentHTML = '
+    const actionText = isEdit 
+      ? `Edit comments for ${candidateName}${isDisqualified ? ' (DISQUALIFIED)' : ''}`
+      : `Please enter comments for ${title.toLowerCase().includes('disqualified') ? 'disqualifying' : 'long-listing'} ${candidateName}`;
+    renderedContentHTML = `
       <div class="modal-body">
-        <p>' + actionText + '</p>
-        <label for="education">Education:</label>
-        <input type="text" id="education-input" class="modal-input" value="' + (initialValues.education || '') + '">
-        <label> for="trainingComment">Training:</label>
-        <input type="text" id="training-input" class="modal-input" value="' + (initialValues.training || '') + '">
+        <p>${actionText}</p>
+        <label for="educationComment">Education:</label>
+        <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
+        <label for="trainingComment">Training:</label>
+        <input type="text" id="trainingComment" class="modal-input" value="${initialValues.training || ''}">
         <label for="experienceComment">Experience:</label>
-        <input type="text" id="experience-input" class="modal-input" value="' + (initialValues.training || '') + '">
-        <label for="eligibility">Eligibility:</label>
-        <input type="text" id="eligibility-input" class="modal-input" value="' + (initialValues.eligibility || '') + '">
+        <input type="text" id="experienceComment" class="modal-input" value="${initialValues.experience || ''}">
+        <label for="eligibilityComment">Eligibility:</label>
+        <input type="text" id="eligibilityComment" class="modal-input" value="${initialValues.eligibility || ''}">
       </div>
-    );
+    `;
   }
 
-  modalOverlay.innerHTML = '
-    <div class="modal" id="' + modalId + '">
+  modalOverlay.innerHTML = `
+    <div class="modal" id="${modalId}">
       <div class="modal-header">
-        <h3 class="modal-title">' + title + '</h3>
-        <span class="modal-close" data-modal-id="' + modalId + '">×</span>
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close" data-modal-id="${modalId}">×</span>
       </div>
-      <div class="modal-content">' + renderedContentHTML + '</div>
-      <div>
-        ' + (showCancel ? '<button class="modal-cancel">Cancel</button>' : '') + '
+      <div class="modal-content">${renderedContentHTML || ''}</div>
+      <div class="modal-actions">
+        ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
         <button id="modalConfirm" class="modal-confirm">Confirm</button>
-        <button class="modal-minimize" data-modal-id="' + modalId + '">Minimize</button>
+        <button class="modal-minimize" data-modal-id="${modalId}">Minimize</button>
       </div>
     </div>
+  `;
   console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML);
 
   let isRestoring = false;
@@ -2758,8 +2760,8 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
       modalOverlay.classList.add('active');
       const confirmBtn = modalOverlay.querySelector('#modalConfirm');
       const cancelBtn = modalOverlay.querySelector('.modal-cancel');
-      const closeBtn = modal.querySelector('.modal-close');
-      const minimizeBtn = modal.querySelector('.modal-minimize');
+      const closeBtn = modalOverlay.querySelector('.modal-close');
+      const minimizeBtn = modalOverlay.querySelector('.modal-minimize');
       const modalContent = modalOverlay.querySelector('.modal');
 
       const closeHandler = (result) => {
@@ -2803,7 +2805,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
           closeHandler(result || commentData);
         } catch (error) {
           console.error('Error in onConfirm callback:', error);
-          showToast('error', 'Error', 'Failed to process confirmation: ' + error.message);
+          showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
         } finally {
           isConfirming = false;
         }
@@ -2834,7 +2836,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         if (event.target === modalOverlay && !isRestoring && !isConfirming && !isMinimizing) {
           console.log('Outside click detected, minimizing modal');
           isMinimizing = true;
-          minimizeModal(modalId, candidateName, title, contentHTML, onConfirm, onCancel);
+          minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel);
           setTimeout(() => { isMinimizing = false; }, 100);
         }
       };
