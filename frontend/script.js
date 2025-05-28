@@ -2610,7 +2610,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 }
 
 
-// Updated minimizeModal with logging
+// Updated minimizeModal to save clean contentHTML
 function minimizeModal(modalId, candidateName) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
@@ -2619,9 +2619,15 @@ function minimizeModal(modalId, candidateName) {
   const inputs = modal.querySelectorAll('.modal-input');
   const inputValues = Array.from(inputs).map(input => input.value.trim());
   const title = modal.querySelector('.modal-title').textContent;
-  const contentHTML = modal.querySelector('.modal-content').innerHTML;
 
-  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues); // Debug log
+  // Create clean contentHTML without input values
+  const contentDiv = modal.querySelector('.modal-content').cloneNode(true);
+  const inputElements = contentDiv.querySelectorAll('.modal-input');
+  inputElements.forEach(input => input.value = '');
+
+  const contentHTML = contentDiv.innerHTML;
+
+  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName); // Debug log
 
   minimizedModals.set(modalId, {
     title,
@@ -2649,7 +2655,7 @@ function minimizeModal(modalId, candidateName) {
 
 
 
-// Updated restoreMinimizedModal to fix input restoration
+// Updated restoreMinimizedModal to apply edited inputs
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
@@ -2660,7 +2666,7 @@ function restoreMinimizedModal(modalId) {
     const newModal = document.querySelector('.modal');
     if (newModal) newModal.id = modalId;
 
-    // Restore input values using IDs
+    // Apply input values using IDs
     const inputMap = {
       educationComment: state.inputValues[0] || '',
       trainingComment: state.inputValues[1] || '',
@@ -2670,17 +2676,15 @@ function restoreMinimizedModal(modalId) {
 
     console.log('Applying inputs:', inputMap); // Debug log
 
-    // Ensure DOM is updated before setting values
-    setTimeout(() => {
-      Object.entries(inputMap).forEach(([id, value]) => {
-        const input = document.getElementById(id);
-        if (input) {
-          input.value = value;
-        } else {
-          console.error(`Input #${id} not found`); // Debug log
-        }
-      });
-    }, 0);
+    Object.entries(inputMap).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.value = value;
+        console.log(`Set #${id} to:`, value); // Debug log
+      } else {
+        console.error(`Input #${id} not found`); // Debug log
+      }
+    });
   });
 
   // Remove floating ball
@@ -2690,6 +2694,9 @@ function restoreMinimizedModal(modalId) {
     ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
   }
 }
+
+
+
 
 // Updated makeDraggable to prevent ball overlap
 function makeDraggable(element, modalId) {
