@@ -3015,12 +3015,15 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         modalContent.addEventListener('click', (event) => {
             event.stopPropagation();
         });
-    }),
-    setRestoring: (value) => {
-        console.log('Setting isRestoring to:', value);
-        isRestoring = value;
-    }
-};
+    });
+
+    return {
+        promise,
+        setRestoring: (value) => {
+            console.log('Setting isRestoring to:', value);
+            isRestoring = value;
+        }
+    };
 }
 
 
