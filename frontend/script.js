@@ -859,7 +859,7 @@ async function handleActionSelection(button) {
   const commentEntered = await showCommentModal(
     `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
     modalContent,
-    null, // onConfirm handled in showCommentModal
+    null,
     () => false,
     true
   );
@@ -1145,7 +1145,7 @@ async function editComments(name, itemNumber, status, comment) {
   const commentEntered = await showCommentModal(
     'Edit Comments',
     modalContent,
-    null, // onConfirm handled in showCommentModal
+    null,
     () => false,
     true
   );
@@ -2602,13 +2602,13 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
   });
 }
 
-function minimizeModal(modalId) {
+
   const modal = document.getElementById(modalId);
   if (!modal) return;
 
   const modalOverlay = modal.closest('.modal-overlay');
   const inputs = modal.querySelectorAll('.modal-input');
-  const inputValues = Array.from(inputs).map(input => input.value);
+  const inputValues = Array.from(inputs).map(input => input.value.trim());
   const title = modal.querySelector('.modal-title').textContent;
   const contentHTML = modal.querySelector('.modal-content').innerHTML;
 
@@ -2644,14 +2644,22 @@ function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
 
-  showCommentModal(state.title, state.contentHTML, state.onConfirm, state.onCancel, true).then(() => {
-    // Reassign modalId
+  // Wait for modal to render before setting inputs
+  showCommentModal(state.title, state.contentHTML, null, () => false, true).then(() => {
     const newModal = document.querySelector('.modal');
     if (newModal) newModal.id = modalId;
-    // Restore input values
-    const inputs = document.querySelectorAll('.modal-input');
-    inputs.forEach((input, index) => {
-      input.value = state.inputValues[index] || '';
+
+    // Restore input values using IDs
+    const inputMap = {
+      educationComment: state.inputValues[0] || '',
+      trainingComment: state.inputValues[1] || '',
+      experienceComment: state.inputValues[2] || '',
+      eligibilityComment: state.inputValues[3] || '',
+    };
+
+    Object.entries(inputMap).forEach(([id, value]) => {
+      const input = document.getElementById(id);
+      if (input) input.value = value;
     });
   });
 
