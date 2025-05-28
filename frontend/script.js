@@ -859,6 +859,7 @@ async function handleActionSelection(button) {
   const commentEntered = await showCommentModal(
     `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
     modalContent,
+    name,
     null,
     () => false,
     true
@@ -869,6 +870,10 @@ async function handleActionSelection(button) {
   const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
   submitCandidateAction(button, name, itemNumber, sex, action, comment);
 }
+
+
+
+
 
 async function submitCandidateAction(button, name, itemNumber, sex, action, comment) {
   console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment });
@@ -1145,6 +1150,7 @@ async function editComments(name, itemNumber, status, comment) {
   const commentEntered = await showCommentModal(
     'Edit Comments',
     modalContent,
+    name,
     null,
     () => false,
     true
@@ -2447,7 +2453,9 @@ function loadRadioState(candidateName, item) {
     }
   });
 }
+
 let minimizedModals = new Map(); // Store minimized comment modal states
+let ballPositions = []; // Track positions of floating balls
 
 function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
@@ -2533,7 +2541,8 @@ function showFullScreenModal(title, contentHTML) {
 }
 
 
-function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null, showCancel = true) {
+// Updated showCommentModal to accept candidate name
+function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
     modalOverlay = document.createElement('div');
@@ -2547,13 +2556,13 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
     <div class="modal" id="${modalId}">
       <div class="modal-header">
         <h3 class="modal-title">${title}</h3>
-        <span class="modal-close" onclick="minimizeModal('${modalId}')">×</span>
+        <span class="modal-close" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}')">×</span>
       </div>
       <div class="modal-content">${contentHTML}</div>
       <div class="modal-actions">
         ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
         <button id="modalConfirm" class="modal-confirm">Confirm</button>
-        <button class="modal-minimize" onclick="minimizeModal('${modalId}')">Minimize</button>
+        <button class="modal-minimize" onclick="minimizeModal('${modalId}', '${candidateName.replace(/'/g, "\\'")}')">Minimize</button>
       </div>
     </div>
   `;
@@ -2566,19 +2575,19 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
     const closeHandler = (result) => {
       modalOverlay.classList.remove('active');
       minimizedModals.delete(modalId);
+      ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
       resolve(result);
       modalOverlay.removeEventListener('click', outsideClickHandler);
     };
 
     confirmBtn.onclick = () => {
-      // Capture inputs before closing
       const inputs = modalOverlay.querySelectorAll('.modal-input');
       const inputValues = Array.from(inputs).map(input => input.value.trim());
       const [education, training, experience, eligibility] = inputValues;
 
       if (!education || !training || !experience || !eligibility) {
         showToast('error', 'Error', 'All comment fields are required');
-        return; // Don't close modal
+        return;
       }
 
       const result = onConfirm ? onConfirm() : { education, training, experience, eligibility };
@@ -2594,7 +2603,7 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
 
     const outsideClickHandler = (event) => {
       if (event.target === modalOverlay) {
-        minimizeModal(modalId);
+        minimizeModal(modalId, candidateName);
       }
     };
     modalOverlay.addEventListener('click', outsideClickHandler);
@@ -2602,8 +2611,8 @@ function showCommentModal(title, contentHTML, onConfirm = null, onCancel = null,
 }
 
 
-// Corrected minimizeModal function
-function minimizeModal(modalId) {
+// Updated minimizeModal to use candidate name and save inputs
+function minimizeModal(modalId, candidateName) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
 
@@ -2617,38 +2626,34 @@ function minimizeModal(modalId) {
     title,
     inputValues,
     contentHTML,
+    candidateName,
     onConfirm: modal.querySelector('#modalConfirm')?.onclick,
     onCancel: modal.querySelector('.modal-cancel')?.onclick,
   });
 
   modalOverlay.classList.remove('active');
 
-  // Create a floating ball
+  // Create a floating ball with candidate name
   const floatingBall = document.createElement('div');
   floatingBall.className = 'floating-ball';
   floatingBall.dataset.modalId = modalId;
   floatingBall.innerHTML = `
-    <span class="floating-ball-label">${title.slice(0, 10)}...</span>
-    <span class="floating-ball-close" onclick="event.stopPropagation(); minimizeModal('${modalId}')">×</span>
+    <span class="floating-ball-label">${candidateName.slice(0, 10)}...</span>
   `;
-  floatingBall.onclick = (e) => {
-    if (!e.target.classList.contains('floating-ball-close')) {
-      restoreMinimizedModal(modalId);
-    }
-  };
+  floatingBall.onclick = () => restoreMinimizedModal(modalId);
   document.body.appendChild(floatingBall);
 
-  makeDraggable(floatingBall);
+  makeDraggable(floatingBall, modalId);
 }
 
 
 
+// Updated restoreMinimizedModal to restore inputs correctly
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
   if (!state) return;
 
-  // Wait for modal to render before setting inputs
-  showCommentModal(state.title, state.contentHTML, null, () => false, true).then(() => {
+  showCommentModal(state.title, state.contentHTML, state.candidateName, null, () => false, true).then(() => {
     const newModal = document.querySelector('.modal');
     if (newModal) newModal.id = modalId;
 
@@ -2668,15 +2673,58 @@ function restoreMinimizedModal(modalId) {
 
   // Remove floating ball
   const floatingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
-  if (floatingBall) floatingBall.remove();
+  if (floatingBall) {
+    floatingBall.remove();
+    ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
+  }
 }
 
-function makeDraggable(element) {
+// Updated makeDraggable to prevent ball overlap
+function makeDraggable(element, modalId) {
   let isDragging = false;
   let currentX;
   let currentY;
   let initialX;
   let initialY;
+
+  // Find a unique position
+  let baseX = 50;
+  let baseY = 50;
+  let offset = 70; // Ball size (60px) + 10px gap
+  let positionFound = false;
+  let attempt = 0;
+  const maxAttempts = 100;
+
+  while (!positionFound && attempt < maxAttempts) {
+    const overlaps = ballPositions.some(pos => Math.abs(pos.x - baseX) < offset && Math.abs(pos.y - baseY) < offset);
+    if (!overlaps) {
+      positionFound = true;
+      currentX = baseX;
+      currentY = baseY;
+      ballPositions.push({ modalId, x: currentX, y: currentY });
+    } else {
+      baseX += offset;
+      if (baseX + 60 > window.innerWidth) {
+        baseX = 50;
+        baseY += offset;
+      }
+      if (baseY + 60 > window.innerHeight) {
+        baseY = 50;
+        attempt++;
+      }
+    }
+    attempt++;
+  }
+
+  if (!positionFound) {
+    currentX = 50;
+    currentY = 50;
+    ballPositions.push({ modalId, x: currentX, y: currentY });
+  }
+
+  element.style.position = 'fixed';
+  element.style.left = `${currentX}px`;
+  element.style.top = `${currentY}px`;
 
   element.addEventListener('mousedown', (e) => {
     initialX = e.clientX - currentX;
@@ -2691,19 +2739,19 @@ function makeDraggable(element) {
       currentY = e.clientY - initialY;
       element.style.left = `${currentX}px`;
       element.style.top = `${currentY}px`;
+
+      // Update position in ballPositions
+      const posIndex = ballPositions.findIndex(pos => pos.modalId === modalId);
+      if (posIndex !== -1) {
+        ballPositions[posIndex].x = currentX;
+        ballPositions[posIndex].y = currentY;
+      }
     }
   });
 
   document.addEventListener('mouseup', () => {
     isDragging = false;
   });
-
-  // Initialize position
-  currentX = 50;
-  currentY = 50;
-  element.style.position = 'fixed';
-  element.style.left = `${currentX}px`;
-  element.style.top = `${currentY}px`;
 }
 
 
