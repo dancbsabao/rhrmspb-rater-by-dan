@@ -1029,7 +1029,7 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
         row[1]?.trim() === normalizedItemNumber
       );
       if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-      candidate = [...candidate, secretariatMemberId, comment]; // Append member ID and comment
+      candidate = [...candidate, secretariatMemberId, comment];
       console.log('Appending to CANDIDATES:', [candidate]);
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
@@ -1190,71 +1190,76 @@ function filterTableByStatus(status, itemNumber) {
 async function editComments(name, itemNumber, status, comment) {
   // Check for existing minimized modal for this candidate
   let existingModalId = null;
+  let existingModalState = null;
   for (const [modalId, state] of minimizedModals) {
     if (state.candidateName === name && state.title.includes('Edit Comments')) {
       existingModalId = modalId;
+      existingModalState = state;
       break;
     }
   }
 
+  let modalResult;
+  let commentEntered;
+
   if (existingModalId) {
     console.log(`Restoring existing modal for ${name}: ${existingModalId}`);
     restoreMinimizedModal(existingModalId);
-    return;
-  }
+    console.log('Waiting for restored modal promise...');
+    commentEntered = await existingModalState.promise;
+    console.log('Comment entered from restored modal:', commentEntered);
+  } else {
+    // Prepare initial values for the modal
+    const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
+    const initialValues = { education, training, experience, eligibility };
+    const modalContent = `
+      <div class="modal-body">
+        <p>Edit comments for ${name} (${status}):</p>
+        <label for="educationComment">Education:</label>
+        <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
+        <label for="trainingComment">Training:</label>
+        <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
+        <label for="experienceComment">Experience:</label>
+        <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
+        <label for="eligibilityComment">Eligibility:</label>
+        <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
+      </div>
+    `;
 
-  // Prepare initial values for the modal
-  const [education, training, experience, eligibility] = comment ? comment.split(',').map(s => s.trim()) : ['', '', '', ''];
-  const initialValues = { education, training, experience, eligibility };
-  const modalContent = `
-    <div class="modal-body">
-      <p>Edit comments for ${name} (${status}):</p>
-      <label for="educationComment">Education:</label>
-      <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
-      <label for="trainingComment">Training:</label>
-      <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
-      <label for="experienceComment">Experience:</label>
-      <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
-      <label for="eligibilityComment">Eligibility:</label>
-      <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
-    </div>
-  `;
+    console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
 
-  console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
+    // Show the comment modal and await its result
+    try {
+      modalResult = await showCommentModal(
+        `Edit Comments (${status})`,
+        modalContent,
+        name,
+        (commentData) => {
+          console.log('editComments onConfirm received:', commentData);
+          return commentData;
+        },
+        () => {
+          console.log('editComments onCancel triggered');
+          return false;
+        },
+        true,
+        initialValues
+      );
+    } catch (error) {
+      console.error('Error showing comment modal:', error);
+      showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
+      return;
+    }
 
-  // Show the comment modal and await its result
-  let modalResult;
-  try {
-    modalResult = await showCommentModal(
-      `Edit Comments (${status})`,
-      modalContent,
-      name,
-      (commentData) => {
-        console.log('editComments onConfirm received:', commentData);
-        return commentData;
-      },
-      () => {
-        console.log('editComments onCancel triggered');
-        return false;
-      },
-      true,
-      initialValues
-    );
-  } catch (error) {
-    console.error('Error showing comment modal:', error);
-    showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
-    return;
-  }
-
-  console.log('Waiting for modalResult.promise...');
-  let commentEntered;
-  try {
-    commentEntered = await modalResult.promise;
-    console.log('Comment entered:', commentEntered);
-  } catch (error) {
-    console.error('Error resolving modal promise:', error);
-    showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
-    return;
+    console.log('Waiting for modalResult.promise...');
+    try {
+      commentEntered = await modalResult.promise;
+      console.log('Comment entered:', commentEntered);
+    } catch (error) {
+      console.error('Error resolving modal promise:', error);
+      showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
+      return;
+    }
   }
 
   // Exit if no valid comment data was entered
@@ -2734,7 +2739,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
   console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML);
 
   let isRestoring = false;
-  let isConfirming = false; // New flag to prevent minimization during confirmation
+  let isConfirming = false;
 
   return {
     promise: new Promise((resolve) => {
@@ -2757,9 +2762,9 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
       };
 
       confirmBtn.onclick = (event) => {
-        event.stopPropagation(); // Prevent click from bubbling to modalOverlay
+        event.stopPropagation();
         console.log('Confirm button clicked');
-        isConfirming = true; // Set flag to prevent minimization
+        isConfirming = true;
         const inputs = modalOverlay.querySelectorAll('.modal-input');
         const inputValues = Array.from(inputs).map(input => input.value.trim());
         const [education, training, experience, eligibility] = inputValues;
@@ -2786,13 +2791,13 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
           console.error('Error in onConfirm callback:', error);
           showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
         } finally {
-          isConfirming = false; // Reset flag after confirmation
+          isConfirming = false;
         }
       };
 
       if (cancelBtn) {
         cancelBtn.onclick = (event) => {
-          event.stopPropagation(); // Prevent click from bubbling to modalOverlay
+          event.stopPropagation();
           console.log('Cancel button clicked');
           if (onCancel) onCancel();
           closeHandler(false);
@@ -2802,14 +2807,11 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
       const outsideClickHandler = (event) => {
         if (event.target === modalOverlay && !isRestoring && !isConfirming) {
           console.log('Outside click detected, minimizing modal');
-          minimizeModal(modalId, candidateName);
-          if (onCancel) onCancel();
-          closeHandler(false);
+          minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel);
         }
       };
       modalOverlay.addEventListener('click', outsideClickHandler);
 
-      // Prevent clicks within modal content from triggering minimization
       modalContent.addEventListener('click', (event) => {
         event.stopPropagation();
       });
@@ -2823,31 +2825,15 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 
 
 // Updated minimizeModal to remove existing balls
-function minimizeModal(modalId, candidateName) {
+function minimizeModal(modalId, candidateName, title, contentHTML, onConfirm, onCancel) {
   const modal = document.getElementById(modalId);
   if (!modal) return;
 
   const modalOverlay = modal.closest('.modal-overlay');
   const inputs = modal.querySelectorAll('.modal-input');
   const inputValues = Array.from(inputs).map(input => input.value.trim());
-  const title = modal.querySelector('.modal-title').textContent;
 
-  // Create clean contentHTML template with consistent labeling
-  const contentHTML = `
-    <div class="modal-body">
-      <p>${modal.querySelector('.modal-body p').textContent}</p>
-      <label for="educationComment">Education:</label>
-      <input type="text" id="educationComment" class="modal-input">
-      <label for="trainingComment">Training:</label>
-      <input type="text" id="trainingComment" class="modal-input">
-      <label for="experienceComment">Experience:</label>
-      <input type="text" id="experienceComment" class="modal-input">
-      <label for="eligibilityComment">Eligibility:</label>
-      <input type="text" id="eligibilityComment" class="modal-input">
-    </div>
-  `;
-
-  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName); // Debug log
+  console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName);
 
   // Remove existing floating ball and modal state for this candidate
   for (const [existingModalId, state] of minimizedModals) {
@@ -2861,13 +2847,21 @@ function minimizeModal(modalId, candidateName) {
     }
   }
 
+  // Store the promise resolver to keep it pending
+  let resolvePromise;
+  const modalPromise = new Promise((resolve) => {
+    resolvePromise = resolve;
+  });
+
   minimizedModals.set(modalId, {
     title,
     inputValues,
-    contentHTML,
+    contentHTML: contentHTML || modal.querySelector('.modal-content').innerHTML,
     candidateName,
-    onConfirm: modal.querySelector('#modalConfirm')?.onclick,
-    onCancel: modal.querySelector('.modal-cancel')?.onclick,
+    onConfirm,
+    onCancel,
+    promise: modalPromise,
+    resolvePromise
   });
 
   modalOverlay.classList.remove('active');
@@ -2890,9 +2884,12 @@ function minimizeModal(modalId, candidateName) {
 // Updated restoreMinimizedModal with error handling
 function restoreMinimizedModal(modalId) {
   const state = minimizedModals.get(modalId);
-  if (!state) return;
+  if (!state) {
+    console.log('No state found for modalId:', modalId);
+    return;
+  }
 
-  console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues); // Debug log
+  console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues);
 
   const initialValues = {
     education: state.inputValues[0] || '',
@@ -2905,19 +2902,18 @@ function restoreMinimizedModal(modalId) {
     state.title,
     state.contentHTML,
     state.candidateName,
-    null,
-    () => false,
+    state.onConfirm,
+    state.onCancel,
     true,
     initialValues
   );
 
   const { promise, setRestoring } = modalResult;
 
-  // Fallback if setRestoring is unavailable
   if (typeof setRestoring === 'function') {
-    setRestoring(true); // Prevent premature closing
+    setRestoring(true);
   } else {
-    console.warn('setRestoring is not a function; skipping isRestoring flag'); // Debug log
+    console.warn('setRestoring is not a function; skipping isRestoring flag');
   }
 
   const newModal = document.querySelector('.modal');
@@ -2931,27 +2927,26 @@ function restoreMinimizedModal(modalId) {
     eligibilityComment: initialValues.eligibility,
   };
 
-  console.log('Applying inputs:', inputMap); // Debug log
+  console.log('Applying inputs:', inputMap);
 
-  // Use requestAnimationFrame to ensure DOM is painted
   const applyInputs = () => {
     let allInputsFound = true;
     Object.entries(inputMap).forEach(([id, value]) => {
       const input = document.getElementById(id);
       if (input) {
         input.value = value;
-        console.log(`Set #${id} to:`, value); // Debug log
+        console.log(`Set #${id} to:`, value);
       } else {
-        console.error(`Input #${id} not found`); // Debug log
+        console.error(`Input #${id} not found`);
         allInputsFound = false;
       }
     });
 
     if (!allInputsFound) {
-      console.error('Not all inputs found, retrying...'); // Debug log
+      console.error('Not all inputs found, retrying...');
       requestAnimationFrame(applyInputs);
     } else if (typeof setRestoring === 'function') {
-      setRestoring(false); // Allow closing after inputs are applied
+      setRestoring(false);
     }
   };
 
@@ -2964,7 +2959,13 @@ function restoreMinimizedModal(modalId) {
     ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
   }
 
-  promise.then(() => {}); // Ensure promise resolves
+  // Resolve the stored promise when the restored modal is confirmed
+  promise.then((result) => {
+    console.log('Restored modal promise resolved with:', result);
+    if (state.resolvePromise) {
+      state.resolvePromise(result);
+    }
+  });
 }
 
 
