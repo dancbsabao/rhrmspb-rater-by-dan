@@ -824,8 +824,8 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   }
 }
 
+// Unchanged handleActionSelection
 async function handleActionSelection(button) {
-  console.log('handleActionSelection triggered'); // Debug log
   const row = button.closest('tr');
   const select = row.querySelector('.action-dropdown');
   const action = select.value;
@@ -835,15 +835,12 @@ async function handleActionSelection(button) {
 
   if (!action) {
     showToast('error', 'Error', 'Please select an action');
-    console.log('No action selected'); // Debug log
     return;
   }
 
-  console.log('Checking for duplicate submission:', { name, itemNumber, action }); // Debug log
   const isDuplicate = await checkDuplicateSubmission(name, itemNumber, action);
   if (isDuplicate) {
     showToast('error', 'Error', `Candidate already submitted as ${action} by Member ${secretariatMemberId}.`);
-    console.log('Duplicate submission detected'); // Debug log
     return;
   }
 
@@ -860,30 +857,21 @@ async function handleActionSelection(button) {
       <input type="text" id="eligibilityComment" class="modal-input">
     </div>
   `;
-  console.log('Showing comment modal for:', { name, action }); // Debug log
-  const commentEntered = await showCommentModal(
+  const modalResult = await showCommentModal(
     `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
     modalContent,
     name,
-    (commentData) => {
-      console.log('Comment modal confirmed with data:', commentData); // Debug log
-      return commentData;
-    },
-    () => {
-      console.log('Comment modal canceled'); // Debug log
-      return false;
-    },
-    true
+    (commentData) => commentData,
+    () => false,
+    true,
+    null // No initial values for new comments
   );
 
-  console.log('Comment modal result:', commentEntered); // Debug log
-  if (!commentEntered || commentEntered === false) {
-    console.log('Comment modal canceled or failed'); // Debug log
-    return;
-  }
+  const commentEntered = await modalResult.promise;
+
+  if (!commentEntered || commentEntered === false) return;
 
   const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-  console.log('Proceeding with comment:', comment); // Debug log
   submitCandidateAction(button, name, itemNumber, sex, action, comment);
 }
 
@@ -1149,8 +1137,6 @@ function filterTableByStatus(status, itemNumber) {
 
 // Updated editComments to check for existing modal
 async function editComments(name, itemNumber, status, comment) {
-  console.log('editComments triggered for:', { name, itemNumber, status, comment }); // Debug log
-
   // Check for existing minimized modal for this candidate
   let existingModalId = null;
   for (const [modalId, state] of minimizedModals) {
@@ -1168,7 +1154,6 @@ async function editComments(name, itemNumber, status, comment) {
 
   const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
   const initialValues = { education, training, experience, eligibility };
-  console.log('Initial comment values:', initialValues); // Debug log
   const modalContent = `
     <div class="modal-body">
       <p>Edit comments for ${name} (${status}):</p>
@@ -1187,45 +1172,41 @@ async function editComments(name, itemNumber, status, comment) {
     modalContent,
     name,
     (commentData) => {
-      console.log('editComments received:', commentData); // Debug log
+      console.log('editComments received:', commentData);
       return commentData;
     },
-    () => {
-      console.log('Edit comment modal canceled'); // Debug log
-      return false;
-    },
+    () => false,
     true,
     initialValues
   );
 
   const commentEntered = await modalResult.promise;
-  console.log('Comment entered:', commentEntered); // Debug log
 
-  if (!commentEntered || commentEntered === false) {
-    console.log('Edit comment modal canceled or failed'); // Debug log
-    return;
-  }
+  console.log('Comment entered:', commentEntered);
+
+  if (!commentEntered || commentEntered === false) return;
 
   const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-  console.log('New comment to submit:', newComment); // Debug log
-
   try {
     let tokenValid = await isTokenValid();
-    console.log('Token valid before update:', tokenValid); // Debug log
     if (!tokenValid) {
-      console.log('Refreshing token...'); // Debug log
+      console.log('Refreshing token...');
       await refreshAccessToken();
       tokenValid = await isTokenValid();
-      console.log('Token valid after refresh:', tokenValid); // Debug log
-      if (!tokenValid) {
-        console.error('Failed to validate token'); // Debug log
-        throw new Error('Failed to validate token');
-      }
+      if (!tokenValid) throw new Error('Failed to validate token');
     }
 
     const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
     const normalizedItemNumber = itemNumber.trim();
-    console.log('Normalized values:', { normalizedName, normalizedItemNumber }); // Debug log
+
+    async function getSheetId(sheetName) {
+      const response = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: SHEET_ID,
+      });
+      const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+      if (!sheet) throw new Error(`Sheet ${sheetName} not found`);
+      return sheet.properties.sheetId;
+    }
 
     if (status === 'CANDIDATES') {
       const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
@@ -1233,29 +1214,22 @@ async function editComments(name, itemNumber, status, comment) {
         range: 'CANDIDATES!A:R',
       });
       const candidatesValues = candidatesResponse.result.values || [];
-      console.log('Candidates sheet values:', candidatesValues); // Debug log
       const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
         const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
         const rowItem = row[1]?.trim();
         const rowMemberId = row[16]?.toString();
-        console.log('Checking row:', { rowName, rowItem, rowMemberId }); // Debug log
         return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
       });
-      console.log('Candidates index:', candidatesIndex); // Debug log
+
       if (candidatesIndex !== -1) {
         const sheetRowIndex = candidatesIndex + 2;
-        console.log('Updating CANDIDATES at row:', sheetRowIndex); // Debug log
         await gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: SHEET_ID,
           range: `CANDIDATES!R${sheetRowIndex}`,
           valueInputOption: 'RAW',
           resource: { values: [[newComment]] },
         });
-        console.log('Comment updated in CANDIDATES'); // Debug log
-      } else {
-        console.error('Candidate not found in CANDIDATES sheet'); // Debug log
-        showToast('error', 'Error', 'Candidate not found in CANDIDATES sheet');
-        return;
+        console.log('Comment updated in CANDIDATES');
       }
     } else if (status === 'DISQUALIFIED') {
       const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
@@ -1263,39 +1237,30 @@ async function editComments(name, itemNumber, status, comment) {
         range: 'DISQUALIFIED!A:E',
       });
       const disqualifiedValues = disqualifiedResponse.result.values || [];
-      console.log('Disqualified sheet values:', disqualifiedValues); // Debug log
       const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
         const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
         const rowItem = row[1]?.trim();
         const rowMemberId = row[4]?.toString();
-        console.log('Checking row:', { rowName, rowItem, rowMemberId }); // Debug log
         return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
       });
-      console.log('Disqualified index:', disqualifiedIndex); // Debug log
+
       if (disqualifiedIndex !== -1) {
         const sheetRowIndex = disqualifiedIndex + 2;
-        console.log('Updating DISQUALIFIED at row:', sheetRowIndex); // Debug log
         await gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: SHEET_ID,
           range: `DISQUALIFIED!D${sheetRowIndex}`,
           valueInputOption: 'RAW',
           resource: { values: [[newComment]] },
         });
-        console.log('Comment updated in DISQUALIFIED'); // Debug log
-      } else {
-        console.error('Candidate not found in DISQUALIFIED sheet'); // Debug log
-        showToast('error', 'Error', 'Candidate not found in DISQUALIFIED sheet');
-        return;
+        console.log('Comment updated in DISQUALIFIED');
       }
     }
 
     showToast('success', 'Success', 'Comments updated successfully');
-    console.log('Fetching updated candidates for item:', itemNumber); // Debug log
     fetchSecretariatCandidates(itemNumber);
   } catch (error) {
-    console.error('Error updating comments:', error, error.stack); // Debug log
-    showToast('error', 'Error', `Failed to update comments: ${error.message || JSON.stringify(error)}`);
-    throw error;
+    console.error('Error updating comments:', error);
+    showToast('error', 'Error', `Failed to update comments: ${error.message}`);
   }
 }
 
@@ -2573,7 +2538,7 @@ function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCa
         if (onCancel) onCancel();
         closeHandler(false);
       };
-    }
+    };
 
     const outsideClickHandler = (event) => {
       if (event.target === modalOverlay) {
@@ -2585,6 +2550,7 @@ function showModal(title, contentHTML, onConfirm = null, onCancel = null, showCa
   });
 }
 
+// Unchanged showFullScreenModal
 function showFullScreenModal(title, contentHTML) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
@@ -2615,7 +2581,6 @@ function showFullScreenModal(title, contentHTML) {
 
 // Updated showCommentModal with consistent return
 function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
-  console.log('showCommentModal called with:', { title, candidateName, initialValues }); // Debug log
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
     modalOverlay = document.createElement('div');
@@ -2637,7 +2602,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
         <label for="trainingComment">Training:</label>
         <input type="text" id="trainingComment" class="modal-input" value="${initialValues.training || ''}">
         <label for="experienceComment">Experience:</label>
-        <input type="text" id="experienceComment" className="modal-input" value="${initialValues.experience || ''}">
+        <input type="text" id="experienceComment" class="modal-input" value="${initialValues.experience || ''}">
         <label for="eligibilityComment">Eligibility:</label>
         <input type="text" id="eligibilityComment" class="modal-input" value="${initialValues.eligibility || ''}">
       </div>
@@ -2666,19 +2631,14 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
   return {
     promise: new Promise((resolve) => {
       modalOverlay.classList.add('active');
-      console.log('Modal should now be visible with ID:', modalId); // Debug log
       const confirmBtn = modalOverlay.querySelector('#modalConfirm');
       const cancelBtn = modalOverlay.querySelector('.modal-cancel');
 
       const closeHandler = (result) => {
-        if (isRestoring) {
-          console.log('Modal close prevented during restoration'); // Debug log
-          return;
-        }
+        if (isRestoring) return; // Prevent closing during restoration
         modalOverlay.classList.remove('active');
         minimizedModals.delete(modalId);
         ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-        console.log('Modal closed with result:', result); // Debug log
         resolve(result);
         modalOverlay.removeEventListener('click', outsideClickHandler);
       };
@@ -2690,7 +2650,6 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 
         if (!education || !training || !experience || !eligibility) {
           showToast('error', 'Error', 'All comment fields are required');
-          console.log('Validation failed: missing comment fields'); // Debug log
           return;
         }
 
@@ -2702,7 +2661,6 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 
       if (cancelBtn) {
         cancelBtn.onclick = () => {
-          console.log('Cancel button clicked'); // Debug log
           if (onCancel) onCancel();
           closeHandler(false);
         };
@@ -2710,28 +2668,12 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
 
       const outsideClickHandler = (event) => {
         if (event.target === modalOverlay && !isRestoring) {
-          console.log('Outside click detected, prompting minimize confirmation'); // Debug log
-          showModal(
-            'Confirm Close',
-            '<p>Do you want to minimize the comment modal? Unsaved changes will be preserved.</p>',
-            () => {
-              console.log('Minimizing modal due to outside click'); // Debug log
-              minimizeModal(modalId, candidateName);
-              closeHandler(false);
-            },
-            () => {
-              console.log('Outside click canceled'); // Debug log
-            },
-            true
-          );
+          minimizeModal(modalId, candidateName);
         }
       };
       modalOverlay.addEventListener('click', outsideClickHandler);
     }),
-    setRestoring: (value) => {
-      isRestoring = value;
-      console.log('isRestoring set to:', isRestoring); // Debug log
-    }
+    setRestoring: (value) => { isRestoring = value; }
   };
 }
 
