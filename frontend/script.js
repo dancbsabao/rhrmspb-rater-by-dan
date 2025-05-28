@@ -928,175 +928,196 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
     </div>
   `;
 
-  showModal('CONFIRM SUBMISSION', modalContent, async () => {
-    try {
-      console.log('Submitting action:', { name, itemNumber, sex, action, comment });
+  const confirmResult = await showModal('CONFIRM SUBMISSION', modalContent);
+  console.log('Confirmation modal result:', confirmResult);
+
+  if (!confirmResult) {
+    console.log('Submission cancelled by user');
+    showToast('info', 'Info', 'Submission cancelled');
+    return;
+  }
+
+  try {
+    console.log('Submitting action:', { name, itemNumber, sex, action, comment });
+    if (!await isTokenValid()) {
+      console.log('Refreshing token');
+      await refreshAccessToken();
       if (!await isTokenValid()) {
-        console.log('Refreshing token');
-        await refreshAccessToken();
+        throw new Error('Failed to validate token after refresh');
       }
-
-      const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-      const normalizedItemNumber = itemNumber.trim();
-
-      async function getSheetId(sheetName) {
-        try {
-          const response = await gapi.client.sheets.spreadsheets.get({
-            spreadsheetId: SHEET_ID,
-          });
-          const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-          if (!sheet) {
-            throw new Error(`Sheet ${sheetName} not found in spreadsheet`);
-          }
-          console.log(`Fetched sheetId for ${sheetName}: ${sheet.properties.sheetId}`);
-          return sheet.properties.sheetId;
-        } catch (error) {
-          console.error(`Failed to fetch sheetId for ${sheetName}:`, error);
-          throw error;
-        }
-      }
-
-      if (action === 'FOR LONG LIST') {
-        const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:E',
-        });
-        let disqualifiedValues = disqualifiedResponse.result.values || [];
-        console.log('DISQUALIFIED raw values:', disqualifiedValues);
-
-        const disqualifiedDataRows = disqualifiedValues.slice(1);
-        const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const rowMemberId = row[4]?.toString();
-          console.log('Comparing DISQUALIFIED row:', { rowName, rowItem, rowMemberId });
-          return rowName === normalizedName && 
-                 rowItem === normalizedItemNumber && 
-                 rowMemberId === secretariatMemberId;
-        });
-
-        if (disqualifiedIndex !== -1) {
-          const sheetRowIndex = disqualifiedIndex + 1;
-          console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
-
-          const sheetId = await getSheetId('DISQUALIFIED');
-          const batchUpdateRequest = {
-            requests: [{
-              deleteDimension: {
-                range: {
-                  sheetId: sheetId,
-                  dimension: 'ROWS',
-                  startIndex: sheetRowIndex,
-                  endIndex: sheetRowIndex + 1
-                }
-              }
-            }]
-          };
-          console.log('batchUpdate request for DISQUALIFIED:', JSON.stringify(batchUpdateRequest, null, 2));
-          const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
-            spreadsheetId: SHEET_ID,
-            resource: batchUpdateRequest
-          });
-          console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
-
-          const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: 'DISQUALIFIED!A:E',
-          });
-          console.log('DISQUALIFIED values after deletion:', updatedDisqualifiedResponse.result.values);
-        } else {
-          console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
-        }
-
-        const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'GENERAL_LIST!A:P',
-        });
-        let candidate = generalResponse.result.values.find(row => 
-          row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
-          row[1]?.trim() === normalizedItemNumber
-        );
-        if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-        candidate = [...candidate, secretariatMemberId, comment]; // Append member ID and comment
-        console.log('Appending to CANDIDATES:', [candidate]);
-        await gapi.client.sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R',
-          valueInputOption: 'RAW',
-          resource: { values: [candidate] },
-        });
-        console.log('Candidate appended to CANDIDATES successfully');
-      } else if (action === 'FOR DISQUALIFICATION') {
-        const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R',
-        });
-        let candidatesValues = candidatesResponse.result.values || [];
-        console.log('CANDIDATES raw values:', candidatesValues);
-
-        const candidatesDataRows = candidatesValues.slice(1);
-        const candidatesIndex = candidatesDataRows.findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const rowMemberId = row[16]?.toString();
-          console.log('Comparing CANDIDATES row:', { rowName, rowItem, rowMemberId });
-          return rowName === normalizedName && 
-                 rowItem === normalizedItemNumber && 
-                 rowMemberId === secretariatMemberId;
-        });
-
-        if (candidatesIndex !== -1) {
-          const sheetRowIndex = candidatesIndex + 1;
-          console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
-
-          const sheetId = await getSheetId('CANDIDATES');
-          const batchUpdateRequest = {
-            requests: [{
-              deleteDimension: {
-                range: {
-                  sheetId: sheetId,
-                  dimension: 'ROWS',
-                  startIndex: sheetRowIndex,
-                  endIndex: sheetRowIndex + 1
-                }
-              }
-            }]
-          };
-          console.log('batchUpdate request for CANDIDATES:', JSON.stringify(batchUpdateRequest, null, 2));
-          const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
-            spreadsheetId: SHEET_ID,
-            resource: batchUpdateRequest
-          });
-          console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
-
-          const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: 'CANDIDATES!A:R',
-          });
-          console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
-        } else {
-          console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
-        }
-
-        const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
-        console.log('Appending to DISQUALIFIED:', values);
-        await gapi.client.sheets.spreadsheets.values.append({
-          spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:E',
-          valueInputOption: 'RAW',
-          resource: { values },
-        });
-        console.log('Candidate appended to DISQUALIFIED successfully');
-      }
-
-      showToast('success', 'Success', 'Action submitted successfully');
-      fetchSecretariatCandidates(itemNumber);
-    } catch (error) {
-      console.error('Error submitting action:', error);
-      showToast('error', 'Error', `Failed to submit action: ${error.message || JSON.stringify(error)}`);
     }
-  });
+
+    const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+    const normalizedItemNumber = itemNumber.trim();
+
+    async function getSheetId(sheetName) {
+      try {
+        const response = await gapi.client.sheets.spreadsheets.get({
+          spreadsheetId: SHEET_ID,
+        });
+        const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+        if (!sheet) {
+          throw new Error(`Sheet ${sheetName} not found in spreadsheet`);
+        }
+        console.log(`Fetched sheetId for ${sheetName}: ${sheet.properties.sheetId}`);
+        return sheet.properties.sheetId;
+      } catch (error) {
+        console.error(`Failed to fetch sheetId for ${sheetName}:`, error);
+        throw error;
+      }
+    }
+
+    if (action === 'FOR LONG LIST') {
+      console.log('Processing FOR LONG LIST action...');
+      const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'DISQUALIFIED!A:E',
+      });
+      let disqualifiedValues = disqualifiedResponse.result.values || [];
+      console.log('DISQUALIFIED raw values:', disqualifiedValues);
+
+      const disqualifiedDataRows = disqualifiedValues.slice(1);
+      const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
+        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+        const rowItem = row[1]?.trim();
+        const rowMemberId = row[4]?.toString();
+        console.log('Comparing DISQUALIFIED row:', { rowName, rowItem, rowMemberId });
+        return rowName === normalizedName && 
+               rowItem === normalizedItemNumber && 
+               rowMemberId === secretariatMemberId;
+      });
+
+      if (disqualifiedIndex !== -1) {
+        const sheetRowIndex = disqualifiedIndex + 1;
+        console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
+
+        const sheetId = await getSheetId('DISQUALIFIED');
+        const batchUpdateRequest = {
+          requests: [{
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRowIndex,
+                endIndex: sheetRowIndex + 1
+              }
+            }
+          }]
+        };
+        console.log('batchUpdate request for DISQUALIFIED:', JSON.stringify(batchUpdateRequest, null, 2));
+        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          resource: batchUpdateRequest
+        });
+        console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
+
+        const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'DISQUALIFIED!A:E',
+        });
+        console.log('DISQUALIFIED values after deletion:', updatedDisqualifiedResponse.result.values);
+      } else {
+        console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
+      }
+
+      const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'GENERAL_LIST!A:P',
+      });
+      let candidate = generalResponse.result.values.find(row => 
+        row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
+        row[1]?.trim() === normalizedItemNumber
+      );
+      if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
+      candidate = [...candidate, secretariatMemberId, comment]; // Append member ID and comment
+      console.log('Appending to CANDIDATES:', [candidate]);
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: 'CANDIDATES!A:R',
+        valueInputOption: 'RAW',
+        resource: { values: [candidate] },
+      });
+      console.log('Candidate appended to CANDIDATES successfully');
+    } else if (action === 'FOR DISQUALIFICATION') {
+      console.log('Processing FOR DISQUALIFICATION action...');
+      const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: 'CANDIDATES!A:R',
+      });
+      let candidatesValues = candidatesResponse.result.values || [];
+      console.log('CANDIDATES raw values:', candidatesValues);
+
+      const candidatesDataRows = candidatesValues.slice(1);
+      const candidatesIndex = candidatesDataRows.findIndex(row => {
+        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+        const rowItem = row[1]?.trim();
+        const rowMemberId = row[16]?.toString();
+        console.log('Comparing CANDIDATES row:', { rowName, rowItem, rowMemberId });
+        return rowName === normalizedName && 
+               rowItem === normalizedItemNumber && 
+               rowMemberId === secretariatMemberId;
+      });
+
+      if (candidatesIndex !== -1) {
+        const sheetRowIndex = candidatesIndex + 1;
+        console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
+
+        const sheetId = await getSheetId('CANDIDATES');
+        const batchUpdateRequest = {
+          requests: [{
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRowIndex,
+                endIndex: sheetRowIndex + 1
+              }
+            }
+          }]
+        };
+        console.log('batchUpdate request for CANDIDATES:', JSON.stringify(batchUpdateRequest, null, 2));
+        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID,
+          resource: batchUpdateRequest
+        });
+        console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
+
+        const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: 'CANDIDATES!A:R',
+        });
+        console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
+      } else {
+        console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
+      }
+
+      const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
+      console.log('Appending to DISQUALIFIED:', values);
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: 'DISQUALIFIED!A:E',
+        valueInputOption: 'RAW',
+        resource: { values },
+      });
+      console.log('Candidate appended to DISQUALIFIED successfully');
+    }
+
+    showToast('success', 'Success', 'Action submitted successfully');
+    console.log('Showing success toast for submitCandidateAction');
+    await fetchSecretariatCandidates(itemNumber);
+  } catch (error) {
+    console.error('Error submitting action in submitCandidateAction:', error);
+    showToast('error', 'Error', `Failed to submit action: ${error.message || JSON.stringify(error)}`);
+    throw error;
+  }
 }
+
+
+
+
+
+
+
 
 // Helper function to get sheet ID (replace with actual implementation)
 async function getSheetId(sheetName) {
@@ -1202,25 +1223,39 @@ async function editComments(name, itemNumber, status, comment) {
   console.log(`Opening editComments modal for ${name} with initial values:`, initialValues);
 
   // Show the comment modal and await its result
-  const modalResult = await showCommentModal(
-    `Edit Comments (${status})`,
-    modalContent,
-    name,
-    (commentData) => {
-      console.log('editComments onConfirm received:', commentData);
-      return commentData;
-    },
-    () => {
-      console.log('editComments onCancel triggered');
-      return false;
-    },
-    true,
-    initialValues
-  );
+  let modalResult;
+  try {
+    modalResult = await showCommentModal(
+      `Edit Comments (${status})`,
+      modalContent,
+      name,
+      (commentData) => {
+        console.log('editComments onConfirm received:', commentData);
+        return commentData;
+      },
+      () => {
+        console.log('editComments onCancel triggered');
+        return false;
+      },
+      true,
+      initialValues
+    );
+  } catch (error) {
+    console.error('Error showing comment modal:', error);
+    showToast('error', 'Error', `Failed to open comment modal: ${error.message}`);
+    return;
+  }
 
   console.log('Waiting for modalResult.promise...');
-  const commentEntered = await modalResult.promise;
-  console.log('Comment entered:', commentEntered);
+  let commentEntered;
+  try {
+    commentEntered = await modalResult.promise;
+    console.log('Comment entered:', commentEntered);
+  } catch (error) {
+    console.error('Error resolving modal promise:', error);
+    showToast('error', 'Error', `Failed to process modal input: ${error.message}`);
+    return;
+  }
 
   // Exit if no valid comment data was entered
   if (!commentEntered || commentEntered === false) {
@@ -2652,7 +2687,7 @@ function showFullScreenModal(title, contentHTML) {
 
 
 // Updated showCommentModal with consistent return
-function showCommentModal(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
+(title, contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = null) {
   let modalOverlay = document.getElementById('modalOverlay');
   if (!modalOverlay) {
     modalOverlay = document.createElement('div');
@@ -2699,12 +2734,14 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
   console.log('Rendered modal HTML:', modalOverlay.querySelector('.modal-content').innerHTML);
 
   let isRestoring = false;
+  let isConfirming = false; // New flag to prevent minimization during confirmation
 
   return {
     promise: new Promise((resolve) => {
       modalOverlay.classList.add('active');
       const confirmBtn = modalOverlay.querySelector('#modalConfirm');
       const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+      const modalContent = modalOverlay.querySelector('.modal');
 
       const closeHandler = (result) => {
         if (isRestoring) {
@@ -2722,6 +2759,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
       confirmBtn.onclick = (event) => {
         event.stopPropagation(); // Prevent click from bubbling to modalOverlay
         console.log('Confirm button clicked');
+        isConfirming = true; // Set flag to prevent minimization
         const inputs = modalOverlay.querySelectorAll('.modal-input');
         const inputValues = Array.from(inputs).map(input => input.value.trim());
         const [education, training, experience, eligibility] = inputValues;
@@ -2729,23 +2767,26 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
         if (!education || !training || !experience || !eligibility) {
           console.log('Validation failed: All comment fields are required');
           showToast('error', 'Error', 'All comment fields are required');
+          isConfirming = false;
           return;
         }
 
         const commentData = { education, training, experience, eligibility };
         console.log('Confirming with values:', commentData);
         try {
+          let result = commentData;
           if (onConfirm) {
-            const result = onConfirm(commentData);
+            result = onConfirm(commentData);
             console.log('onConfirm executed with result:', result);
-            closeHandler(result || commentData);
           } else {
-            console.log('No onConfirm callback provided, resolving with commentData');
-            closeHandler(commentData);
+            console.log('No onConfirm callback provided, using commentData');
           }
+          closeHandler(result || commentData);
         } catch (error) {
           console.error('Error in onConfirm callback:', error);
           showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
+        } finally {
+          isConfirming = false; // Reset flag after confirmation
         }
       };
 
@@ -2759,7 +2800,7 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
       }
 
       const outsideClickHandler = (event) => {
-        if (event.target === modalOverlay && !isRestoring) {
+        if (event.target === modalOverlay && !isRestoring && !isConfirming) {
           console.log('Outside click detected, minimizing modal');
           minimizeModal(modalId, candidateName);
           if (onCancel) onCancel();
@@ -2767,6 +2808,11 @@ function showCommentModal(title, contentHTML, candidateName, onConfirm = null, o
         }
       };
       modalOverlay.addEventListener('click', outsideClickHandler);
+
+      // Prevent clicks within modal content from triggering minimization
+      modalContent.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
     }),
     setRestoring: (value) => {
       console.log('Setting isRestoring to:', value);
