@@ -3022,8 +3022,8 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
  * @param {string} contentHTML - The HTML content of the modal body.
  * @param {function} onConfirm - The original onConfirm callback.
  * @param {function} onCancel - The original onCancel callback.
- * @param {function} originalResolve - The resolve function of the original promise from showCommentModal.
- * @param {function} originalReject - The reject function of the original promise from showCommentModal.
+ * @param {function} originalResolve - The resolve function of the original promise.
+ * @param {function} originalReject - The reject function of the original promise.
  */
 function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentHTML = null, onConfirm = null, onCancel = null, originalResolve = null, originalReject = null) {
     const modal = document.getElementById(modalId);
@@ -3038,10 +3038,10 @@ function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentH
 
     console.log('Minimizing modal:', modalId, 'Inputs:', inputValues, 'Candidate:', candidateName);
 
-    // Remove existing floating ball and modal state for this candidate
-    // This prevents multiple minimized balls for the same candidate
+    // Clean up any existing modals and balls for the same candidate
     for (const [existingModalId, state] of minimizedModals) {
         if (state.candidateName === candidateName && existingModalId !== modalId) {
+            console.log('Removing existing modal state for candidate:', candidateName, 'Modal ID:', existingModalId);
             const existingBall = document.querySelector(`.floating-ball[data-modal-id="${existingModalId}"]`);
             if (existingBall) {
                 existingBall.remove();
@@ -3051,10 +3051,11 @@ function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentH
         }
     }
 
-    // Hide the current modal overlay
+    // Hide the current modal
     modalOverlay.classList.remove('active');
+    modalOverlay.innerHTML = ''; // Clear modal content
 
-    // Store the state, including the original resolve/reject functions
+    // Store the modal state
     minimizedModals.set(modalId, {
         title,
         inputValues,
@@ -3062,11 +3063,18 @@ function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentH
         candidateName,
         onConfirm,
         onCancel,
-        originalResolve, // Store the original resolve
-        originalReject   // Store the original reject
+        originalResolve,
+        originalReject
     });
 
-    // Create a floating ball
+    // Check if a floating ball already exists for this modalId
+    const existingBall = document.querySelector(`.floating-ball[data-modal-id="${modalId}"]`);
+    if (existingBall) {
+        console.warn('Floating ball already exists for modal ID:', modalId);
+        return;
+    }
+
+    // Create a new floating ball
     const floatingBall = document.createElement('div');
     floatingBall.className = 'floating-ball';
     floatingBall.dataset.modalId = modalId;
@@ -3076,7 +3084,6 @@ function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentH
     floatingBall.onclick = () => restoreMinimizedModal(modalId);
     document.body.appendChild(floatingBall);
 
-    // makeDraggable is assumed to be defined elsewhere and makes the ball draggable.
     if (typeof makeDraggable === 'function') {
         makeDraggable(floatingBall, modalId);
     } else {
@@ -3093,11 +3100,14 @@ function minimizeModal(modalId, candidateName, title = 'Comment Modal', contentH
  */
 function restoreMinimizedModal(modalId) {
     const state = minimizedModals.get(modalId);
-    if (!state) return;
+    if (!state) {
+        console.warn('No state found for modal ID:', modalId);
+        return;
+    }
 
     console.log('Restoring modal:', modalId, 'Saved inputs:', state.inputValues);
 
-    // Get the modal overlay element
+    // Get or create the modal overlay
     let modalOverlay = document.getElementById('modalOverlay');
     if (!modalOverlay) {
         modalOverlay = document.createElement('div');
@@ -3105,6 +3115,9 @@ function restoreMinimizedModal(modalId) {
         modalOverlay.className = 'modal-overlay';
         document.body.appendChild(modalOverlay);
     }
+
+    // Clean up any existing modal content to prevent duplicates
+    modalOverlay.innerHTML = '';
 
     // Re-generate contentHTML for consistent structure and values
     const initialValues = {
@@ -3133,7 +3146,7 @@ function restoreMinimizedModal(modalId) {
         </div>
     `;
 
-    // Render the modal HTML directly into the overlay
+    // Render the modal HTML
     modalOverlay.innerHTML = `
         <div class="modal" id="${modalId}">
             <div class="modal-header">
@@ -3153,18 +3166,18 @@ function restoreMinimizedModal(modalId) {
     // Make the modal active
     modalOverlay.classList.add('active');
 
-    // Re-attach event listeners to the *newly rendered* buttons
+    // Get button elements
     const confirmBtn = modalOverlay.querySelector('#modalConfirm');
     const cancelBtn = modalOverlay.querySelector('.modal-cancel');
     const closeBtn = modalOverlay.querySelector('.modal-close');
     const minimizeBtn = modalOverlay.querySelector('.modal-minimize');
-    const modalContent = modalOverlay.querySelector('.modal'); // The inner modal div
+    const modalContent = modalOverlay.querySelector('.modal');
 
-    let isRestoringFlag = true; // Local flag for this specific restoration
-    let isConfirming = false; // Flag for confirmation process
-    let isMinimizing = false; // Flag for minimization process
+    let isRestoringFlag = true;
+    let isConfirming = false;
+    let isMinimizing = false;
 
-    // This local close handler will resolve the original promise
+    // Close handler to resolve the original promise
     const closeHandlerRestored = (result) => {
         if (isRestoringFlag) {
             console.log('closeHandlerRestored skipped due to isRestoringFlag=true');
@@ -3172,12 +3185,13 @@ function restoreMinimizedModal(modalId) {
         }
         console.log('closeHandlerRestored called with result:', result);
         modalOverlay.classList.remove('active');
-        minimizedModals.delete(modalId); // Remove from minimized list once fully closed
+        modalOverlay.innerHTML = ''; // Clear modal content
+        minimizedModals.delete(modalId);
         ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-        modalOverlay.removeEventListener('click', outsideClickHandlerRestored); // Remove this listener
-        state.originalResolve(result); // Resolve the original promise!
+        state.originalResolve(result);
     };
 
+    // Confirm button handler
     confirmBtn.onclick = (event) => {
         event.stopPropagation();
         console.log('Confirm button clicked on restored modal');
@@ -3197,13 +3211,11 @@ function restoreMinimizedModal(modalId) {
         console.log('Confirming restored modal with values:', commentData);
         try {
             let result = commentData;
-            if (state.onConfirm) { // Use the stored onConfirm
+            if (state.onConfirm) {
                 result = state.onConfirm(commentData);
                 console.log('onConfirm (restored) executed with result:', result);
-            } else {
-                console.log('No onConfirm callback provided for restored modal, using commentData');
             }
-            closeHandlerRestored(result || commentData); // Resolve the original promise
+            closeHandlerRestored(result || commentData);
         } catch (error) {
             console.error('Error in onConfirm callback (restored modal):', error);
             showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
@@ -3212,20 +3224,21 @@ function restoreMinimizedModal(modalId) {
         }
     };
 
+    // Cancel button handler
     if (cancelBtn) {
         cancelBtn.onclick = (event) => {
             event.stopPropagation();
             console.log('Cancel button clicked on restored modal');
-            if (state.onCancel) state.onCancel(); // Use the stored onCancel
-            closeHandlerRestored(false); // Resolve original promise as canceled
+            if (state.onCancel) state.onCancel();
+            closeHandlerRestored(false);
         };
     }
 
+    // Close and minimize button handlers
     closeBtn.onclick = (event) => {
         event.stopPropagation();
         console.log('Close button clicked on restored modal');
         isMinimizing = true;
-        // Re-minimize, passing original resolve/reject
         minimizeModal(modalId, state.candidateName, state.title, renderedContentHTML, state.onConfirm, state.onCancel, state.originalResolve, state.originalReject);
         setTimeout(() => { isMinimizing = false; }, 100);
     };
@@ -3234,27 +3247,16 @@ function restoreMinimizedModal(modalId) {
         event.stopPropagation();
         console.log('Minimize button clicked on restored modal');
         isMinimizing = true;
-        // Re-minimize, passing original resolve/reject
         minimizeModal(modalId, state.candidateName, state.title, renderedContentHTML, state.onConfirm, state.onCancel, state.originalResolve, state.originalReject);
         setTimeout(() => { isMinimizing = false; }, 100);
     };
 
-    const outsideClickHandlerRestored = (event) => {
-        if (event.target === modalOverlay && !isRestoringFlag && !isConfirming && !isMinimizing) {
-            console.log('Outside click detected on restored modal, minimizing');
-            isMinimizing = true;
-            // Re-minimize
-            minimizeModal(modalId, state.candidateName, state.title, renderedContentHTML, state.onConfirm, state.onCancel, state.originalResolve, state.originalReject);
-            setTimeout(() => { isMinimizing = false; }, 100);
-        }
-    };
-    modalOverlay.addEventListener('click', outsideClickHandlerRestored);
-
+    // Prevent outside clicks from minimizing (to match initial modal behavior)
     modalContent.addEventListener('click', (event) => {
         event.stopPropagation();
     });
 
-    // Apply input values using IDs after the modal HTML is rendered
+    // Apply input values
     const applyInputs = () => {
         let allInputsFound = true;
         Object.entries(initialValues).forEach(([key, value]) => {
@@ -3272,7 +3274,6 @@ function restoreMinimizedModal(modalId) {
             console.error('Not all inputs found on restore, retrying...');
             requestAnimationFrame(applyInputs);
         } else {
-            // After inputs are applied, allow closing
             isRestoringFlag = false;
         }
     };
