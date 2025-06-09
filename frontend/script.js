@@ -16,6 +16,7 @@ let secretariatMemberId = null; // Initialize secretariat member ID
 let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
+let SECRETARIAT_MEMBERS = []; // New variable for dynamic member data
 
 let CLIENT_ID;
 let API_KEY;
@@ -60,19 +61,16 @@ function saveAuthState(tokenResponse, evaluator) {
 
 
 
+
 let debounceTimeout = null;
 function saveDropdownState() {
-  // Clear any existing debounce timeout
   if (debounceTimeout) {
     clearTimeout(debounceTimeout);
   }
-
-  // Debounce state saving by 100ms to ensure DOM updates are complete
   debounceTimeout = setTimeout(() => {
     const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
     const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
     const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
-
     const dropdownState = {
       evaluator: document.getElementById('evaluatorSelect')?.value || '',
       assignment: elements.assignmentDropdown.value || '',
@@ -83,16 +81,12 @@ function saveDropdownState() {
       secretariatPosition: secretariatPositionDropdown?.value || '',
       secretariatItem: secretariatItemDropdown?.value || '',
     };
-
     localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
     console.log('Dropdown state saved:', dropdownState);
   }, 100);
 }
-function loadDropdownState() {
-  const dropdownState = JSON.parse(localStorage.getItem('dropdownState')) || {};
-  console.log('Loaded dropdown state:', dropdownState);
-  return dropdownState;
-}
+
+
 
 function loadAuthState() {
   const authState = JSON.parse(localStorage.getItem('authState'));
@@ -100,7 +94,6 @@ function loadAuthState() {
     console.log('No auth state found');
     return null;
   }
-  // Define sanitizedAuthState to exclude access_token
   const sanitizedAuthState = {
     session_id: authState.session_id,
     expires_at: authState.expires_at,
@@ -118,7 +111,7 @@ function loadDropdownState() {
 }
 
 async function restoreState() {
-  dropdownStateRestoring = true; // Set flag during restoration
+  dropdownStateRestoring = true;
   const authState = loadAuthState();
   const dropdownState = loadDropdownState();
   const authSection = document.querySelector('.auth-section');
@@ -135,13 +128,11 @@ async function restoreState() {
       updateUI(true);
       authSection.classList.remove('signed-out');
 
-      // Load sheet data
       await loadSheetData();
       console.log('Sheet data loaded, initializing dropdowns');
 
-      // Initialize dropdowns for both tabs
-      initializeDropdowns(vacancies); // Rater tab
-      await initializeSecretariatDropdowns(); // Secretariat tab
+      initializeDropdowns(vacancies);
+      await initializeSecretariatDropdowns();
 
       const evaluatorSelect = document.getElementById('evaluatorSelect');
       if (evaluatorSelect && dropdownState.evaluator) {
@@ -150,7 +141,6 @@ async function restoreState() {
       }
 
       const changePromises = [];
-      // Restore Rater dropdowns
       if (dropdownState.assignment && elements.assignmentDropdown) {
         const options = Array.from(elements.assignmentDropdown.options).map(opt => opt.value);
         if (options.includes(dropdownState.assignment)) {
@@ -196,7 +186,6 @@ async function restoreState() {
         }
       }
 
-      // Restore Secretariat dropdowns
       const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
       const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
       const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
@@ -231,7 +220,7 @@ async function restoreState() {
         }
       }
       if (dropdownState.secretariatItem && secretariatItemDropdown) {
-        const options = Array.from(secretariatItemDropdown.options).map(opt => opt.value);
+        const options = Array.from(elements.itemDropdown.options).map(opt => opt.value);
         if (options.includes(dropdownState.secretariatItem)) {
           secretariatItemDropdown.value = dropdownState.secretariatItem;
           console.log(`Restored secretariatItemDropdown to: ${dropdownState.secretariatItem}`);
@@ -247,7 +236,6 @@ async function restoreState() {
 
       await Promise.all(changePromises);
 
-      // Ensure UI reflects restored values with a slight delay
       if (currentTab === 'secretariat' && secretariatAssignmentDropdown) {
         await new Promise(resolve => setTimeout(resolve, 100));
         secretariatAssignmentDropdown.value = dropdownState.secretariatAssignment || '';
@@ -291,7 +279,7 @@ async function restoreState() {
       }
     }
   } finally {
-    dropdownStateRestoring = false; // Reset flag after restoration
+    dropdownStateRestoring = false;
   }
 }
 
@@ -309,32 +297,37 @@ async function initializeSecretariatDropdowns() {
     return;
   }
 
-  const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]?.trim()))].filter(Boolean);
-  console.log('Unique assignments:', uniqueAssignments);
+  // Filter vacancies based on assignedVacancies for the current secretariat member
+  const member = SECRETARIAT_MEMBERS.find(m => m.memberId === secretariatMemberId);
+  const allowedItems = member ? member.assignedVacancies : [];
+  const filteredVacancies = allowedItems.length > 0
+    ? vacancies.filter(row => allowedItems.includes(row[0]?.trim()))
+    : vacancies.slice(1); // Fallback to all vacancies if none assigned
+
+  const uniqueAssignments = [...new Set(filteredVacancies.map(row => row[2]?.trim()))].filter(Boolean);
+  console.log('Unique assignments for member:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
 
-  // Remove existing event listeners using a single reference
   assignmentDropdown.removeEventListener('change', assignmentDropdown._changeHandler);
   assignmentDropdown._changeHandler = () => {
     const selectedAssignment = assignmentDropdown.value;
     console.log('Assignment changed to:', selectedAssignment);
     const filteredPositions = [...new Set(
-      vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
+      filteredVacancies.filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
     )].filter(Boolean);
     console.log('Filtered positions:', filteredPositions);
     updateDropdown(positionDropdown, filteredPositions, 'Select Position');
-    updateDropdown(itemDropdown, [], 'Select Item'); // Reset item dropdown
+    updateDropdown(itemDropdown, [], 'Select Item');
     saveDropdownState();
   };
   assignmentDropdown.addEventListener('change', assignmentDropdown._changeHandler);
 
-  // Remove existing event listeners for positionDropdown
   positionDropdown.removeEventListener('change', positionDropdown._changeHandler);
   positionDropdown._changeHandler = () => {
     const selectedAssignment = assignmentDropdown.value;
     const selectedPosition = positionDropdown.value;
     console.log('Position changed to:', selectedPosition);
-    const filteredItems = vacancies.slice(1)
+    const filteredItems = filteredVacancies
       .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
       .map(row => row[0]?.trim())
       .filter(Boolean);
@@ -344,7 +337,6 @@ async function initializeSecretariatDropdowns() {
   };
   positionDropdown.addEventListener('change', positionDropdown._changeHandler);
 
-  // Remove existing event listeners for itemDropdown
   itemDropdown.removeEventListener('change', itemDropdown._changeHandler);
   itemDropdown._changeHandler = () => {
     console.log('Item changed to:', itemDropdown.value);
@@ -355,7 +347,6 @@ async function initializeSecretariatDropdowns() {
   };
   itemDropdown.addEventListener('change', itemDropdown._changeHandler);
 
-  // Trigger change only if a value is set and not during restoration
   if (assignmentDropdown.value && !dropdownStateRestoring) {
     console.log('Triggering initial assignment change');
     assignmentDropdown.dispatchEvent(new Event('change'));
@@ -367,25 +358,24 @@ let dropdownStateRestoring = false;
 
 
 
-// Config fetch logic (around line 331)
+// Config fetch logic
 fetch(`${API_BASE_URL}/config`)
   .then((response) => {
     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
     return response.json();
   })
   .then((config) => {
-    // Define sanitizedConfig to exclude sensitive fields
     const sanitizedConfig = {
       SCOPES: config.SCOPES || '',
-      SHEET_RANGES: Object.keys(config.SHEET_RANGES || {}), // Log only range keys
-      // Exclude CLIENT_ID, API_KEY, SHEET_ID, EVALUATOR_PASSWORDS, SECRETARIAT_PASSWORD
+      SHEET_RANGES: Object.keys(config.SHEET_RANGES || {}),
     };
-    console.log('Config loaded:', sanitizedConfig); // Debug log
+    console.log('Config loaded:', sanitizedConfig);
     CLIENT_ID = config.CLIENT_ID || '';
     API_KEY = config.API_KEY || '';
     SHEET_ID = config.SHEET_ID || '';
     SCOPES = config.SCOPES || '';
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS || [];
+    SECRETARIAT_MEMBERS = config.SECRETARIAT_MEMBERS || []; // Load dynamic members
     SHEET_RANGES = config.SHEET_RANGES || {
       VACANCIES: 'VACANCIES!A:D',
       CANDIDATES: 'CANDIDATES!A:P',
@@ -393,7 +383,8 @@ fetch(`${API_BASE_URL}/config`)
       COMPETENCY: 'COMPETENCY!A:B',
       RATELOG: 'RATELOG!A:H',
       GENERAL_LIST: 'GENERAL_LIST!A:P',
-      DISQUALIFIED: 'DISQUALIFIED!A:D'
+      DISQUALIFIED: 'DISQUALIFIED!A:D',
+      SECRETARIAT_MEMBERS: 'SECRETARIAT_MEMBERS!A:D' // New sheet range
     };
     SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD || '';
     if (!SHEET_RANGES.VACANCIES || !SHEET_RANGES.CANDIDATES || !SHEET_RANGES.COMPECODE || !SHEET_RANGES.COMPETENCY) {
@@ -615,6 +606,7 @@ function setupTabNavigation() {
 }
 
 
+// Modified switchTab to include member management
 function switchTab(tab) {
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
@@ -658,7 +650,6 @@ function switchTab(tab) {
     }
     updateUI(true);
   } else if (tab === 'secretariat') {
-    // Only initialize if dropdowns are empty
     if (!secretariatAssignmentDropdown.options.length || secretariatAssignmentDropdown.options.length === 1) {
       initializeSecretariatDropdowns();
     }
@@ -666,6 +657,17 @@ function switchTab(tab) {
       fetchSecretariatCandidates(secretariatItemDropdown.value);
     }
     updateUI(true);
+    // Add button to manage members
+    const secretariatContent = document.getElementById('secretariatContent');
+    let manageButton = secretariatContent.querySelector('#manageMembersBtn');
+    if (!manageButton) {
+      manageButton = document.createElement('button');
+      manageButton.id = 'manageMembersBtn';
+      manageButton.textContent = 'Manage Secretariat Members';
+      manageButton.className = 'modal-confirm';
+      manageButton.onclick = manageSecretariatMembers;
+      secretariatContent.insertBefore(manageButton, secretariatContent.firstChild);
+    }
   }
 
   const container = document.querySelector('.container');
@@ -677,6 +679,174 @@ function switchTab(tab) {
   }
 }
 
+
+function showSecretariatAuthModal() {
+  const memberOptions = SECRETARIAT_MEMBERS.map(member => 
+    `<option value="${member.memberId}">${member.name}</option>`
+  ).join('');
+  const modalContent = `
+    <p>Please select a Secretariat member and enter their password:</p>
+    <select id="secretariatMemberId" class="modal-input">
+      <option value="">Select Member</option>
+      ${memberOptions}
+    </select>
+    <input type="password" id="secretariatPassword" class="modal-input" placeholder="Enter Password">
+  `;
+  showModal(
+    'Secretariat Authentication',
+    modalContent,
+    () => {
+      const memberId = document.getElementById('secretariatMemberId').value;
+      const password = document.getElementById('secretariatPassword').value.trim();
+      const member = SECRETARIAT_MEMBERS.find(m => m.memberId === memberId);
+      if (member && password === member.password) {
+        secretariatMemberId = memberId;
+        localStorage.setItem('secretariatAuthenticated', 'true');
+        saveAuthState(gapi.client.getToken(), currentEvaluator);
+        switchTab('secretariat');
+        showToast('success', 'Success', `Logged in as Secretariat Member ${member.name}`);
+        initializeSecretariatDropdowns(); // Re-initialize with filtered vacancies
+      } else {
+        showToast('error', 'Error', 'Incorrect password or member selection');
+      }
+    },
+    () => {
+      console.log('Secretariat authentication canceled');
+    }
+  );
+}
+
+// New function to manage Secretariat members
+async function manageSecretariatMembers() {
+  const modalContent = `
+    <div class="modal-body">
+      <h4>Create/Update Member</h4>
+      <input type="text" id="memberId" class="modal-input" placeholder="Member ID (e.g., M001)">
+      <input type="text" id="memberName" class="modal-input" placeholder="Member Name">
+      <input type="password" id="memberPassword" class="modal-input" placeholder="Password">
+      <label for="vacancySelect">Assign Vacancies:</label>
+      <select id="vacancySelect" class="modal-input" multiple>
+        ${vacancies.slice(1).map(row => `<option value="${row[0]?.trim()}">${row[0]?.trim()} - ${row[1]?.trim()}</option>`).join('')}
+      </select>
+      <button id="createMember" class="modal-confirm">Create/Update Member</button>
+      <h4>Existing Members</h4>
+      <table id="membersTable" class="secretariat-table">
+        <thead>
+          <tr>
+            <th>Member ID</th>
+            <th>Name</th>
+            <th>Vacancies</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
+  showModal('Manage Secretariat Members', modalContent, null, null, true, async () => {
+    const tbody = document.querySelector('#membersTable tbody');
+    const members = await fetchMembers();
+    tbody.innerHTML = members.map(member => `
+      <tr>
+        <td>${member.memberId}</td>
+        <td>${member.name}</td>
+        <td>${member.assignedVacancies.join(', ') || 'None'}</td>
+        <td>
+          <button onclick="editMember('${member.memberId}')">Edit</button>
+          <button onclick="deleteMember('${member.memberId}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+
+    document.getElementById('createMember').onclick = async () => {
+      const memberId = document.getElementById('memberId').value.trim();
+      const name = document.getElementById('memberName').value.trim();
+      const password = document.getElementById('memberPassword').value.trim();
+      const assignedVacancies = Array.from(document.getElementById('vacancySelect').selectedOptions).map(opt => opt.value);
+
+      if (!memberId || !name || !password) {
+        showToast('error', 'Error', 'All fields are required');
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/manage-members`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'create', memberId, name, password, assignedVacancies }),
+        });
+        const result = await response.json();
+        if (result.success) {
+          SECRETARIAT_MEMBERS = result.members;
+          showToast('success', 'Success', 'Member created/updated successfully');
+          document.querySelector('#modalOverlay').classList.remove('active');
+          manageSecretariatMembers(); // Refresh table
+        } else {
+          showToast('error', 'Error', result.error);
+        }
+      } catch (error) {
+        showToast('error', 'Error', `Failed to create/update member: ${error.message}`);
+      }
+    };
+  });
+}
+
+// New function to fetch members
+async function fetchMembers() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/manage-members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get' }),
+    });
+    const result = await response.json();
+    return result.members || [];
+  } catch (error) {
+    console.error('Error fetching members:', error);
+    showToast('error', 'Error', 'Failed to fetch members');
+    return [];
+  }
+}
+
+// New function to edit a member
+async function editMember(memberId) {
+  const member = SECRETARIAT_MEMBERS.find(m => m.memberId === memberId);
+  if (!member) {
+    showToast('error', 'Error', 'Member not found');
+    return;
+  }
+  document.getElementById('memberId').value = member.memberId;
+  document.getElementById('memberName').value = member.name;
+  document.getElementById('memberPassword').value = member.password;
+  const vacancySelect = document.getElementById('vacancySelect');
+  Array.from(vacancySelect.options).forEach(opt => {
+    opt.selected = member.assignedVacancies.includes(opt.value);
+  });
+}
+
+// New function to delete a member
+async function deleteMember(memberId) {
+  const confirm = await showModal('Confirm Deletion', `<p>Are you sure you want to delete member ${memberId}?</p>`);
+  if (!confirm) return;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/manage-members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', memberId }),
+    });
+    const result = await response.json();
+    if (result.success) {
+      SECRETARIAT_MEMBERS = result.members;
+      showToast('success', 'Success', 'Member deleted successfully');
+      manageSecretariatMembers(); // Refresh table
+    } else {
+      showToast('error', 'Error', result.error);
+    }
+  } catch (error) {
+    showToast('error', 'Error', `Failed to delete member: ${error.message}`);
+  }
+}
 
 
 
@@ -690,7 +860,7 @@ async function fetchSecretariatCandidates(itemNumber) {
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:R', // Includes column R for comments
+        range: 'CANDIDATES!A:R',
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
@@ -702,7 +872,6 @@ async function fetchSecretariatCandidates(itemNumber) {
     const candidatesSheet = candidatesResponse.result.values || [];
     const disqualifiedSheet = disqualifiedResponse.result.values || [];
 
-    // Map submissions by name, item number, and member ID
     const submissions = new Map();
     candidatesSheet.forEach(row => {
       if (row[0] && row[1] && row[16]) {
