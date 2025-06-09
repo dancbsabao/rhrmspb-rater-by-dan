@@ -787,6 +787,23 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
   container.innerHTML = '';
 
+  // Calculate summary counts
+  const longListCount = candidates.filter(c => c.submitted?.status === 'CANDIDATES').length;
+  const disqualifiedCount = candidates.filter(c => c.submitted?.status === 'DISQUALIFIED').length;
+  const noCommentsCount = candidates.filter(c => !c.submitted?.comment).length;
+
+  // Create summary div
+  const summaryDiv = document.createElement('div');
+  summaryDiv.className = 'summary';
+  summaryDiv.innerHTML = `
+    <h3>Summary</h3>
+    <p>For Long List: ${longListCount}</p>
+    <p>For Disqualification: ${disqualifiedCount}</p>
+    <p>No Comments: ${noCommentsCount}</p>
+  `;
+  container.appendChild(summaryDiv);
+
+  // Create filter div
   const filterDiv = document.createElement('div');
   filterDiv.innerHTML = `
     <label for="statusFilter">Filter by Status: </label>
@@ -822,6 +839,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
     const thead = document.createElement('thead');
     thead.innerHTML = `
       <tr>
+        <th>#</th>
         <th>Name</th>
         <th>Documents</th>
         <th>Action</th>
@@ -833,7 +851,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    candidates.forEach(candidate => {
+    candidates.forEach((candidate, index) => {
       const row = candidate.data;
       const name = row[0];
       const sex = row[2];
@@ -863,6 +881,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       const comment = candidate.submitted?.comment || '';
       const escapedComment = comment.replace(/'/g, "\\'").replace(/`/g, "\\`").replace(/"/g, "\\\"");
       tr.innerHTML = `
+        <td>${index + 1}</td>
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
         <td>
