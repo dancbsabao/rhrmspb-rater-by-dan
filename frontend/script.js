@@ -792,14 +792,25 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const disqualifiedCount = candidates.filter(c => c.submitted?.status === 'DISQUALIFIED').length;
   const noCommentsCount = candidates.filter(c => !c.submitted?.comment).length;
 
-  // Create summary div
+  // Create professional summary div
   const summaryDiv = document.createElement('div');
-  summaryDiv.className = 'summary';
+  summaryDiv.className = 'candidate-summary';
   summaryDiv.innerHTML = `
-    <h3>Summary</h3>
-    <p>For Long List: ${longListCount}</p>
-    <p>For Disqualification: ${disqualifiedCount}</p>
-    <p>No Comments: ${noCommentsCount}</p>
+    <div class="summary-container">
+      <h3>Candidate Status Summary</h3>
+      <div class="summary-item">
+        <span class="summary-label">Candidates for Long List:</span>
+        <span class="summary-value">${longListCount}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Candidates for Disqualification:</span>
+        <span class="summary-value">${disqualifiedCount}</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Candidates with No Comments:</span>
+        <span class="summary-value">${noCommentsCount}</span>
+      </div>
+    </div>
   `;
   container.appendChild(summaryDiv);
 
