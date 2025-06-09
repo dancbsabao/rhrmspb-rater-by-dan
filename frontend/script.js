@@ -314,11 +314,32 @@ async function initializeSecretariatDropdowns() {
   const member = SECRETARIAT_MEMBERS.find(m => m.id === secretariatMemberId);
   if (!member) {
     console.warn('No secretariat member found for ID:', secretariatMemberId);
+    showToast('error', 'Error', 'No secretariat member found');
     return;
   }
 
-  const allowedItems = member.vacancies;
-  const filteredVacancies = vacancies.slice(1).filter(row => allowedItems.includes(row[0]?.trim()));
+  const allowedItems = member.vacancies.map(item => item.toUpperCase()); // Normalize to uppercase
+  console.log('Allowed items for member:', allowedItems);
+
+  // Log all vacancies for debugging
+  console.log('All vacancies:', vacancies.slice(1).map(row => row[0]?.trim().toUpperCase()));
+
+  const filteredVacancies = vacancies.slice(1).filter(row => {
+    const itemNumber = row[0]?.trim().toUpperCase();
+    const isAllowed = allowedItems.includes(itemNumber);
+    console.log(`Checking item ${itemNumber}: ${isAllowed ? 'Allowed' : 'Not allowed'}`);
+    return isAllowed;
+  });
+
+  if (filteredVacancies.length === 0) {
+    console.warn('No matching vacancies found for member:', member);
+    showToast('warning', 'Warning', 'No assigned vacancies available for this member');
+    updateDropdown(assignmentDropdown, [], 'Select Assignment');
+    updateDropdown(positionDropdown, [], 'Select Position');
+    updateDropdown(itemDropdown, [], 'Select Item');
+    return;
+  }
+
   const uniqueAssignments = [...new Set(filteredVacancies.map(row => row[2]?.trim()))].filter(Boolean);
   console.log('Unique assignments for member:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
@@ -624,12 +645,12 @@ function setupTabNavigation() {
           <p>Password:</p>
           <input type="password" id="newMemberPassword" class="modal-input">
           <p>Assigned Vacancies (Item Numbers, comma-separated):</p>
-          <input type="text" id="newMemberVacancies" class="modal-input" placeholder="e.g., Item1,Item2">
+          <input type="text" id="newMemberVacancies" class="modal-input" placeholder="e.g., OSEC-DENRB-DMO5-72-2014,OSEC-DENRB-CENRO-130-1998">
         `,
         async () => {
           const name = document.getElementById('newMemberName').value.trim();
           const password = document.getElementById('newMemberPassword').value.trim();
-          const vacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim()).filter(v => v);
+          const vacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
           if (!name || !password || !vacancies.length) {
             showToast('error', 'Error', 'All fields are required');
             return;
@@ -3464,15 +3485,19 @@ async function fetchSecretariatMembers() {
     if (!await isTokenValid()) await refreshAccessToken();
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: 'SECRETARIAT_MEMBERS!A:C',
+      range: 'SECRETARIAT_MEMBERS!A:D', // Updated to include column D for vacancies
     });
     SECRETARIAT_MEMBERS = response.result.values?.slice(1)?.map(row => ({
       id: row[0],
       name: row[1],
       password: row[2],
-      vacancies: row[3]?.split(',').map(item => item.trim()) || [],
+      vacancies: row[3]?.split(',').map(item => item.trim().toUpperCase()) || [], // Normalize to uppercase
     })) || [];
     console.log('Secretariat members fetched:', SECRETARIAT_MEMBERS);
+    // Log all item numbers for debugging
+    SECRETARIAT_MEMBERS.forEach(member => {
+      console.log(`Member ${member.name} (ID: ${member.id}) assigned vacancies:`, member.vacancies);
+    });
   } catch (error) {
     console.error('Error fetching secretariat members:', error);
     showToast('error', 'Error', 'Failed to fetch secretariat members');
@@ -3482,6 +3507,13 @@ async function fetchSecretariatMembers() {
 async function saveSecretariatMember(memberData) {
   try {
     if (!await isTokenValid()) await refreshAccessToken();
+    // Validate vacancies against available ones
+    const validVacancies = vacancies.slice(1).map(row => row[0]?.trim().toUpperCase());
+    const invalidVacancies = memberData.vacancies.filter(v => !validVacancies.includes(v.toUpperCase()));
+    if (invalidVacancies.length > 0) {
+      showToast('error', 'Error', `Invalid vacancies: ${invalidVacancies.join(', ')}`);
+      return;
+    }
     await gapi.client.sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: 'SECRETARIAT_MEMBERS!A:D',
