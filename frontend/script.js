@@ -17,12 +17,14 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 
+
 let CLIENT_ID;
 let API_KEY;
 let SHEET_ID;
 let SCOPES;
 let EVALUATOR_PASSWORDS;
 let SHEET_RANGES;
+let SECRETARIAT_MEMBERS = [];
 
 const elements = {
   authStatus: document.getElementById('authStatus'),
@@ -309,32 +311,38 @@ async function initializeSecretariatDropdowns() {
     return;
   }
 
-  const uniqueAssignments = [...new Set(vacancies.slice(1).map(row => row[2]?.trim()))].filter(Boolean);
-  console.log('Unique assignments:', uniqueAssignments);
+  const member = SECRETARIAT_MEMBERS.find(m => m.id === secretariatMemberId);
+  if (!member) {
+    console.warn('No secretariat member found for ID:', secretariatMemberId);
+    return;
+  }
+
+  const allowedItems = member.vacancies;
+  const filteredVacancies = vacancies.slice(1).filter(row => allowedItems.includes(row[0]?.trim()));
+  const uniqueAssignments = [...new Set(filteredVacancies.map(row => row[2]?.trim()))].filter(Boolean);
+  console.log('Unique assignments for member:', uniqueAssignments);
   updateDropdown(assignmentDropdown, uniqueAssignments, 'Select Assignment');
 
-  // Remove existing event listeners using a single reference
   assignmentDropdown.removeEventListener('change', assignmentDropdown._changeHandler);
   assignmentDropdown._changeHandler = () => {
     const selectedAssignment = assignmentDropdown.value;
     console.log('Assignment changed to:', selectedAssignment);
     const filteredPositions = [...new Set(
-      vacancies.slice(1).filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
+      filteredVacancies.filter(row => row[2]?.trim() === selectedAssignment).map(row => row[1]?.trim())
     )].filter(Boolean);
     console.log('Filtered positions:', filteredPositions);
     updateDropdown(positionDropdown, filteredPositions, 'Select Position');
-    updateDropdown(itemDropdown, [], 'Select Item'); // Reset item dropdown
+    updateDropdown(itemDropdown, [], 'Select Item');
     saveDropdownState();
   };
   assignmentDropdown.addEventListener('change', assignmentDropdown._changeHandler);
 
-  // Remove existing event listeners for positionDropdown
   positionDropdown.removeEventListener('change', positionDropdown._changeHandler);
   positionDropdown._changeHandler = () => {
     const selectedAssignment = assignmentDropdown.value;
     const selectedPosition = positionDropdown.value;
     console.log('Position changed to:', selectedPosition);
-    const filteredItems = vacancies.slice(1)
+    const filteredItems = filteredVacancies
       .filter(row => row[2]?.trim() === selectedAssignment && row[1]?.trim() === selectedPosition)
       .map(row => row[0]?.trim())
       .filter(Boolean);
@@ -344,7 +352,6 @@ async function initializeSecretariatDropdowns() {
   };
   positionDropdown.addEventListener('change', positionDropdown._changeHandler);
 
-  // Remove existing event listeners for itemDropdown
   itemDropdown.removeEventListener('change', itemDropdown._changeHandler);
   itemDropdown._changeHandler = () => {
     console.log('Item changed to:', itemDropdown.value);
@@ -355,7 +362,6 @@ async function initializeSecretariatDropdowns() {
   };
   itemDropdown.addEventListener('change', itemDropdown._changeHandler);
 
-  // Trigger change only if a value is set and not during restoration
   if (assignmentDropdown.value && !dropdownStateRestoring) {
     console.log('Triggering initial assignment change');
     assignmentDropdown.dispatchEvent(new Event('change'));
@@ -416,7 +422,8 @@ function initializeApp() {
     console.log('GAPI client initialized');
     maybeEnableButtons();
     createEvaluatorSelector();
-    setupTabNavigation(); // Add tab navigation
+    setupTabNavigation();
+    fetchSecretariatMembers(); // Fetch members on app init
     restoreState();
   });
 }
@@ -577,40 +584,62 @@ function setupTabNavigation() {
   const secretariatTab = document.getElementById('secretariatTab');
 
   raterTab.addEventListener('click', () => switchTab('rater'));
-  secretariatTab.addEventListener('click', () => {
-    // Always prompt for authentication when clicking Secretariat tab
+  secretariatTab.addEventListener('click', async () => {
+    await fetchSecretariatMembers();
     showModal(
       'Secretariat Authentication',
       `
-        <p>Please enter the Secretariat password:</p>
-        <input type="password" id="secretariatPassword" class="modal-input">
-        <p>Select Member ID (1-5):</p>
+        <p>Select Secretariat Member:</p>
         <select id="secretariatMemberId" class="modal-input">
           <option value="">Select Member</option>
-          <option value="1">Member 1</option>
-          <option value="2">Member 2</option>
-          <option value="3">Member 3</option>
-          <option value="4">Member 4</option>
-          <option value="5">Member 5</option>
+          ${SECRETARIAT_MEMBERS.map(member => `<option value="${member.id}">${member.name}</option>`).join('')}
         </select>
+        <p>Enter Password:</p>
+        <input type="password" id="secretariatPassword" class="modal-input">
+        <button id="addMemberBtn" class="modal-btn">Add New Member</button>
       `,
-      () => {
-        const password = document.getElementById('secretariatPassword').value.trim();
+      async () => {
         const memberId = document.getElementById('secretariatMemberId').value;
-        if (password === SECRETARIAT_PASSWORD && memberId) {
+        const password = document.getElementById('secretariatPassword').value.trim();
+        const member = SECRETARIAT_MEMBERS.find(m => m.id === memberId);
+        if (member && password === member.password) {
           secretariatMemberId = memberId;
           localStorage.setItem('secretariatAuthenticated', 'true');
           saveAuthState(gapi.client.getToken(), currentEvaluator);
           switchTab('secretariat');
-          showToast('success', 'Success', `Logged in as Secretariat Member ${memberId}`);
+          showToast('success', 'Success', `Logged in as ${member.name}`);
         } else {
-          showToast('error', 'Error', 'Incorrect password or missing Member ID');
+          showToast('error', 'Error', 'Incorrect credentials');
         }
       },
-      () => {
-        console.log('Secretariat authentication canceled');
-      }
+      () => console.log('Secretariat authentication canceled')
     );
+
+    document.getElementById('addMemberBtn').addEventListener('click', () => {
+      showModal(
+        'Add New Secretariat Member',
+        `
+          <p>Member Name:</p>
+          <input type="text" id="newMemberName" class="modal-input">
+          <p>Password:</p>
+          <input type="password" id="newMemberPassword" class="modal-input">
+          <p>Assigned Vacancies (Item Numbers, comma-separated):</p>
+          <input type="text" id="newMemberVacancies" class="modal-input" placeholder="e.g., Item1,Item2">
+        `,
+        async () => {
+          const name = document.getElementById('newMemberName').value.trim();
+          const password = document.getElementById('newMemberPassword').value.trim();
+          const vacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim()).filter(v => v);
+          if (!name || !password || !vacancies.length) {
+            showToast('error', 'Error', 'All fields are required');
+            return;
+          }
+          const id = Date.now().toString();
+          await saveSecretariatMember({ id, name, password, vacancies });
+          showToast('success', 'Success', 'Member added successfully');
+        }
+      );
+    });
   });
 }
 
@@ -746,8 +775,24 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       <option value="CANDIDATES">Submitted (CANDIDATES)</option>
       <option value="DISQUALIFIED">Submitted (DISQUALIFIED)</option>
     </select>
+    <button id="viewAssignmentsBtn" class="modal-btn">View Member Assignments</button>
   `;
   container.appendChild(filterDiv);
+
+  document.getElementById('viewAssignmentsBtn').addEventListener('click', () => {
+    const assignmentsHTML = `
+      <div class="modal-body">
+        <h4>Secretariat Member Assignments</h4>
+        ${SECRETARIAT_MEMBERS.map(member => `
+          <div class="modal-field">
+            <span class="modal-label">${member.name} (ID: ${member.id}):</span>
+            <span class="modal-value">${member.vacancies.join(', ') || 'None'}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    showModal('Member Assignments', assignmentsHTML, null, null, false);
+  });
 
   if (candidates.length > 0) {
     const table = document.createElement('table');
@@ -3410,6 +3455,50 @@ async function testRefreshNow() {
   return success;
 }
 window.testRefreshNow = testRefreshNow;
+
+
+
+
+async function fetchSecretariatMembers() {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'SECRETARIAT_MEMBERS!A:C',
+    });
+    SECRETARIAT_MEMBERS = response.result.values?.slice(1)?.map(row => ({
+      id: row[0],
+      name: row[1],
+      password: row[2],
+      vacancies: row[3]?.split(',').map(item => item.trim()) || [],
+    })) || [];
+    console.log('Secretariat members fetched:', SECRETARIAT_MEMBERS);
+  } catch (error) {
+    console.error('Error fetching secretariat members:', error);
+    showToast('error', 'Error', 'Failed to fetch secretariat members');
+  }
+}
+
+async function saveSecretariatMember(memberData) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: 'SECRETARIAT_MEMBERS!A:D',
+      valueInputOption: 'RAW',
+      resource: { values: [[memberData.id, memberData.name, memberData.password, memberData.vacancies.join(',')]] },
+    });
+    console.log('Secretariat member saved:', memberData);
+    await fetchSecretariatMembers();
+  } catch (error) {
+    console.error('Error saving secretariat member:', error);
+    showToast('error', 'Error', 'Failed to save secretariat member');
+  }
+}
+
+
+
+
 
 window.addEventListener('storage', (event) => {
   if (event.key === 'authState' && event.newValue) {
