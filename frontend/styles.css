@@ -1204,4 +1204,24 @@ html, body {
   display: none !important;
 }
 
-
+.candidate-summary {
+  margin-bottom: 20px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  background-color: #f9f9f9;
+}
+.summary-container {
+  max-width: 600px;
+}
+.summary-item {
+  display: flex;
+  justify-content: space-between;
+  margin: 5px 0;
+}
+.summary-label {
+  font-weight: bold;
+}
+.summary-value {
+  color: #333;
+}
