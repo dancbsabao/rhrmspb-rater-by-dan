@@ -20,7 +20,7 @@ app.use(cors({
     ];
     console.log('Request Origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, origin || 'https://dancbsabao.github.io'); // Explicit origin
+      callback(null, origin || 'https://dancbsabao.github.io');
     } else {
       console.error('CORS rejected origin:', origin);
       callback(new Error('Not allowed by CORS'));
@@ -32,16 +32,20 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Handle OPTIONS preflight for /refresh-token
-app.options('/refresh-token', cors());
+// Handle OPTIONS preflight for all endpoints
+app.options('*', cors());
 
 // Config endpoint
 app.get('/config', (req, res) => {
   try {
     console.log('Config endpoint hit');
-    console.log('Raw SHEET_RANGES:', process.env.SHEET_RANGES); // Debug log
+    console.log('Raw SHEET_RANGES:', process.env.SHEET_RANGES);
     const sheetRanges = process.env.SHEET_RANGES ? JSON.parse(process.env.SHEET_RANGES) : {};
-    console.log('Parsed SHEET_RANGES:', sheetRanges); // Debug log
+    console.log('Parsed SHEET_RANGES:', sheetRanges);
+    // Initialize SECRETARIAT_MEMBERS from environment or default empty array
+    const secretariatMembers = process.env.SECRETARIAT_MEMBERS
+      ? JSON.parse(process.env.SECRETARIAT_MEMBERS)
+      : [];
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
@@ -53,10 +57,49 @@ app.get('/config', (req, res) => {
       SHEET_RANGES: sheetRanges,
       CLIENT_SECRET: process.env.CLIENT_SECRET || '',
       SECRETARIAT_PASSWORD: process.env.SECRETARIAT_PASSWORD || '',
+      SECRETARIAT_MEMBERS: secretariatMembers, // Add member data
     });
   } catch (error) {
     console.error('Error in /config:', error);
     res.status(500).json({ error: 'Failed to load configuration' });
+  }
+});
+
+// New endpoint to manage Secretariat members
+app.post('/manage-members', async (req, res) => {
+  const { action, memberId, name, password, assignedVacancies } = req.body;
+  try {
+    // This assumes you have Google Sheets API access set up on the backend
+    // For simplicity, we'll simulate updating environment variables or a Sheet
+    let secretariatMembers = process.env.SECRETARIAT_MEMBERS
+      ? JSON.parse(process.env.SECRETARIAT_MEMBERS)
+      : [];
+
+    if (action === 'create') {
+      if (secretariatMembers.some(m => m.memberId === memberId)) {
+        return res.status(400).json({ error: 'Member ID already exists' });
+      }
+      secretariatMembers.push({ memberId, name, password, assignedVacancies: assignedVacancies || [] });
+    } else if (action === 'update') {
+      const index = secretariatMembers.findIndex(m => m.memberId === memberId);
+      if (index === -1) {
+        return res.status(404).json({ error: 'Member not found' });
+      }
+      secretariatMembers[index] = { memberId, name, password, assignedVacancies: assignedVacancies || [] };
+    } else if (action === 'delete') {
+      secretariatMembers = secretariatMembers.filter(m => m.memberId !== memberId);
+    } else if (action === 'get') {
+      return res.json({ members: secretariatMembers });
+    } else {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    // Update environment variable (in practice, update Google Sheet 'SECRETARIAT_MEMBERS')
+    process.env.SECRETARIAT_MEMBERS = JSON.stringify(secretariatMembers);
+    res.json({ success: true, members: secretariatMembers });
+  } catch (error) {
+    console.error('Error in /manage-members:', error);
+    res.status(500).json({ error: 'Failed to manage members' });
   }
 });
 
