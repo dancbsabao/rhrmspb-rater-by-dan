@@ -20,7 +20,7 @@ app.use(cors({
     ];
     console.log('Request Origin:', origin);
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, origin || 'https://dancbsabao.github.io'); // Explicit origin
+      callback(null, origin || 'https://dancbsabao.github.io');
     } else {
       console.error('CORS rejected origin:', origin);
       callback(new Error('Not allowed by CORS'));
@@ -39,9 +39,10 @@ app.options('/refresh-token', cors());
 app.get('/config', (req, res) => {
   try {
     console.log('Config endpoint hit');
-    console.log('Raw SHEET_RANGES:', process.env.SHEET_RANGES); // Debug log
+    console.log('Raw SHEET_RANGES:', process.env.SHEET_RANGES);
     const sheetRanges = process.env.SHEET_RANGES ? JSON.parse(process.env.SHEET_RANGES) : {};
-    console.log('Parsed SHEET_RANGES:', sheetRanges); // Debug log
+    console.log('Parsed SHEET_RANGES:', sheetRanges);
+    sheetRanges.SECRETARIAT_MEMBERS = 'SECRETARIAT_MEMBERS!A:D'; // Add new sheet range
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
