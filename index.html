@@ -57,23 +57,30 @@
         </form>
       </div>
 
-      <div id="secretariatContent" style="display: none;">
-      <div class="form-group">
-        <label for="secretariatAssignmentDropdown">Assignment:</label>
-        <select id="secretariatAssignmentDropdown" data-placeholder="Select Assignment"></select>
+<div id="secretariatContent" style="display: none;">
+        <button id="manageMembersBtn" class="modal-confirm" style="margin-bottom: 10px;">Manage Secretariat Members</button>
+        <div class="dropdown-container">
+          <label for="secretariatAssignmentDropdown">Assignment:</label>
+          <select id="secretariatAssignmentDropdown" class="dropdown">
+            <option value="">Select Assignment</option>
+          </select>
+        </div>
+        <div class="dropdown-container">
+          <label for="secretariatPositionDropdown">Position:</label>
+          <select id="secretariatPositionDropdown" class="dropdown">
+            <option value="">Select Position</option>
+          </select>
+        </div>
+        <div class="dropdown-container">
+          <label for="secretariatItemDropdown">Item:</label>
+          <select id="secretariatItemDropdown" class="dropdown">
+            <option value="">Select Item</option>
+          </select>
+        </div>
+        <div id="secretariat-candidates-table"></div>
       </div>
-      <div class="form-group">
-        <label for="secretariatPositionDropdown">Position:</label>
-        <select id="secretariatPositionDropdown" data-placeholder="Select Position"></select>
-      </div>
-      <div class="form-group">
-        <label for="secretariatItemDropdown">Item:</label>
-        <select id="secretariatItemDropdown" data-placeholder="Select Item"></select>
-      </div>
-      <div id="secretariat-candidates-table"></div>
-      <div id="secretariat-candidate-details"></div>
     </div>
-
+    
     <footer class="site-footer">
       © 2025 Dan Christian B. Sabao - Administrative Officer @ DENR IV-A. All rights reserved.
     </footer>
