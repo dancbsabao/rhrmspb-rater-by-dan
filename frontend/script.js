@@ -740,11 +740,11 @@ async function fetchSecretariatCandidates(itemNumber) {
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:R', // Includes column R for comments
+        range: 'CANDIDATES!A:S', // Includes column S for 'For Review' status
       }),
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'DISQUALIFIED!A:E',
+        range: 'DISQUALIFIED!A:F', // Includes column F for 'For Review' status
       }),
     ]);
 
@@ -756,12 +756,20 @@ async function fetchSecretariatCandidates(itemNumber) {
     const submissions = new Map();
     candidatesSheet.forEach(row => {
       if (row[0] && row[1] && row[16]) {
-        submissions.set(`${row[0]}|${row[1]}|${row[16]}`, { status: 'CANDIDATES', comment: row[17] || '' });
+        submissions.set(`${row[0]}|${row[1]}|${row[16]}`, { 
+          status: 'CANDIDATES', 
+          comment: row[17] || '',
+          forReview: row[18] === 'TRUE' 
+        });
       }
     });
     disqualifiedSheet.forEach(row => {
       if (row[0] && row[1] && row[4]) {
-        submissions.set(`${row[0]}|${row[1]}|${row[4]}`, { status: 'DISQUALIFIED', comment: row[3] || '' });
+        submissions.set(`${row[0]}|${row[1]}|${row[4]}`, { 
+          status: 'DISQUALIFIED', 
+          comment: row[3] || '',
+          forReview: row[5] === 'TRUE'
+        });
       }
     });
 
@@ -790,7 +798,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   // Calculate summary counts
   const longListCount = candidates.filter(c => c.submitted?.status === 'CANDIDATES').length;
   const disqualifiedCount = candidates.filter(c => c.submitted?.status === 'DISQUALIFIED').length;
-  const noCommentsCount = candidates.filter(c => !c.submitted?.comment).length;
+  const forReviewCount = candidates.filter(c => c.submitted?.forReview).length;
 
   // Create professional summary div
   const summaryDiv = document.createElement('div');
@@ -807,8 +815,8 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <span class="summary-value">${disqualifiedCount}</span>
       </div>
       <div class="summary-item">
-        <span class="summary-label">Candidates with No Comments:</span>
-        <span class="summary-value">${noCommentsCount}</span>
+        <span class="summary-label">For Review of the Board:</span>
+        <span class="summary-value">${forReviewCount}</span>
       </div>
     </div>
   `;
@@ -823,6 +831,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
       <option value="not-submitted">Not Submitted</option>
       <option value="CANDIDATES">Submitted (CANDIDATES)</option>
       <option value="DISQUALIFIED">Submitted (DISQUALIFIED)</option>
+      <option value="for-review">For Review of the Board</option>
     </select>
     <button id="viewAssignmentsBtn" class="modal-btn">View Member Assignments</button>
   `;
@@ -853,10 +862,9 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <th>#</th>
         <th>Name</th>
         <th>Documents</th>
-        <th>Action</th>
-        <th>Submit</th>
         <th>Status</th>
         <th>Comments</th>
+        <th>Action</th>
       </tr>
     `;
     table.appendChild(thead);
@@ -886,69 +894,53 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
           return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
         })
         .join('');
-      const submittedStatus = candidate.submitted
-        ? `<span class="submitted-indicator">Submitted (${candidate.submitted.status})</span>`
-        : '';
+      
+      let submittedStatus = '';
+      if (candidate.submitted) {
+        submittedStatus = `<span class="submitted-indicator">Submitted (${candidate.submitted.status})</span>`;
+        if (candidate.submitted.forReview) {
+          submittedStatus += ` <span class="review-indicator">(For Review)</span>`;
+        }
+      }
+
       const comment = candidate.submitted?.comment || '';
       const escapedComment = comment.replace(/'/g, "\\'").replace(/`/g, "\\`").replace(/"/g, "\\\"");
+      
       tr.innerHTML = `
         <td>${index + 1}</td>
         <td>${name}</td>
         <td class="document-links">${linksHtml}</td>
-        <td>
-          <select class="action-dropdown" data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">
-            <option value="">Select Action</option>
-            <option value="FOR DISQUALIFICATION">FOR DISQUALIFICATION</option>
-            <option value="FOR LONG LIST">FOR LONG LIST</option>
-          </select>
-        </td>
-        <td>
-          <button class="submit-candidate-button" onclick="handleActionSelection(this)">Submit</button>
-        </td>
         <td>${submittedStatus}</td>
         <td>
           ${comment ? `
             <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
             <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
-          ` : 'No comments'}
+          ` : 'No comments yet'}
+        </td>
+        <td>
+          <button class="post-comment-button" onclick="handlePostComment(this)" data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">Post a Comment</button>
         </td>
       `;
-      tr.dataset.status = candidate.submitted ? candidate.submitted.status : '';
+      tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'not-submitted';
+      tr.dataset.forReview = candidate.submitted ? candidate.submitted.forReview : 'false';
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     container.appendChild(table);
   } else {
-    container.innerHTML = '<p>No candidates found.</p>';
+    container.innerHTML += '<p>No candidates found.</p>';
   }
 }
 
-// Unchanged handleActionSelection
-async function handleActionSelection(button) {
-  const row = button.closest('tr');
-  const select = row.querySelector('.action-dropdown');
-  const action = select.value;
-  const name = select.dataset.name;
-  const itemNumber = select.dataset.item;
-  const sex = select.dataset.sex;
 
-  if (!action) {
-    console.log('No action selected');
-    showToast('error', 'Error', 'Please select an action');
-    return;
-  }
-
-  console.log(`Checking for duplicate submission: ${name}, ${itemNumber}, ${action}`);
-  const isDuplicate = await checkDuplicateSubmission(name, itemNumber, action);
-  if (isDuplicate) {
-    console.log(`Duplicate submission detected for ${name} as ${action}`);
-    showToast('error', 'Error', `Candidate already submitted as ${action} by Member ${secretariatMemberId}.`);
-    return;
-  }
+async function handlePostComment(button) {
+  const name = button.dataset.name;
+  const itemNumber = button.dataset.item;
+  const sex = button.dataset.sex;
 
   const modalContent = `
     <div class="modal-body">
-      <p>Please enter comments for ${action === 'FOR DISQUALIFICATION' ? 'disqualifying' : 'long-listing'} ${name}:</p>
+      <p>Please enter comments for ${name}:</p>
       <label for="educationComment">Education:</label>
       <input type="text" id="educationComment" class="modal-input">
       <label for="trainingComment">Training:</label>
@@ -957,89 +949,174 @@ async function handleActionSelection(button) {
       <input type="text" id="experienceComment" class="modal-input">
       <label for="eligibilityComment">Eligibility:</label>
       <input type="text" id="eligibilityComment" class="modal-input">
+      <div class="modal-checkbox">
+        <input type="checkbox" id="forReviewCheckbox">
+        <label for="forReviewCheckbox">For Review of the Board</label>
+      </div>
     </div>
   `;
 
-  console.log(`Opening handleActionSelection modal for ${name}, action: ${action}`);
-
-  const modalResult = await showCommentModal(
-    `${action === 'FOR DISQUALIFICATION' ? 'Disqualification' : 'Long List'} Comments`,
+  // Use a modified showModal or a custom one that can return complex objects
+  const commentResult = await showModalWithInputs(
+    'Post a Comment',
     modalContent,
-    name,
-    (commentData) => {
-      console.log('handleActionSelection onConfirm received:', commentData);
-      return commentData;
-    },
-    () => {
-      console.log('handleActionSelection onCancel triggered');
-      return false;
-    },
-    true,
-    null
+    () => { // onConfirm callback
+      const education = document.getElementById('educationComment').value.trim();
+      const training = document.getElementById('trainingComment').value.trim();
+      const experience = document.getElementById('experienceComment').value.trim();
+      const eligibility = document.getElementById('eligibilityComment').value.trim();
+      const forReview = document.getElementById('forReviewCheckbox').checked;
+
+      if (!education || !training || !experience || !eligibility) {
+        showToast('error', 'Error', 'All comment fields are required.');
+        return null; // Prevent modal from closing
+      }
+      return { education, training, experience, eligibility, forReview };
+    }
   );
 
-  console.log('Waiting for modalResult.promise...');
-  const commentEntered = await modalResult.promise;
-  console.log('Comment entered:', commentEntered);
+  if (!commentResult) {
+    showToast('info', 'Info', 'Comment posting cancelled.');
+    return;
+  }
 
-  // Exit if no valid comment data was entered
-  if (!commentEntered || commentEntered === false) {
-    console.log('No valid comment entered, exiting handleActionSelection');
-    showToast('info', 'Info', 'Candidate action cancelled');
+  // Step 2: Prompt for action (Long List or Disqualification)
+  const action = await promptForSubmissionAction();
+  if (!action) {
+    showToast('info', 'Info', 'Submission cancelled.');
     return;
   }
 
   // Format the comment for submission
-  const comment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-  console.log('Submitting candidate action with comment:', comment);
+  const comment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
 
+  // Step 3: Final confirmation and submission
   try {
-    await submitCandidateAction(button, name, itemNumber, sex, action, comment);
+    await submitCandidateAction(name, itemNumber, sex, action, comment, commentResult.forReview);
     showToast('success', 'Success', 'Candidate action submitted successfully');
-    console.log('Showing success toast for handleActionSelection');
   } catch (error) {
-    console.error('Error submitting candidate action in handleActionSelection:', error);
+    console.error('Error submitting candidate action:', error);
     showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
-    throw error;
   }
+}
+
+// A new helper function to show a modal and get input values back
+function showModalWithInputs(title, contentHTML, onConfirmCallback) {
+  return new Promise((resolve) => {
+    let modalOverlay = document.getElementById('modalOverlay');
+    if (!modalOverlay) {
+      modalOverlay = document.createElement('div');
+      modalOverlay.id = 'modalOverlay';
+      modalOverlay.className = 'modal-overlay';
+      document.body.appendChild(modalOverlay);
+    }
+
+    modalOverlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-header"><h3 class="modal-title">${title}</h3><span class="modal-close">×</span></div>
+        <div class="modal-content">${contentHTML}</div>
+        <div class="modal-actions">
+          <button class="modal-cancel">Cancel</button>
+          <button class="modal-confirm">Confirm</button>
+        </div>
+      </div>
+    `;
+    modalOverlay.classList.add('active');
+
+    const confirmBtn = modalOverlay.querySelector('.modal-confirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+    const closeBtn = modalOverlay.querySelector('.modal-close');
+
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      resolve(result);
+    };
+
+    confirmBtn.onclick = () => {
+      const result = onConfirmCallback();
+      if (result !== null) { // Allow callback to prevent closing
+        closeHandler(result);
+      }
+    };
+    cancelBtn.onclick = () => closeHandler(false);
+    closeBtn.onclick = () => closeHandler(false);
+  });
+}
+
+
+async function promptForSubmissionAction() {
+    const modalContent = `
+        <p>Please select the final action for this candidate:</p>
+    `;
+
+    // We need a way to have two confirm buttons or a selection mechanism.
+    // Let's use showModal and add custom buttons.
+    let modalOverlay = document.getElementById('modalOverlay');
+    if (!modalOverlay) {
+        modalOverlay = document.createElement('div');
+        modalOverlay.id = 'modalOverlay';
+        modalOverlay.className = 'modal-overlay';
+        document.body.appendChild(modalOverlay);
+    }
+    
+    return new Promise(resolve => {
+        modalOverlay.innerHTML = `
+            <div class="modal">
+              <div class="modal-header"><h3 class="modal-title">Select Action</h3></div>
+              <div class="modal-content">${modalContent}</div>
+              <div class="modal-actions">
+                <button class="modal-cancel">Cancel</button>
+                <button id="disqualifyBtn" class="modal-confirm danger">FOR DISQUALIFICATION</button>
+                <button id="longlistBtn" class="modal-confirm">FOR LONG LIST</button>
+              </div>
+            </div>
+        `;
+        modalOverlay.classList.add('active');
+
+        document.getElementById('longlistBtn').onclick = () => {
+            modalOverlay.classList.remove('active');
+            resolve('FOR LONG LIST');
+        };
+        document.getElementById('disqualifyBtn').onclick = () => {
+            modalOverlay.classList.remove('active');
+            resolve('FOR DISQUALIFICATION');
+        };
+        modalOverlay.querySelector('.modal-cancel').onclick = () => {
+            modalOverlay.classList.remove('active');
+            resolve(null);
+        };
+    });
 }
 
 
 
 
-async function submitCandidateAction(button, name, itemNumber, sex, action, comment) {
-  console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment });
+async function submitCandidateAction(name, itemNumber, sex, action, comment, forReview) {
+  console.log('submitCandidateAction triggered:', { name, itemNumber, sex, action, comment, forReview });
 
+  // Step 1: Show the final confirmation modal to the user
   const modalContent = `
     <div class="modal-body">
       <p>Are you sure you want to submit the following action for ${name}?</p>
       <div class="modal-section">
-        <h4>ACTION:</h4>
-        <div class="modal-field">
-          <span class="modal-label">Action:</span>
-          <span class="modal-value">${action}</span>
-        </div>
-        <div class="modal-field">
-          <span class="modal-label">Comments:</span>
-          <span class="modal-value">${comment.split(',').join('; ')}</span>
-        </div>
+        <h4>SUBMISSION DETAILS:</h4>
+        <div class="modal-field"><span class="modal-label">Action:</span><span class="modal-value">${action}</span></div>
+        <div class="modal-field"><span class="modal-label">For Review:</span><span class="modal-value">${forReview ? 'Yes' : 'No'}</span></div>
+        <div class="modal-field"><span class="modal-label">Comments:</span><span class="modal-value">${comment.split(',').join('; ')}</span></div>
       </div>
     </div>
   `;
 
   const confirmResult = await showModal('CONFIRM SUBMISSION', modalContent);
-  console.log('Confirmation modal result:', confirmResult);
-
   if (!confirmResult) {
     console.log('Submission cancelled by user');
     showToast('info', 'Info', 'Submission cancelled');
     return;
   }
 
+  // Step 2: Proceed with the submission logic if confirmed
   try {
-    console.log('Submitting action:', { name, itemNumber, sex, action, comment });
     if (!await isTokenValid()) {
-      console.log('Refreshing token');
       await refreshAccessToken();
       if (!await isTokenValid()) {
         throw new Error('Failed to validate token after refresh');
@@ -1049,165 +1126,108 @@ async function submitCandidateAction(button, name, itemNumber, sex, action, comm
     const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
     const normalizedItemNumber = itemNumber.trim();
 
+    // Helper to get the internal sheet ID for batch updates
     async function getSheetId(sheetName) {
-      try {
-        const response = await gapi.client.sheets.spreadsheets.get({
-          spreadsheetId: SHEET_ID,
-        });
-        const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-        if (!sheet) {
-          throw new Error(`Sheet ${sheetName} not found in spreadsheet`);
-        }
-        console.log(`Fetched sheetId for ${sheetName}: ${sheet.properties.sheetId}`);
-        return sheet.properties.sheetId;
-      } catch (error) {
-        console.error(`Failed to fetch sheetId for ${sheetName}:`, error);
-        throw error;
+      const response = await gapi.client.sheets.spreadsheets.get({
+        spreadsheetId: SHEET_ID,
+      });
+      const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
+      if (!sheet) {
+        throw new Error(`Sheet ${sheetName} not found in spreadsheet`);
       }
+      return sheet.properties.sheetId;
     }
 
+    // Step 3: Handle the action. This includes deleting the old record if it exists in the opposite sheet.
     if (action === 'FOR LONG LIST') {
-      console.log('Processing FOR LONG LIST action...');
+      // Before adding to CANDIDATES, check if an entry exists in DISQUALIFIED and remove it.
       const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'DISQUALIFIED!A:E',
+        range: 'DISQUALIFIED!A:F', // Use new range
       });
-      let disqualifiedValues = disqualifiedResponse.result.values || [];
-      console.log('DISQUALIFIED raw values:', disqualifiedValues);
-
-      const disqualifiedDataRows = disqualifiedValues.slice(1);
-      const disqualifiedIndex = disqualifiedDataRows.findIndex(row => {
-        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-        const rowItem = row[1]?.trim();
-        const rowMemberId = row[4]?.toString();
-        console.log('Comparing DISQUALIFIED row:', { rowName, rowItem, rowMemberId });
-        return rowName === normalizedName && 
-               rowItem === normalizedItemNumber && 
-               rowMemberId === secretariatMemberId;
-      });
+      const disqualifiedValues = disqualifiedResponse.result.values || [];
+      const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => 
+        row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
+        row[1]?.trim() === normalizedItemNumber && 
+        row[4]?.toString() === secretariatMemberId
+      );
 
       if (disqualifiedIndex !== -1) {
-        const sheetRowIndex = disqualifiedIndex + 1;
-        console.log(`Found match at data index ${disqualifiedIndex} (sheet row ${sheetRowIndex + 1}):`, disqualifiedDataRows[disqualifiedIndex]);
-
+        const sheetRowIndex = disqualifiedIndex + 1; // Adjust for 0-based index and header
         const sheetId = await getSheetId('DISQUALIFIED');
         const batchUpdateRequest = {
           requests: [{
             deleteDimension: {
-              range: {
-                sheetId: sheetId,
-                dimension: 'ROWS',
-                startIndex: sheetRowIndex,
-                endIndex: sheetRowIndex + 1
-              }
+              range: { sheetId, dimension: 'ROWS', startIndex: sheetRowIndex, endIndex: sheetRowIndex + 1 }
             }
           }]
         };
-        console.log('batchUpdate request for DISQUALIFIED:', JSON.stringify(batchUpdateRequest, null, 2));
-        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SHEET_ID,
-          resource: batchUpdateRequest
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID, resource: batchUpdateRequest
         });
-        console.log('batchUpdate response for DISQUALIFIED:', batchUpdateResponse);
-
-        const updatedDisqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'DISQUALIFIED!A:E',
-        });
-        console.log('DISQUALIFIED values after deletion:', updatedDisqualifiedResponse.result.values);
-      } else {
-        console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in DISQUALIFIED`);
+        console.log(`Removed existing entry for ${name} from DISQUALIFIED sheet.`);
       }
 
+      // Now, add the new record to the CANDIDATES sheet.
       const generalResponse = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: 'GENERAL_LIST!A:P',
+        spreadsheetId: SHEET_ID, range: 'GENERAL_LIST!A:P',
       });
       let candidate = generalResponse.result.values.find(row => 
         row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName && 
         row[1]?.trim() === normalizedItemNumber
       );
       if (!candidate) throw new Error('Candidate not found in GENERAL_LIST');
-      candidate = [...candidate, secretariatMemberId, comment];
-      console.log('Appending to CANDIDATES:', [candidate]);
+      
+      const valuesToAppend = [...candidate, secretariatMemberId, comment, forReview];
       await gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:R',
-        valueInputOption: 'RAW',
-        resource: { values: [candidate] },
+        spreadsheetId: SHEET_ID, range: 'CANDIDATES!A:S', valueInputOption: 'RAW', // Use new range
+        resource: { values: [valuesToAppend] },
       });
-      console.log('Candidate appended to CANDIDATES successfully');
+
     } else if (action === 'FOR DISQUALIFICATION') {
-      console.log('Processing FOR DISQUALIFICATION action...');
+      // Before adding to DISQUALIFIED, check if an entry exists in CANDIDATES and remove it.
       const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: 'CANDIDATES!A:R',
+        range: 'CANDIDATES!A:S', // Use new range
       });
-      let candidatesValues = candidatesResponse.result.values || [];
-      console.log('CANDIDATES raw values:', candidatesValues);
-
-      const candidatesDataRows = candidatesValues.slice(1);
-      const candidatesIndex = candidatesDataRows.findIndex(row => {
-        const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-        const rowItem = row[1]?.trim();
-        const rowMemberId = row[16]?.toString();
-        console.log('Comparing CANDIDATES row:', { rowName, rowItem, rowMemberId });
-        return rowName === normalizedName && 
-               rowItem === normalizedItemNumber && 
-               rowMemberId === secretariatMemberId;
-      });
+      const candidatesValues = candidatesResponse.result.values || [];
+      const candidatesIndex = candidatesValues.slice(1).findIndex(row =>
+        row[0]?.trim().toUpperCase().replace(/\s+/g, ' ') === normalizedName &&
+        row[1]?.trim() === normalizedItemNumber &&
+        row[16]?.toString() === secretariatMemberId
+      );
 
       if (candidatesIndex !== -1) {
-        const sheetRowIndex = candidatesIndex + 1;
-        console.log(`Found match at data index ${candidatesIndex} (sheet row ${sheetRowIndex + 1}):`, candidatesDataRows[candidatesIndex]);
-
+        const sheetRowIndex = candidatesIndex + 1; // Adjust for 0-based index and header
         const sheetId = await getSheetId('CANDIDATES');
         const batchUpdateRequest = {
           requests: [{
             deleteDimension: {
-              range: {
-                sheetId: sheetId,
-                dimension: 'ROWS',
-                startIndex: sheetRowIndex,
-                endIndex: sheetRowIndex + 1
-              }
+              range: { sheetId, dimension: 'ROWS', startIndex: sheetRowIndex, endIndex: sheetRowIndex + 1 }
             }
           }]
         };
-        console.log('batchUpdate request for CANDIDATES:', JSON.stringify(batchUpdateRequest, null, 2));
-        const batchUpdateResponse = await gapi.client.sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SHEET_ID,
-          resource: batchUpdateRequest
+        await gapi.client.sheets.spreadsheets.batchUpdate({
+          spreadsheetId: SHEET_ID, resource: batchUpdateRequest
         });
-        console.log('batchUpdate response for CANDIDATES:', batchUpdateResponse);
-
-        const updatedCandidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: 'CANDIDATES!A:R',
-        });
-        console.log('CANDIDATES values after deletion:', updatedCandidatesResponse.result.values);
-      } else {
-        console.log(`No matching record found for ${normalizedName}, ${normalizedItemNumber}, ${secretariatMemberId} in CANDIDATES`);
+        console.log(`Removed existing entry for ${name} from CANDIDATES sheet.`);
       }
 
-      const values = [[name, itemNumber, sex, comment, secretariatMemberId]];
-      console.log('Appending to DISQUALIFIED:', values);
+      // Now, add the new record to the DISQUALIFIED sheet.
+      const valuesToAppend = [[name, itemNumber, sex, comment, secretariatMemberId, forReview]];
       await gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: 'DISQUALIFIED!A:E',
-        valueInputOption: 'RAW',
-        resource: { values },
+        spreadsheetId: SHEET_ID, range: 'DISQUALIFIED!A:F', valueInputOption: 'RAW', // Use new range
+        resource: { values: valuesToAppend },
       });
-      console.log('Candidate appended to DISQUALIFIED successfully');
     }
 
-    showToast('success', 'Success', 'Action submitted successfully');
-    console.log('Showing success toast for submitCandidateAction');
+    // Step 4: Refresh the table to show the latest state
     await fetchSecretariatCandidates(itemNumber);
+
   } catch (error) {
     console.error('Error submitting action in submitCandidateAction:', error);
     showToast('error', 'Error', `Failed to submit action: ${error.message || JSON.stringify(error)}`);
-    throw error;
+    throw error; // Re-throw to be handled by the calling function if needed
   }
 }
 
@@ -1272,27 +1292,29 @@ async function viewComments(name, itemNumber, status, comment) {
   showModal('View Comments', modalContent, null, null, false);
 }
 
-// New function to handle status filtering
 function filterTableByStatus(status, itemNumber) {
   const rows = document.querySelectorAll('#secretariat-candidates-table tbody tr');
   rows.forEach(row => {
     const rowStatus = row.dataset.status;
-    if (!status || (status === 'not-submitted' && rowStatus === '') || rowStatus === status) {
-      row.style.display = '';
+    const rowForReview = row.dataset.forReview === 'true';
+
+    let show = false;
+    if (!status) {
+        show = true;
+    } else if (status === 'for-review') {
+        if (rowForReview) show = true;
+    } else if (status === 'not-submitted') {
+        if (rowStatus === 'not-submitted') show = true;
     } else {
-      row.style.display = 'none';
+        if (rowStatus === status) show = true;
     }
+
+    row.style.display = show ? '' : 'none';
   });
 }
 
-/**
- * Edits comments for a candidate, managing modal display and Google Sheets API updates.
- *
- * @param {string} name - The name of the candidate.
- * @param {string} itemNumber - The item number associated with the candidate.
- * @param {string} status - The current status of the candidate ('CANDIDATES' or 'DISQUALIFIED').
- * @param {string} comment - The existing comment string (e.g., "edu,train,exp,elig").
- */
+
+
 async function editComments(name, itemNumber, status, comment) {
     console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
 
