@@ -465,7 +465,10 @@ function initializeApp() {
       elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
     }
     elements.closeSignatoriesModalBtns.forEach(button => {
-      button.addEventListener('click', () => elements.signatoriesModal.style.display = 'none');
+      button.addEventListener('click', () => {
+        // elements.signatoriesModal.style.display = 'none'; // REMOVE THIS LINE
+        elements.signatoriesModal.classList.remove('active'); // ADD THIS LINE
+      });
     });
     if (elements.addSignatoryBtn) {
         elements.addSignatoryBtn.addEventListener('click', addSignatory);
@@ -3628,8 +3631,9 @@ async function saveSignatories() {
 }
 
 function manageSignatories() {
-  console.log('manageSignatories function called!'); // Add this line
-  elements.signatoriesModal.style.display = 'block';
+  console.log('manageSignatories function called!');
+  // elements.signatoriesModal.style.display = 'block'; // REMOVE THIS LINE
+  elements.signatoriesModal.classList.add('active'); // ADD THIS LINE
   updateSignatoriesTableInModal();
 }
 
