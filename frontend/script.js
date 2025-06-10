@@ -3526,6 +3526,19 @@ async function generatePdfSummary() {
       return;
     }
 
+    // --- START: More robust jsPDF initialization ---
+    let jsPDF;
+    if (window.jspdf && window.jspdf.jsPDF) {
+      jsPDF = window.jspdf.jsPDF;
+    } else if (window.jsPDF) { // Fallback for some versions where it's directly on window
+      jsPDF = window.jsPDF;
+    } else {
+      console.error("jsPDF library not found or not initialized correctly.");
+      showToast('error', 'Error', 'PDF generation failed: jsPDF library not loaded. Please ensure jspdf.umd.min.js is correctly linked and loaded.');
+      return;
+    }
+    // --- END: More robust jsPDF initialization ---
+
     // Define custom paper size: 8x13 inches in points (1 inch = 72 points)
     const doc = new jsPDF({
       format: [576, 936], // [width, height] in points
