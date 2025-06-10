@@ -1267,29 +1267,70 @@ async function checkDuplicateSubmission(name, itemNumber, action) {
 }
 
 async function viewComments(name, itemNumber, status, comment) {
-  const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
-  const modalContent = `
-    <div class="modal-body" style="font-size: 18px; line-height: 1.6; padding: 20px;">
-      <h2 style="font-size: 28px; margin-bottom: 20px;">${name} (${status})</h2>
-      <div class="modal-field" style="margin-bottom: 15px;">
-        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Education:</span>
-        <span class="modal-value">${education || 'None'}</span>
-      </div>
-      <div class="modal-field" style="margin-bottom: 15px;">
-        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Training:</span>
-        <span class="modal-value">${training || 'None'}</span>
-      </div>
-      <div class="modal-field" style="margin-bottom: 15px;">
-        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Experience:</span>
-        <span class="modal-value">${experience || 'None'}</span>
-      </div>
-      <div class="modal-field">
-        <span class="modal-label" style="font-weight: bold; display: inline-block; width: 120px;">Eligibility:</span>
-        <span class="modal-value">${eligibility || 'None'}</span>
-      </div>
+    const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+
+    // Fetch the 'forReview' status to display it accurately
+    let forReviewStatus = 'No';
+    try {
+        const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: sheetNameToFetch,
+        });
+        const values = response.result.values || [];
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const normalizedItemNumber = itemNumber.trim();
+
+        const candidateRow = values.slice(1).find(row => {
+            const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+            const rowItem = row[1]?.trim();
+            const memberIdCol = status === 'CANDIDATES' ? 16 : 4;
+            return rowName === normalizedName && rowItem === normalizedItemNumber && row[memberIdCol]?.toString() === secretariatMemberId;
+        });
+
+        if (candidateRow) {
+            const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
+            if (candidateRow[reviewStatusCol] === 'TRUE') {
+                forReviewStatus = 'Yes';
+            }
+        }
+    } catch (error) {
+        console.error("Could not fetch 'for review' status:", error);
+    }
+    
+    const modalContent = `
+    <div class="view-comment-modal">
+        <div class="comment-header">
+            <h2 class="candidate-name">${name}</h2>
+            <span class="candidate-status ${status.toLowerCase()}">${status.replace('_', ' ')}</span>
+        </div>
+        <div class="comment-grid">
+            <div class="comment-item">
+                <span class="comment-label">Education</span>
+                <p class="comment-value">${education || 'No comment provided.'}</p>
+            </div>
+            <div class="comment-item">
+                <span class="comment-label">Training</span>
+                <p class="comment-value">${training || 'No comment provided.'}</p>
+            </div>
+            <div class="comment-item">
+                <span class="comment-label">Experience</span>
+                <p class="comment-value">${experience || 'No comment provided.'}</p>
+            </div>
+            <div class="comment-item">
+                <span class="comment-label">Eligibility</span>
+                <p class="comment-value">${eligibility || 'No comment provided.'}</p>
+            </div>
+        </div>
+        <div class="comment-footer">
+            <span class="comment-label">For Review of the Board:</span>
+            <span class="review-status ${forReviewStatus.toLowerCase()}">${forReviewStatus}</span>
+        </div>
     </div>
-  `;
-  showModal('View Comments', modalContent, null, null, false);
+    `;
+    
+    // Using a generic modal function that doesn't need confirm/cancel actions
+    showModal('View Comments', modalContent, null, null, false);
 }
 
 function filterTableByStatus(status, itemNumber) {
@@ -1318,46 +1359,39 @@ function filterTableByStatus(status, itemNumber) {
 async function editComments(name, itemNumber, status, comment) {
     console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
 
-    // Create a unique identifier for this specific edit operation
     const operationId = `${name}|${itemNumber}|${status}`;
-
-    // --- GUARD: Prevent concurrent or duplicate calls for the same operation ---
     if (activeCommentModalOperations.has(operationId)) {
-        console.log(`DEBUG: editComments: Operation for ${name} (Item: ${itemNumber}, Status: ${status}) already active. Aborting duplicate call.`);
-        return; // Exit if this operation is already being processed
+        console.log(`DEBUG: editComments: Operation for ${name} is already active. Aborting duplicate call.`);
+        return;
     }
-    activeCommentModalOperations.add(operationId); // Mark this operation as active
-    console.log(`DEBUG: editComments: Operation ${operationId} marked as active.`);
+    activeCommentModalOperations.add(operationId);
 
     try {
-        // --- 1. Check for and Restore Existing Minimized Modal (Visual Restoration Only) ---
-        // This part handles the visual restoration if a modal for this candidate was previously minimized.
-        // It does NOT prevent a new modal instance from being created, as showCommentModal creates a new one.
-        // It removes the entry from minimizedModals as it's now being actively handled again.
-        let existingModalId = null;
-        for (const [modalId, state] of minimizedModals) {
-            if (state.candidateName === name && state.title.includes('Edit Comments')) {
-                existingModalId = modalId;
-                // If found, remove from minimizedModals as it's now being actively handled again
-                minimizedModals.delete(modalId); // This is handled by restoreMinimizedModal now on full close
-                console.log(`DEBUG: editComments: Found existing minimized modal for ${name} (ID: ${existingModalId}). Removing from minimized list.`);
-                break;
-            }
+        // --- 1. Fetch current 'forReview' status ---
+        const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: sheetNameToFetch,
+        });
+        const values = response.result.values || [];
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const normalizedItemNumber = itemNumber.trim();
+        
+        let existingForReview = false;
+        const rowIndex = values.slice(1).findIndex(row => {
+            const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+            const rowItem = row[1]?.trim();
+            const memberIdCol = status === 'CANDIDATES' ? 16 : 4;
+            return rowName === normalizedName && rowItem === normalizedItemNumber && row[memberIdCol]?.toString() === secretariatMemberId;
+        });
+
+        if (rowIndex !== -1) {
+            const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
+            existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
         }
 
-        if (existingModalId) {
-            console.log(`DEBUG: editComments: Restoring minimized modal: ${existingModalId}`);
-            restoreMinimizedModal(existingModalId); // This only handles the visual part, now it completely restores it.
-            // The logic now relies on restoreMinimizedModal to re-attach to the original promise.
-            // We should NOT call showCommentModal again here if we are restoring.
-            // The editComments function will naturally await the promise from the restored modal.
-        }
-
-        // --- Prepare Initial Values and Modal Content ---
+        // --- 2. Prepare Modal Content with the Checkbox ---
         const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
-        const initialValues = { education, training, experience, eligibility };
-        console.log('DEBUG: editComments: Initial comment values:', initialValues);
-
         const modalContent = `
             <div class="modal-body">
                 <p>Edit comments for ${name} (${status}):</p>
@@ -1369,281 +1403,67 @@ async function editComments(name, itemNumber, status, comment) {
                 <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
                 <label for="eligibilityComment">Eligibility:</label>
                 <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
+                <div class="modal-checkbox" style="margin-top: 15px;">
+                  <input type="checkbox" id="forReviewCheckbox" ${existingForReview ? 'checked' : ''}>
+                  <label for="forReviewCheckbox">For Review of the Board</label>
+                </div>
             </div>
         `;
-        console.log('DEBUG: editComments: Modal content HTML prepared.');
 
-        let modalPromiseToAwait;
+        // --- 3. Show Modal and Await User Input ---
+        const commentResult = await showModalWithInputs(
+            `Edit Comments (${status})`,
+            modalContent,
+            () => {
+                const education = document.getElementById('educationComment').value.trim();
+                const training = document.getElementById('trainingComment').value.trim();
+                const experience = document.getElementById('experienceComment').value.trim();
+                const eligibility = document.getElementById('eligibilityComment').value.trim();
+                const forReview = document.getElementById('forReviewCheckbox').checked;
+                return { education, training, experience, eligibility, forReview };
+            }
+        );
 
-        // If a modal was restored, its promise is implicitly being handled by restoreMinimizedModal
-        // The `editComments` call will simply wait for that original promise to resolve.
-        // If no modal was restored, then show a new one.
-        if (!existingModalId) {
-            console.log('DEBUG: editComments: Calling showCommentModal for a NEW modal...');
-            const modalResult = showCommentModal(
-                `Edit Comments (${status})`, // Modal Title
-                modalContent,                // Content HTML for the modal body
-                name,                        // Candidate's name (for minimize/restore context in showCommentModal)
-                (commentData) => {           // The `onConfirm` callback for `showCommentModal`
-                    console.log('DEBUG: editComments: `onConfirm` callback triggered. Received data:', commentData);
-                    return commentData; // This data will be the resolved value of `modalResult.promise`.
-                },
-                () => {                      // The `onCancel` callback for `showCommentModal`
-                    console.log('DEBUG: editComments: `onCancel` callback triggered. Modal canceled.');
-                    return false; // Indicate that the modal was canceled.
-                },
-                true,                        // Show the Cancel button
-                initialValues                // Pass initial values to populate the modal's fields
-            );
-            modalPromiseToAwait = modalResult.promise;
-            console.log('DEBUG: editComments: `showCommentModal` has been called. Awaiting its promise resolution...');
-        } else {
-            // If we restored an existing modal, editComments will await the promise that restoreMinimizedModal
-            // ensures gets resolved. We don't have a direct `modalResult.promise` from here if it was restored,
-            // but the original `editComments` call's execution context is already linked to the promise
-            // that was created when it first called `showCommentModal`.
-            // The `restoreMinimizedModal` function is now responsible for ensuring that original promise resolves.
-            // This 'else' block doesn't explicitly return a promise, as the original call is already awaiting it.
-            // We just need to wait for the user interaction on the restored modal.
-            console.log('DEBUG: editComments: Existing modal restored. Awaiting original promise resolution...');
-            // This part is implicit, the original `await modalResult.promise` will continue to wait
-            // after the `restoreMinimizedModal` function has done its job.
-            // We can't re-assign `modalPromiseToAwait` here without a way to get the *original* promise.
-            // This highlights the design constraint. The safest is to always call showCommentModal
-            // and have it handle the "restoring" internally, but we already have the restoreModal.
-            // Given the existing structure, the original `editComments` will just continue to hang
-            // until the original promise (from its *first* showCommentModal call) gets resolved by
-            // the `restoreMinimizedModal`'s direct resolution.
-            // The simplest approach is to always call `showCommentModal` and let it manage the state.
-            // However, the prior analysis decided against it due to architectural issues.
-            // Let's revert to always calling `showCommentModal` but enhance it to reuse.
-            // NO, the current architecture of `restoreMinimizedModal` explicitly *re-renders* the modal
-            // and hooks up to the *original promise's resolver*. So the `editComments`
-            // should NOT call `showCommentModal` if `existingModalId` exists.
-            // The `await` simply continues to wait for the `state.originalResolve` call in `restoreMinimizedModal`.
-            // There is no `modalPromiseToAwait` to assign here in the `else` branch.
-            // The `await modalResult.promise` below is what `editComments` is waiting on.
-            // If `existingModalId` was found, it means the `editComments` call that initiated this
-            // is still active and awaiting. `restoreMinimizedModal` is responsible for resolving its promise.
-            // This is the correct logical flow for the new architecture.
-        }
-
-        // Wait for the promise returned by showCommentModal to resolve (user confirms or cancels).
-        // This line is only reached if a NEW modal was shown.
-        // If an existing modal was restored, the original call's promise is resolved by restoreMinimizedModal.
-        let commentEntered;
-        if (!existingModalId) {
-            commentEntered = await modalPromiseToAwait;
-        } else {
-            // This branch should ideally not be reached, as the original `editComments` call is already awaiting
-            // the promise. The resolution will happen in `restoreMinimizedModal`.
-            // If it *does* reach here, it implies a new `editComments` call started, but the guard
-            // `activeCommentModalOperations` should prevent that.
-            // This part is a bit tricky due to async nature and the desire to reuse the original promise.
-            // Let's assume the flow correctly blocks the `editComments` call until the promise resolves.
-            // The previous logs clearly showed the `await` was getting stuck.
-            // With the new architecture, the `await modalResult.promise;` (which is now just `await modalPromiseToAwait;`)
-            // in the original `editComments` call should now resolve correctly.
-            // We need to ensure `commentEntered` gets its value in the `existingModalId` case.
-            // This is where the initial design of `showCommentModal` always returning a new promise created a loop.
-            // Since `restoreMinimizedModal` directly resolves the original promise, the `await` here
-            // should simply pick up the value.
-            // The `editComments` function doesn't need to explicitly retrieve the promise again if it's awaiting.
-            // The `try...finally` block ensures `activeCommentModalOperations` is cleaned up.
-
-            // To avoid the compiler complaining about `commentEntered` possibly not being assigned,
-            // we will need a way to block this function effectively until the original promise is resolved.
-            // The current setup of `activeCommentModalOperations` preventing new calls,
-            // and `restoreMinimizedModal` directly resolving the *original* promise should work.
-            // So, no `await` here in the `else` branch, as the first `editComments` call is already doing it.
-            // The user's provided logs indicate that the `editComments` function *is* hanging on the `await`.
-            // So `commentEntered` will get its value from the original `await` if it's resolved.
-            // This means we should structure it as a single `await`.
-            const originalPromiseState = minimizedModals.get(operationId); // Not quite, operationId is not modalId
-            // This is the core of the problem if the original `editComments` cannot access the promise.
-            // The most direct way to keep `editComments` simple is to ensure `showCommentModal` is smart.
-
-            // The safest approach is to ensure `editComments` always gets a single promise from `showCommentModal`
-            // and `showCommentModal` itself decides whether to create a new UI or re-use/restore.
-
-            // Let's modify the `showCommentModal` to handle the restoration itself, simplifying `editComments`.
-            // This will make `editComments` always call `showCommentModal`.
-            // So, remove the `if (existingModalId)` block here entirely.
-            // `showCommentModal` will be updated to check for existing minimized modals.
-            // I will simplify this part in `editComments`.
-            console.log('DEBUG: editComments: Proceeding to call showCommentModal regardless to handle restoration internally.');
-            const modalResult = showCommentModal(
-                `Edit Comments (${status})`, // Modal Title
-                modalContent,                // Content HTML for the modal body
-                name,                        // Candidate's name (for minimize/restore context in showCommentModal)
-                (commentData) => {           // The `onConfirm` callback for `showCommentModal`
-                    console.log('DEBUG: editComments: `onConfirm` callback triggered. Received data:', commentData);
-                    return commentData; // This data will be the resolved value of `modalResult.promise`.
-                },
-                () => {                      // The `onCancel` callback for `showCommentModal`
-                    console.log('DEBUG: editComments: `onCancel` callback triggered. Modal canceled.');
-                    return false; // Indicate that the modal was canceled.
-                },
-                true,                        // Show the Cancel button
-                initialValues                // Pass initial values to populate the modal's fields
-            );
-            modalPromiseToAwait = modalResult.promise;
-            console.log('DEBUG: editComments: `showCommentModal` has been called. Awaiting its promise resolution...');
-        }
-
-
-        // This is the single await point for the promise, whether new or restored
-        commentEntered = await modalPromiseToAwait;
-        console.log('DEBUG: editComments: `modalPromiseToAwait` RESOLVED. `commentEntered` value:', commentEntered);
-
-
-        // --- 4. Handle Modal Cancellation or No Data ---
-        if (!commentEntered || commentEntered === false) {
-            console.log('DEBUG: editComments: Modal was canceled or no valid comment data was returned. Aborting update process.');
+        if (!commentResult) {
             showToast('info', 'Canceled', 'Comment update was canceled.');
-            return; // Exit the function if the modal was canceled or no data.
+            return;
         }
+        
+        const newComment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
 
-        // --- 5. Prepare Comment String for Google Sheets ---
-        const newComment = `${commentEntered.education},${commentEntered.training},${commentEntered.experience},${commentEntered.eligibility}`;
-        console.log('DEBUG: editComments: Prepared new comment string for Google Sheets:', newComment);
+        // --- 4. Update Google Sheet ---
+        if (rowIndex !== -1) {
+            const sheetRowIndex = rowIndex + 2; // +1 for 0-based index, +1 for header row
+            let rangeToUpdate, valuesToUpdate;
 
-        // --- 6. Google Sheets API Interaction (within a try-catch for error handling) ---
-        try {
-            console.log('DEBUG: editComments: Entering `try` block for Google Sheets API operations.');
-
-            // 6.1. Token Validation and Refresh
-            let tokenValid = await isTokenValid();
-            console.log('DEBUG: editComments: `isTokenValid()` result:', tokenValid);
-
-            if (!tokenValid) {
-                console.log('DEBUG: editComments: Access token invalid or expired. Attempting to refresh...');
-                await refreshAccessToken(); // Call function to refresh the token.
-                tokenValid = await isTokenValid(); // Re-check token validity after the refresh attempt.
-                console.log('DEBUG: editComments: `isTokenValid()` result after refresh attempt:', tokenValid);
-                if (!tokenValid) {
-                    // If token is still not valid after refresh, throw an error to stop execution.
-                    throw new Error('Failed to validate token after refresh. Please ensure you are authenticated.');
-                }
-                console.log('DEBUG: editComments: Access token refreshed successfully.');
-            }
-
-            // 6.2. Normalize Name and Item Number for Matching
-            const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-            const normalizedItemNumber = itemNumber.trim();
-            console.log(`DEBUG: editComments: Normalized Name: "${normalizedName}", Normalized Item Number: "${normalizedItemNumber}".`);
-
-            // Assuming getSheetId is defined globally or passed correctly
-            async function getSheetId(sheetName) {
-                console.log(`DEBUG: getSheetId: Attempting to get ID for sheet: "${sheetName}".`);
-                const response = await gapi.client.sheets.spreadsheets.get({
-                    spreadsheetId: SHEET_ID,
-                });
-                const sheet = response.result.sheets.find(s => s.properties.title === sheetName);
-                if (!sheet) throw new Error(`Sheet "${sheetName}" not found in spreadsheet "${SHEET_ID}".`);
-                console.log(`DEBUG: getSheetId: Found ID for "${sheetName}": ${sheet.properties.sheetId}.`);
-                return sheet.properties.sheetId;
-            }
-
-            // 6.3. Update the Appropriate Sheet (CANDIDATES or DISQUALIFIED)
             if (status === 'CANDIDATES') {
-                console.log('DEBUG: editComments: Processing update for CANDIDATES sheet.');
-                const candidatesResponse = await gapi.client.sheets.spreadsheets.values.get({
-                    spreadsheetId: SHEET_ID,
-                    range: 'CANDIDATES!A:R', // Fetch enough data to find the row
-                });
-                const candidatesValues = candidatesResponse.result.values || [];
-                console.log(`DEBUG: editComments: Fetched ${candidatesValues.length} rows from CANDIDATES sheet.`);
-
-                // Find the 0-based index of the row to update (skipping header row with .slice(1))
-                const candidatesIndex = candidatesValues.slice(1).findIndex(row => {
-                    const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-                    const rowItem = row[1]?.trim();
-                    const rowMemberId = row[16]?.toString(); // Assuming Member ID is in column Q (index 16)
-                    return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-                });
-
-                if (candidatesIndex !== -1) {
-                    // Adjust index for actual sheet row number (1-based + 1 for header)
-                    const sheetRowIndex = candidatesIndex + 2;
-                    console.log(`DEBUG: editComments: Candidate found in CANDIDATES sheet at row: ${sheetRowIndex}. Updating column R.`);
-                    await gapi.client.sheets.spreadsheets.values.update({
-                        spreadsheetId: SHEET_ID,
-                        range: `CANDIDATES!R${sheetRowIndex}`, // Target column R for comments
-                        valueInputOption: 'RAW', // Treat input as raw string
-                        resource: { values: [[newComment]] }, // The new comment value
-                    });
-                    console.log('DEBUG: editComments: Successfully updated comment in CANDIDATES sheet.');
-                } else {
-                    console.warn('DEBUG: editComments: Candidate row NOT found in CANDIDATES sheet for the given criteria.');
-                    showToast('warning', 'Not Found', `Candidate "${name}" not found in CANDIDATES sheet for update.`);
-                }
-            } else if (status === 'DISQUALIFIED') {
-                console.log('DEBUG: editComments: Processing update for DISQUALIFIED sheet.');
-                const disqualifiedResponse = await gapi.client.sheets.spreadsheets.values.get({
-                    spreadsheetId: SHEET_ID,
-                    range: 'DISQUALIFIED!A:E', // Fetch enough data to find the row
-                });
-                const disqualifiedValues = disqualifiedResponse.result.values || [];
-                console.log(`DEBUG: editComments: Fetched ${disqualifiedValues.length} rows from DISQUALIFIED sheet.`);
-
-                // Find the 0-based index of the row to update (skipping header row with .slice(1))
-                const disqualifiedIndex = disqualifiedValues.slice(1).findIndex(row => {
-                    const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-                    const rowItem = row[1]?.trim();
-                    const rowMemberId = row[4]?.toString(); // Assuming Member ID is in column E (index 4)
-                    return rowName === normalizedName && rowItem === normalizedItemNumber && rowMemberId === secretariatMemberId;
-                });
-
-                if (disqualifiedIndex !== -1) {
-                    // Adjust index for actual sheet row number (1-based + 1 for header)
-                    const sheetRowIndex = disqualifiedIndex + 2;
-                    console.log(`DEBUG: editComments: Candidate found in DISQUALIFIED sheet at row: ${sheetRowIndex}. Updating column D.`);
-                    await gapi.client.sheets.spreadsheets.values.update({
-                        spreadsheetId: SHEET_ID,
-                        range: `DISQUALIFIED!D${sheetRowIndex}`, // Target column D for comments
-                        valueInputOption: 'RAW',
-                        resource: { values: [[newComment]] },
-                    });
-                    console.log('DEBUG: editComments: Successfully updated comment in DISQUALIFIED sheet.');
-                } else {
-                    console.warn('DEBUG: editComments: Candidate row NOT found in DISQUALIFIED sheet for the given criteria.');
-                    showToast('warning', 'Not Found', `Candidate "${name}" not found in DISQUALIFIED sheet for update.`);
-                }
-            } else {
-                console.warn(`DEBUG: editComments: Unrecognized status "${status}". No sheet update performed.`);
-                showToast('warning', 'Invalid Status', `Cannot update comments for an unrecognized status: ${status}.`);
+                rangeToUpdate = `CANDIDATES!R${sheetRowIndex}:S${sheetRowIndex}`;
+                valuesToUpdate = [[newComment, commentResult.forReview]];
+            } else { // DISQUALIFIED
+                rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
+                // Note the empty value for column E (Secretariat Member ID) which we are not changing
+                valuesToUpdate = [[newComment, , commentResult.forReview]];
             }
+            
+            await gapi.client.sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: rangeToUpdate,
+                valueInputOption: 'RAW',
+                resource: { values: valuesToUpdate },
+            });
 
-            // --- 7. Final Success Actions ---
             showToast('success', 'Success', 'Comments updated successfully!');
-            console.log('DEBUG: editComments: Comments updated successfully. Calling `fetchSecretariatCandidates` to refresh UI.');
-            fetchSecretariatCandidates(itemNumber); // Refresh the UI to show updated comments.
-
-        } catch (error) {
-            // --- 8. Comprehensive Error Handling ---
-            console.error('DEBUG: editComments: CRITICAL ERROR caught during Google Sheets API operation:', error);
-            let errorMessage = 'An unexpected error occurred during comment update.';
-
-            // Try to get a more specific error message from the Google API response.
-            if (error.result && error.result.error && error.result.error.message) {
-                errorMessage = error.result.error.message;
-            } else if (error.body) {
-                 try {
-                    const errorBody = JSON.parse(error.body);
-                    if (errorBody.error && errorBody.error.message) {
-                        errorMessage = errorBody.error.message;
-                    }
-                 } catch (e) {
-                     // Ignore JSON parsing errors, use default message.
-                 }
-            }
-            showToast('error', 'Update Failed', `Failed to update comments: ${errorMessage}`);
+            fetchSecretariatCandidates(itemNumber); // Refresh UI
+        } else {
+            showToast('error', 'Error', 'Could not find the original record to update.');
         }
+
+    } catch (error) {
+        console.error('DEBUG: CRITICAL ERROR caught during editComments:', error);
+        showToast('error', 'Update Failed', `Failed to update comments: ${error.message}`);
     } finally {
-        // --- CLEANUP: Ensure the operation is marked as complete ---
-        activeCommentModalOperations.delete(operationId); // Remove from active set
-        console.log(`DEBUG: Exiting editComments function. Operation ${operationId} cleared from active list.`);
+        activeCommentModalOperations.delete(operationId);
+        console.log(`DEBUG: Exiting editComments. Operation ${operationId} cleared.`);
     }
 }
 
