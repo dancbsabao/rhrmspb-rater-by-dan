@@ -3458,7 +3458,7 @@ async function generatePdfSummary() {
 
   const currentItemNumber = secretariatItemDropdown?.value;
   const currentAssignment = secretariatAssignmentDropdown?.value;
-  const currentPositionTitle = secretariatPositionDropdown?.value;
+  const currentPositionTitle = secretariatPositionPositionDropdown?.value;
 
   if (!currentItemNumber) {
     showToast('error', 'Error', 'Please select an Item Number first.');
@@ -3696,8 +3696,8 @@ async function generatePdfSummary() {
         const sigCol2X = margin + sigColWidth + 40 + sigColWidth / 2; 
 
         let currentSigY = yOffset;
-        const nameToPositionStartGap = 18; 
-        const positionToEndOfLineGap = 2; // Reduced gap from last line of position to start of assignment
+        const nameToPositionStartGap = 0; // Adjusted gap to be zero for direct spacing
+        const positionToEndOfLineGap = 2; // Keep a small gap from last line of position to start of assignment
 
         // Define line heights for specific font sizes
         const lineHeightFor8pt = 8 * 1.2; 
@@ -3746,11 +3746,10 @@ async function generatePdfSummary() {
                 doc.text(sig1.name, sigCol1X, currentSigY, { align: 'center', maxWidth: sigColWidth });
                 doc.setFont("helvetica", "normal");
                 
-                // SIGNATURE LINE REMOVED AS REQUESTED
-                
                 doc.setFontSize(8); // Set font size for position
                 const positionLines1 = doc.splitTextToSize(sig1.position, sigColWidth);
-                let currentTextY1 = currentSigY + nameToPositionStartGap; 
+                // Adjust currentTextY1 to start immediately after the name (currentSigY)
+                let currentTextY1 = currentSigY + nameToPositionStartGap + (11 * 1.2); // Add name's line height
                 doc.text(positionLines1, sigCol1X, currentTextY1, { align: 'center' });
                 
                 currentTextY1 += (positionLines1.length * lineHeightFor8pt) + positionToEndOfLineGap; 
@@ -3769,11 +3768,10 @@ async function generatePdfSummary() {
                 doc.text(sig2.name, sigCol2X, currentSigY, { align: 'center', maxWidth: sigColWidth });
                 doc.setFont("helvetica", "normal");
                 
-                // SIGNATURE LINE REMOVED AS REQUESTED
-                
                 doc.setFontSize(8); // Set font size for position
                 const positionLines2 = doc.splitTextToSize(sig2.position, sigColWidth);
-                let currentTextY2 = currentSigY + nameToPositionStartGap; 
+                // Adjust currentTextY2 to start immediately after the name (currentSigY)
+                let currentTextY2 = currentSigY + nameToPositionStartGap + (11 * 1.2); // Add name's line height
                 doc.text(positionLines2, sigCol2X, currentTextY2, { align: 'center' });
                 
                 currentTextY2 += (positionLines2.length * lineHeightFor8pt) + positionToEndOfLineGap;
