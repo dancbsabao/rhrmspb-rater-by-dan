@@ -25,6 +25,7 @@ let SCOPES;
 let EVALUATOR_PASSWORDS;
 let SHEET_RANGES;
 let SECRETARIAT_MEMBERS = [];
+let SIGNATORIES = []; // To store signatories
 
 const elements = {
   authStatus: document.getElementById('authStatus'),
@@ -37,6 +38,14 @@ const elements = {
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
   ratingForm: document.querySelector('.rating-form'),
+  generatePdfBtn: document.getElementById('generatePdfBtn'), // New
+  manageSignatoriesBtn: document.getElementById('manageSignatoriesBtn'), // New
+  signatoriesModal: document.getElementById('signatoriesModal'), // New
+  addSignatoryBtn: document.getElementById('addSignatoryBtn'), // New
+  newSignatoryName: document.getElementById('newSignatoryName'), // New
+  newSignatoryPosition: document.getElementById('newSignatoryPosition'), // New
+  signatoriesUl: document.getElementById('signatoriesUl'), // New
+  closeSignatoriesModalBtns: document.querySelectorAll('.modal-close-signatories'), // New
 };
 
 let vacancies = [];
@@ -445,7 +454,22 @@ function initializeApp() {
     createEvaluatorSelector();
     setupTabNavigation();
     fetchSecretariatMembers(); // Fetch members on app init
+    loadSignatories(); // Load signatories on app initialization
     restoreState();
+
+    // Add event listeners for new buttons
+    if (elements.generatePdfBtn) {
+      elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
+    }
+    if (elements.manageSignatoriesBtn) {
+      elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
+    }
+    elements.closeSignatoriesModalBtns.forEach(button => {
+      button.addEventListener('click', () => elements.signatoriesModal.style.display = 'none');
+    });
+    if (elements.addSignatoryBtn) {
+        elements.addSignatoryBtn.addEventListener('click', addSignatory);
+    }
   });
 }
 
@@ -3587,6 +3611,34 @@ async function saveSignatories() {
   }
 }
 
+function manageSignatories() {
+  elements.signatoriesModal.style.display = 'block';
+  updateSignatoriesTableInModal();
+}
+
+
+function updateSignatoriesTableInModal() {
+  elements.signatoriesUl.innerHTML = '';
+  if (SIGNATORIES.length === 0) {
+    elements.signatoriesUl.innerHTML = '<li>No signatories added yet.</li>';
+    return;
+  }
+  SIGNATORIES.forEach((sig, index) => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span>${sig.name} - ${sig.position}</span>
+      <button class="delete-signatory-btn" data-index="${index}">Delete</button>
+    `;
+    elements.signatoriesUl.appendChild(li);
+  });
+
+  document.querySelectorAll('.delete-signatory-btn').forEach(button => {
+    button.addEventListener('click', (event) => {
+      const index = parseInt(event.target.dataset.index);
+      deleteSignatory(index);
+    });
+  });
+}
 
 
 async function loadSignatories() {
