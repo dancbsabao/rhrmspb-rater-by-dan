@@ -3420,6 +3420,229 @@ async function saveSecretariatMember(memberData) {
   }
 }
 
+async function generatePdfSummary() {
+  showToast('info', 'Generating PDF...', 'Please wait while the PDF is being created.');
+
+  // Ensure jsPDF is available
+  if (typeof window.jspdf === 'undefined' || typeof html2canvas === 'undefined') {
+    showToast('error', 'Error', 'PDF generation libraries (jsPDF, html2canvas) not loaded. Please ensure they are included in your HTML.');
+    console.error('jsPDF or html2canvas not loaded.');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p', 'mm', 'a4'); // 'p' for portrait, 'mm' for millimeters, 'a4' for A4 size
+
+  // Fetch current candidates data from the displayed table
+  const currentItemNumber = document.getElementById('secretariatItemDropdown').value;
+  if (!currentItemNumber) {
+      showToast('error', 'Error', 'Please select an Item Number to generate a PDF summary.');
+      return;
+  }
+
+  // Refetch data to ensure we have the latest and complete set for the PDF
+  try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      const [generalResponse, candidatesResponse, disqualifiedResponse] = await Promise.all([
+          gapi.client.sheets.spreadsheets.values.get({
+              spreadsheetId: SHEET_ID,
+              range: SHEET_RANGES.GENERAL_LIST,
+          }),
+          gapi.client.sheets.spreadsheets.values.get({
+              spreadsheetId: SHEET_ID,
+              range: SHEET_RANGES.CANDIDATES,
+          }),
+          gapi.client.sheets.spreadsheets.values.get({
+              spreadsheetId: SHEET_ID,
+              range: SHEET_RANGES.DISQUALIFIED,
+          }),
+      ]);
+
+      const candidatesData = generalResponse.result.values || [];
+      const candidatesSheet = candidatesResponse.result.values || [];
+      const disqualifiedSheet = disqualifiedResponse.result.values || [];
+
+      const submissions = new Map();
+      candidatesSheet.forEach(row => {
+          if (row[0] && row[1] && row[16]) { // Name, Item, SecretariatMemberId
+              submissions.set(`${row[0]}|${row[1]}|${row[16]}`, { status: 'CANDIDATES' });
+          }
+      });
+      disqualifiedSheet.forEach(row => {
+          if (row[0] && row[1] && row[4]) { // Name, Item, SecretariatMemberId
+              submissions.set(`${row[0]}|${row[1]}|${row[4]}`, { status: 'DISQUALIFIED' });
+          }
+      });
+
+      const filteredCandidates = candidatesData
+          .filter(row => row[1] === currentItemNumber)
+          .map(row => ({
+              name: row[0],
+              submittedStatus: submissions.has(`${row[0]}|${currentItemNumber}|${secretariatMemberId}`)
+                  ? submissions.get(`${row[0]}|${currentItemNumber}|${secretariatMemberId}`).status
+                  : 'NOT_SUBMITTED',
+          }));
+
+      const longListCandidates = filteredCandidates.filter(c => c.submittedStatus === 'CANDIDATES').map(c => c.name);
+      const disqualifiedCandidates = filteredCandidates.filter(c => c.submittedStatus === 'DISQUALIFIED').map(c => c.name);
+
+      let y = 10; // Y-coordinate for drawing
+
+      // Header
+      doc.setFontSize(16);
+      doc.text('DENR CALABARZON', 105, y, { align: 'center' });
+      y += 7;
+      doc.text('COMPETENCY RATING SYSTEM', 105, y, { align: 'center' });
+      y += 10;
+      doc.setFontSize(12);
+      doc.text(`Candidate Summary for Item Number: ${currentItemNumber}`, 105, y, { align: 'center' });
+      y += 15;
+
+      // Table Headers
+      doc.setFontSize(10);
+      doc.text('Long List Candidates', 20, y);
+      doc.text('Disqualified Candidates', 110, y);
+      y += 5;
+
+      // Draw Separator Line
+      doc.line(105, y, 105, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Vertical line
+      doc.line(20, y, 190, y); // Horizontal top line
+      doc.line(20, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7, 190, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Horizontal bottom line
+      doc.line(20, y, 20, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Vertical left line
+      doc.line(190, y, 190, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Vertical right line
+
+      // Candidate Lists
+      let yLongList = y + 7;
+      let yDisqualified = y + 7;
+
+      longListCandidates.forEach(name => {
+          doc.text(name, 25, yLongList);
+          yLongList += 7;
+      });
+
+      disqualifiedCandidates.forEach(name => {
+          doc.text(name, 115, yDisqualified);
+          yDisqualified += 7;
+      });
+
+      y = Math.max(yLongList, yDisqualified) + 20; // Move y below the longest list and add spacing
+
+      // Signatories
+      if (SIGNATORIES.length > 0) {
+          doc.setFontSize(12);
+          doc.text('Reviewed and Noted By:', 20, y);
+          y += 10;
+
+          SIGNATORIES.forEach(sig => {
+              doc.setFontSize(10);
+              doc.text(`_________________________`, 20, y); // Signature line
+              y += 5;
+              doc.text(`${sig.name}`, 20, y); // Name
+              y += 5;
+              doc.text(`${sig.position}`, 20, y); // Position
+              y += 10;
+          });
+      } else {
+          doc.setFontSize(10);
+          doc.text('No signatories defined.', 20, y);
+          y += 10;
+      }
+
+      const fileName = `Candidate_Summary_${currentItemNumber}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      doc.save(fileName);
+      showToast('success', 'PDF Generated', `"${fileName}" has been successfully created.`);
+
+  } catch (error) {
+      console.error('Error generating PDF:', error);
+      showToast('error', 'Error', 'Failed to generate PDF. Check console for details.');
+  }
+}
+
+
+
+async function saveSignatories() {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+
+    // Clear existing signatories in columns E and F
+    await gapi.client.sheets.spreadsheets.values.clear({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+    });
+
+    // Append current signatories if any
+    if (SIGNATORIES.length > 0) {
+      const valuesToAppend = SIGNATORIES.map(sig => [sig.name, sig.position]);
+      await gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+        valueInputOption: 'RAW',
+        resource: { values: valuesToAppend },
+      });
+    }
+    console.log('Signatories saved to sheet:', SIGNATORIES);
+  } catch (error) {
+    console.error('Error saving signatories to sheet:', error);
+    showToast('error', 'Error', 'Failed to save signatories to Google Sheet.');
+  }
+}
+
+
+
+async function loadSignatories() {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+    });
+    const values = response.result.values || [];
+    SIGNATORIES = values.map(row => ({
+      name: row[0] || '',
+      position: row[1] || '',
+    }));
+    console.log('Signatories loaded from sheet:', SIGNATORIES);
+  } catch (error) {
+    console.error('Error loading signatories from sheet:', error);
+    showToast('error', 'Error', 'Failed to load signatories from Google Sheet.');
+    SIGNATORIES = []; // Initialize empty if loading fails
+  }
+}
+
+
+
+async function addSignatory() {
+  const name = elements.newSignatoryName.value.trim();
+  const position = elements.newSignatoryPosition.value.trim();
+
+  if (name && position) {
+    SIGNATORIES.push({ name, position });
+    await saveSignatories(); // Now saves to sheet
+    updateSignatoriesTableInModal();
+    elements.newSignatoryName.value = '';
+    elements.newSignatoryPosition.value = '';
+    showToast('success', 'Success', 'Signatory added successfully.');
+  } else {
+    showToast('error', 'Error', 'Both name and position are required for a signatory.');
+  }
+}
+
+
+
+async function deleteSignatory(index) {
+  if (confirm('Are you sure you want to delete this signatory?')) {
+    SIGNATORIES.splice(index, 1);
+    await saveSignatories(); // Now saves to sheet
+    updateSignatoriesTableInModal();
+    showToast('success', 'Success', 'Signatory deleted successfully.');
+  }
+}
+
+
+
+
+
+
 
 
 
