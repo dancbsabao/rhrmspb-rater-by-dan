@@ -1267,14 +1267,11 @@ async function checkDuplicateSubmission(name, itemNumber, action) {
 }
 
 async function viewComments(name, itemNumber, status, comment) {
-    const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+    const [education, training, experience, eligibility] = comment ? comment.split(',') : ['','','',''];
 
     // --- Fetch the 'forReview' status to determine the final color-coding ---
     let forReviewStatus = 'No';
-    let statusClass = ''; // This will hold the CSS class for the color
-
     try {
-        // This logic is necessary to get the most up-to-date 'forReview' status
         const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
         const response = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -1301,53 +1298,58 @@ async function viewComments(name, itemNumber, status, comment) {
         console.error("Could not fetch 'for review' status:", error);
     }
 
-    // --- Determine the final status color based on the hierarchy ---
+    // --- Determine the final status text and inline styles for the header ---
+    let headerStyle = '';
+    let displayStatus = status.replace('_', ' '); // Start with the base status like "FOR LONG LIST"
+
     if (forReviewStatus === 'Yes') {
-        statusClass = 'review'; // Amber
+        // AMBER style for "For Review"
+        headerStyle = 'background-color: #ffc107; color: #212529;';
+        // Add the review status to the display text
+        displayStatus += ' (For Review)'; 
     } else if (status === 'DISQUALIFIED') {
-        statusClass = 'disqualified'; // Red
+        // RED style for "Disqualified"
+        headerStyle = 'background-color: #dc3545; color: white;';
     } else {
-        statusClass = 'longlisted'; // Green
+        // GREEN style for "Long Listed"
+        headerStyle = 'background-color: #28a745; color: white;';
     }
     
-    // --- Generate the improved and professionally styled modal content ---
+    // --- Generate the improved modal content with inline styles ---
     const modalContent = `
-    <div class="view-comment-modal-professional">
+    <div style="font-family: Arial, sans-serif; padding: 0; margin: 0;">
         
-        <div class="comment-header-professional ${statusClass}">
-            <h2 class="candidate-name-professional">${name}</h2>
-            <span class="candidate-status-professional">
-                ${forReviewStatus === 'Yes' ? 'FOR REVIEW' : status.replace('_', ' ')}
-            </span>
+        <div style="${headerStyle} padding: 15px 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h2 style="margin: 0; font-size: 24px;">${name}</h2>
+            <p style="margin: 5px 0 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">${displayStatus}</p>
         </div>
 
-        <div class="comment-grid-professional">
+        <div style="padding: 25px;">
             
-            <div class="comment-item-professional">
-                <h3 class="comment-title-professional">Education</h3>
-                <p class="comment-text-professional">${education || 'No comment provided.'}</p>
+            <div style="margin-bottom: 20px;">
+                <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Education</h3>
+                <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${education || 'No comment provided.'}</p>
             </div>
             
-            <div class="comment-item-professional">
-                <h3 class="comment-title-professional">Training</h3>
-                <p class="comment-text-professional">${training || 'No comment provided.'}</p>
+            <div style="margin-bottom: 20px;">
+                <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Training</h3>
+                <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${training || 'No comment provided.'}</p>
             </div>
             
-            <div class="comment-item-professional">
-                <h3 class="comment-title-professional">Experience</h3>
-                <p class="comment-text-professional">${experience || 'No comment provided.'}</p>
+            <div style="margin-bottom: 20px;">
+                <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Experience</h3>
+                <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${experience || 'No comment provided.'}</p>
             </div>
             
-            <div class="comment-item-professional">
-                <h3 class="comment-title-professional">Eligibility</h3>
-                <p class="comment-text-professional">${eligibility || 'No comment provided.'}</p>
+            <div>
+                <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Eligibility</h3>
+                <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${eligibility || 'No comment provided.'}</p>
             </div>
 
         </div>
     </div>
     `;
     
-    // Display the modal (no confirm/cancel buttons are needed for viewing)
     showModal('View Candidate Comments', modalContent, null, null, false);
 }
 
