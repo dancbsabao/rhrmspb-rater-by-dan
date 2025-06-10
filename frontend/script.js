@@ -3454,11 +3454,11 @@ async function generatePdfSummary() {
 
   const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
   const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
+  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown'); // Corrected variable name
 
   const currentItemNumber = secretariatItemDropdown?.value;
   const currentAssignment = secretariatAssignmentDropdown?.value;
-  const currentPositionTitle = secretariatPositionPositionDropdown?.value;
+  const currentPositionTitle = secretariatPositionDropdown?.value; // Corrected variable usage
 
   if (!currentItemNumber) {
     showToast('error', 'Error', 'Please select an Item Number first.');
@@ -3702,6 +3702,7 @@ async function generatePdfSummary() {
         // Define line heights for specific font sizes
         const lineHeightFor8pt = 8 * 1.2; 
         const lineHeightFor9pt = 9 * 1.2; 
+        const lineHeightFor11pt = 11 * 1.2; // For name
 
         for (let i = 0; i < SIGNATORIES.length; i += 2) {
             let maxSignatoryBlockHeight = 0; 
@@ -3714,7 +3715,8 @@ async function generatePdfSummary() {
             if (sig1) {
                 const positionLines1 = doc.splitTextToSize(sig1.position, sigColWidth);
                 const assignmentLines1 = doc.splitTextToSize(sig1.assignment, sigColWidth);
-                sig1DynamicHeight = nameToPositionStartGap + 
+                sig1DynamicHeight = lineHeightFor11pt + // height of name
+                                    nameToPositionStartGap + 
                                     (positionLines1.length * lineHeightFor8pt) + 
                                     positionToEndOfLineGap + 
                                     (assignmentLines1.length * lineHeightFor9pt);
@@ -3725,7 +3727,8 @@ async function generatePdfSummary() {
             if (sig2) {
                 const positionLines2 = doc.splitTextToSize(sig2.position, sigColWidth);
                 const assignmentLines2 = doc.splitTextToSize(sig2.assignment, sigColWidth);
-                sig2DynamicHeight = nameToPositionStartGap + 
+                sig2DynamicHeight = lineHeightFor11pt + // height of name
+                                    nameToPositionStartGap + 
                                     (positionLines2.length * lineHeightFor8pt) + 
                                     positionToEndOfLineGap + 
                                     (assignmentLines2.length * lineHeightFor9pt);
@@ -3748,8 +3751,7 @@ async function generatePdfSummary() {
                 
                 doc.setFontSize(8); // Set font size for position
                 const positionLines1 = doc.splitTextToSize(sig1.position, sigColWidth);
-                // Adjust currentTextY1 to start immediately after the name (currentSigY)
-                let currentTextY1 = currentSigY + nameToPositionStartGap + (11 * 1.2); // Add name's line height
+                let currentTextY1 = currentSigY + lineHeightFor11pt + nameToPositionStartGap; // Start after name's line height
                 doc.text(positionLines1, sigCol1X, currentTextY1, { align: 'center' });
                 
                 currentTextY1 += (positionLines1.length * lineHeightFor8pt) + positionToEndOfLineGap; 
@@ -3770,8 +3772,7 @@ async function generatePdfSummary() {
                 
                 doc.setFontSize(8); // Set font size for position
                 const positionLines2 = doc.splitTextToSize(sig2.position, sigColWidth);
-                // Adjust currentTextY2 to start immediately after the name (currentSigY)
-                let currentTextY2 = currentSigY + nameToPositionStartGap + (11 * 1.2); // Add name's line height
+                let currentTextY2 = currentSigY + lineHeightFor11pt + nameToPositionStartGap; // Start after name's line height
                 doc.text(positionLines2, sigCol2X, currentTextY2, { align: 'center' });
                 
                 currentTextY2 += (positionLines2.length * lineHeightFor8pt) + positionToEndOfLineGap;
