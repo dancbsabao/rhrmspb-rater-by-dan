@@ -44,8 +44,10 @@ const elements = {
   addSignatoryBtn: document.getElementById('addSignatoryBtn'), // New
   newSignatoryName: document.getElementById('newSignatoryName'), // New
   newSignatoryPosition: document.getElementById('newSignatoryPosition'), // New
+  newSignatoryAssignment: document.getElementById('newSignatoryAssignment'), // ADD THIS LINE
   signatoriesUl: document.getElementById('signatoriesUl'), // New
   closeSignatoriesModalBtns: document.querySelectorAll('.modal-close-signatories'), // New
+  
 };
 
 let vacancies = [];
@@ -3458,10 +3460,6 @@ async function generatePdfSummary() {
     return;
   }
 
-  // Debugging for PDF data
-  console.log('PDF Debug: currentItemNumber:', currentItemNumber);
-  console.log('PDF Debug: secretariatMemberId:', secretariatMemberId);
-
   try {
     if (!await isTokenValid()) await refreshAccessToken();
 
@@ -3481,38 +3479,27 @@ async function generatePdfSummary() {
     ]);
 
     const candidatesData = generalResponse.result.values || [];
-    console.log('PDF Debug: candidatesData (from GENERAL_LIST):', candidatesData); // All data from GENERAL_LIST
-
     const candidatesSheet = candidatesResponse.result.values || [];
-    console.log('PDF Debug: candidatesSheet (from CANDIDATES):', candidatesSheet); // All data from CANDIDATES sheet
-
     const disqualifiedSheet = disqualifiedResponse.result.values || [];
-    console.log('PDF Debug: disqualifiedSheet (from DISQUALIFIED):', disqualifiedSheet); // All data from DISQUALIFIED sheet
 
     const submissions = new Map();
     candidatesSheet.forEach(row => {
-      // Assuming CANDIDATES sheet columns: [0]=Name, [1]=Item, [16]=SecretariatMemberId
       if (row[0] && row[1] && row[16]) {
         const key = `${row[0]?.trim()}|${row[1]?.trim()}|${row[16]?.trim()}`;
         submissions.set(key, { status: 'CANDIDATES' });
-        console.log('PDF Debug: Added to submissions (CANDIDATES):', key);
       }
     });
     disqualifiedSheet.forEach(row => {
-      // Assuming DISQUALIFIED sheet columns: [0]=Name, [1]=Item, [4]=SecretariatMemberId
       if (row[0] && row[1] && row[4]) {
         const key = `${row[0]?.trim()}|${row[1]?.trim()}|${row[4]?.trim()}`;
         submissions.set(key, { status: 'DISQUALIFIED' });
-        console.log('PDF Debug: Added to submissions (DISQUALIFIED):', key);
       }
     });
-    console.log('PDF Debug: Submissions map after processing sheets:', submissions);
 
     const filteredCandidates = candidatesData
-      .filter(row => row[1]?.trim() === currentItemNumber?.trim()) // Filter by Item Number from GENERAL_LIST
+      .filter(row => row[1]?.trim() === currentItemNumber?.trim())
       .map(row => {
         const name = row[0]?.trim();
-        // Construct the key that will be searched in the 'submissions' map
         const keyToSearch = `${name}|${currentItemNumber?.trim()}|${secretariatMemberId?.trim()}`;
         
         let status = 'NOT_SUBMITTED';
@@ -3520,24 +3507,15 @@ async function generatePdfSummary() {
             status = submissions.get(keyToSearch).status;
         }
         
-        console.log(`PDF Debug: Candidate: "${name}", Item: "${currentItemNumber?.trim()}", SecretID: "${secretariatMemberId?.trim()}"`);
-        console.log(`PDF Debug: Key searched in submissions: "${keyToSearch}", Found status: "${status}"`);
-        
         return {
           name: name,
           submittedStatus: status,
         };
       });
 
-    console.log('PDF Debug: filteredCandidates:', filteredCandidates);
-
     const longListCandidates = filteredCandidates.filter(c => c.submittedStatus === 'CANDIDATES').map(c => c.name);
-    console.log('PDF Debug: longListCandidates:', longListCandidates);
-
     const disqualifiedCandidates = filteredCandidates.filter(c => c.submittedStatus === 'DISQUALIFIED').map(c => c.name);
-    console.log('PDF Debug: disqualifiedCandidates:', disqualifiedCandidates);
 
-    // Continue with PDF generation only if there are candidates to include
     if (longListCandidates.length === 0 && disqualifiedCandidates.length === 0) {
       showToast('info', 'No Data', 'No candidates found for the selected item number and your secretariat ID.');
       return;
@@ -3546,49 +3524,100 @@ async function generatePdfSummary() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
+    // Set a professional font (Helvetica is standard and clean)
+    doc.setFont("helvetica");
+
     let yOffset = 20;
+    const margin = 15;
+    const pageWidth = doc.internal.pageSize.width;
+
+    // Header
     doc.setFontSize(16);
-    doc.text(`SUMMARY FOR ITEM: ${currentItemNumber}`, 10, yOffset);
+    doc.text(`SUMMARY FOR ITEM: ${currentItemNumber}`, margin, yOffset);
     yOffset += 10;
     doc.setFontSize(12);
-    doc.text(`Secretariat Member ID: ${secretariatMemberId}`, 10, yOffset);
-    yOffset += 20;
+    
+    // Display Secretariat Member Info (no longer includes position/assignment from this sheet)
+    const loggedInMember = SECRETARIAT_MEMBERS.find(m => m.id === secretariatMemberId);
+    if (loggedInMember) {
+        doc.text(`Secretariat Member: ${loggedInMember.name} (ID: ${loggedInMember.id})`, margin, yOffset);
+    } else {
+        doc.text(`Secretariat Member ID: ${secretariatMemberId}`, margin, yOffset);
+    }
+    yOffset += 15; // Space after secretariat member info
 
     // Long List Candidates
     if (longListCandidates.length > 0) {
       doc.setFontSize(14);
-      doc.text('Long List Candidates:', 10, yOffset);
+      doc.text('Long List Candidates:', margin, yOffset);
       yOffset += 10;
       doc.setFontSize(12);
       longListCandidates.forEach(name => {
-        doc.text(`- ${name}`, 15, yOffset);
+        doc.text(`- ${name}`, margin + 5, yOffset);
         yOffset += 7;
+        if (yOffset > doc.internal.pageSize.height - 50) { // Check for page break
+            doc.addPage();
+            yOffset = 20;
+            doc.setFontSize(12); // Reset font size after page break
+        }
       });
       yOffset += 10;
     }
 
     // Disqualified Candidates
     if (disqualifiedCandidates.length > 0) {
+      // Check for page break before new section
+      if (yOffset > doc.internal.pageSize.height - 50) {
+            doc.addPage();
+            yOffset = 20;
+      }
       doc.setFontSize(14);
-      doc.text('Disqualified Candidates:', 10, yOffset);
+      doc.text('Disqualified Candidates:', margin, yOffset);
       yOffset += 10;
       doc.setFontSize(12);
       disqualifiedCandidates.forEach(name => {
-        doc.text(`- ${name}`, 15, yOffset);
+        doc.text(`- ${name}`, margin + 5, yOffset);
         yOffset += 7;
+        if (yOffset > doc.internal.pageSize.height - 50) { // Check for page break
+            doc.addPage();
+            yOffset = 20;
+            doc.setFontSize(12); // Reset font size after page break
+        }
       });
       yOffset += 10;
     }
 
-    // Signatories (from the SIGNATORIES array)
+    // Signatories (dynamic with lines and assignment)
     if (SIGNATORIES.length > 0) {
-        yOffset = Math.max(yOffset, doc.internal.pageSize.height - 50 - (SIGNATORIES.length * 10)); // Position at bottom
+        // Calculate required space for signatories
+        const signatoryBlockHeight = SIGNATORIES.length * 25 + 40; // Approx height for each signatory + buffer (25px = name, pos, assign, space)
+
+        // Add a new page if the signatory block doesn't fit on the current page
+        if (yOffset + signatoryBlockHeight > doc.internal.pageSize.height - margin) {
+            doc.addPage();
+            yOffset = 20; // Reset yOffset for new page
+        } else {
+            // Otherwise, position them towards the bottom of the current page
+            yOffset = doc.internal.pageSize.height - signatoryBlockHeight;
+        }
+
         doc.setFontSize(12);
-        SIGNATORIES.forEach((sig, index) => {
-            doc.text(`${sig.name}`, 10, yOffset);
-            yOffset += 5;
-            doc.text(`${sig.position}`, 10, yOffset);
-            yOffset += 15;
+        doc.text("Prepared by:", margin, yOffset);
+        yOffset += 10;
+
+        const signatureLineStartX = margin + 5;
+        const signatureLineLength = 80;
+
+        SIGNATORIES.forEach((sig) => {
+            doc.setFontSize(12);
+            doc.text(sig.name, signatureLineStartX, yOffset);
+            doc.line(signatureLineStartX, yOffset + 2, signatureLineStartX + signatureLineLength, yOffset + 2); // Signature line
+            yOffset += 5; // Space after line
+            doc.setFontSize(10);
+            doc.text(sig.position, signatureLineStartX, yOffset); // Display position
+            yOffset += 5; // Space after position
+            doc.text(`Assignment: ${sig.assignment}`, signatureLineStartX, yOffset); // NEW: Display assignment
+            yOffset += 15; // Space for next signatory block
         });
     }
 
@@ -3607,26 +3636,27 @@ async function saveSignatories() {
   try {
     if (!await isTokenValid()) await refreshAccessToken();
 
-    // Clear existing signatories in columns E and F
+    // Clear the existing signatory range before writing the new list
     await gapi.client.sheets.spreadsheets.values.clear({
       spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+      range: SHEET_RANGES.SECRETARIAT_SIGNATORIES, // Clears E:G
     });
 
-    // Append current signatories if any
     if (SIGNATORIES.length > 0) {
-      const valuesToAppend = SIGNATORIES.map(sig => [sig.name, sig.position]);
+      const valuesToSave = SIGNATORIES.map(sig => [sig.name, sig.position, sig.assignment]); // Include assignment
       await gapi.client.sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+        range: SHEET_RANGES.SECRETARIAT_SIGNATORIES, // Appends to E:G
         valueInputOption: 'RAW',
-        resource: { values: valuesToAppend },
+        resource: {
+          values: valuesToSave
+        },
       });
     }
-    console.log('Signatories saved to sheet:', SIGNATORIES);
+    console.log('Signatories saved:', SIGNATORIES);
   } catch (error) {
-    console.error('Error saving signatories to sheet:', error);
-    showToast('error', 'Error', 'Failed to save signatories to Google Sheet.');
+    console.error('Error saving signatories:', error);
+    showToast('error', 'Error', 'Failed to save signatories.');
   }
 }
 
@@ -3639,21 +3669,25 @@ function manageSignatories() {
 
 
 function updateSignatoriesTableInModal() {
-  elements.signatoriesUl.innerHTML = '';
+  const ul = elements.signatoriesUl;
+  ul.innerHTML = '';
   if (SIGNATORIES.length === 0) {
-    elements.signatoriesUl.innerHTML = '<li>No signatories added yet.</li>';
+    ul.innerHTML = '<li>No signatories added yet.</li>';
     return;
   }
   SIGNATORIES.forEach((sig, index) => {
     const li = document.createElement('li');
     li.innerHTML = `
-      <span>${sig.name} - ${sig.position}</span>
+      <span>
+        <strong>${sig.name}</strong><br>
+        <em>${sig.position}</em><br>
+        <em>Assignment: ${sig.assignment}</em> </span>
       <button class="delete-signatory-btn" data-index="${index}">Delete</button>
     `;
-    elements.signatoriesUl.appendChild(li);
+    ul.appendChild(li);
   });
-
-  document.querySelectorAll('.delete-signatory-btn').forEach(button => {
+  // Add event listeners for delete buttons
+  ul.querySelectorAll('.delete-signatory-btn').forEach(button => {
     button.addEventListener('click', (event) => {
       const index = parseInt(event.target.dataset.index);
       deleteSignatory(index);
@@ -3662,17 +3696,18 @@ function updateSignatoriesTableInModal() {
 }
 
 
-async function loadSignatories() {
+async function loadSignatories() { // Keeping your preferred function name
   try {
     if (!await isTokenValid()) await refreshAccessToken();
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+      range: SHEET_RANGES.SECRETARIAT_SIGNATORIES, // This range MUST be updated to E:G
     });
     const values = response.result.values || [];
     SIGNATORIES = values.map(row => ({
-      name: row[0] || '',
-      position: row[1] || '',
+      name: row[0] || '',     // Data from Column E
+      position: row[1] || '', // Data from Column F
+      assignment: row[2] || '', // NEW: Data from Column G
     }));
     console.log('Signatories loaded from sheet:', SIGNATORIES);
   } catch (error) {
@@ -3687,16 +3722,18 @@ async function loadSignatories() {
 async function addSignatory() {
   const name = elements.newSignatoryName.value.trim();
   const position = elements.newSignatoryPosition.value.trim();
+  const assignment = elements.newSignatoryAssignment.value.trim(); // ADD THIS LINE
 
-  if (name && position) {
-    SIGNATORIES.push({ name, position });
-    await saveSignatories(); // Now saves to sheet
+  if (name && position && assignment) { // Ensure assignment is also present
+    SIGNATORIES.push({ name, position, assignment }); // Include assignment
+    await saveSignatories();
     updateSignatoriesTableInModal();
     elements.newSignatoryName.value = '';
     elements.newSignatoryPosition.value = '';
+    elements.newSignatoryAssignment.value = ''; // Clear new assignment field
     showToast('success', 'Success', 'Signatory added successfully.');
   } else {
-    showToast('error', 'Error', 'Both name and position are required for a signatory.');
+    showToast('error', 'Error', 'Name, Position, and Assignment are all required for a signatory.');
   }
 }
 
