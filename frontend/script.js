@@ -3453,12 +3453,19 @@ async function generatePdfSummary() {
   showToast('info', 'Generating PDF...', 'Please wait while the PDF is being created.');
 
   const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+  const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown'); // Get position dropdown
+
   const currentItemNumber = secretariatItemDropdown?.value;
+  const currentAssignment = secretariatAssignmentDropdown?.value;
+  const currentPositionTitle = secretariatPositionDropdown?.value; // Get current position title
 
   if (!currentItemNumber) {
     showToast('error', 'Error', 'Please select an Item Number first.');
     return;
   }
+  // No explicit check for assignment/position as they might be pre-populated
+  // and we want to generate even if not explicitly selected by user.
 
   try {
     if (!await isTokenValid()) await refreshAccessToken();
@@ -3542,7 +3549,14 @@ async function generatePdfSummary() {
     doc.text(`Generated on: ${dateTimeString}`, margin, yOffset);
     yOffset += 10;
 
-    // Header (includes Item Number)
+    // PDF HEADER: POSITION TITLE AND ASSIGNMENT
+    doc.setFontSize(14);
+    doc.text(`${currentPositionTitle || 'N/A'}`, margin, yOffset); // Dynamic Position Title
+    yOffset += 7;
+    doc.text(`Assignment: ${currentAssignment || 'N/A'}`, margin, yOffset); // Dynamic Assignment
+    yOffset += 10;
+
+    // Summary For Item
     doc.setFontSize(16);
     doc.text(`SUMMARY FOR ITEM: ${currentItemNumber}`, margin, yOffset);
     yOffset += 15; // Increased space after header
@@ -3612,18 +3626,23 @@ async function generatePdfSummary() {
         doc.text("Noted by:", margin, yOffset); // Changed to "Noted by:"
         yOffset += 10;
 
-        const signatureLineStartX = margin + 5;
-        const signatureLineLength = 80;
+        const signatureLineLength = 80; // Fixed length for signature line
 
         SIGNATORIES.forEach((sig) => {
+            // Center name, position, and assignment
             doc.setFontSize(12);
-            doc.text(sig.name, signatureLineStartX, yOffset);
-            doc.line(signatureLineStartX, yOffset + 2, signatureLineStartX + signatureLineLength, yOffset + 2); // Signature line
+            doc.text(sig.name, pageWidth / 2, yOffset, { align: 'center' }); // Centered
+            yOffset += 5; // Space after name
+
+            // Adjust line to be centered under the name/position
+            const lineStartX = (pageWidth / 2) - (signatureLineLength / 2);
+            doc.line(lineStartX, yOffset, lineStartX + signatureLineLength, yOffset); // Signature line centered below text
             yOffset += 5; // Space after line
+
             doc.setFontSize(10);
-            doc.text(sig.position, signatureLineStartX, yOffset); // Display position
+            doc.text(sig.position, pageWidth / 2, yOffset, { align: 'center' }); // Centered position
             yOffset += 5; // Space after position
-            doc.text(sig.assignment, signatureLineStartX, yOffset); // Display assignment (without "Assignment: ")
+            doc.text(sig.assignment, pageWidth / 2, yOffset, { align: 'center' }); // Centered assignment
             yOffset += 15; // Space for next signatory block
         });
     }
