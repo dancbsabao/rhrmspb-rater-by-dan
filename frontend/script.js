@@ -1346,7 +1346,7 @@ async function editComments(name, itemNumber, status, comment) {
   activeCommentModalOperations.add(operationId);
   console.log(`DEBUG: editComments: Starting for ${operationId}. Added to active operations.`);
 
-  try {
+  try { // OUTER TRY BLOCK - Handles errors across the entire function logic
     // --- 1. Extract existing comment parts ---
     const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
     let initialIsForReview = comment.includes('(FOR REVIEW)'); // Determine initial state of "For Review"
@@ -1435,14 +1435,14 @@ async function editComments(name, itemNumber, status, comment) {
     ].map(part => part.trim());
 
     if (commentEntered.isForReview) {
-        newCommentParts[0] = `(FOR REVIEW) ${newCommentParts[0]}`; // Add (FOR REVIEW) to the education part
+      newCommentParts[0] = `(FOR REVIEW) ${newCommentParts[0]}`; // Add (FOR REVIEW) to the education part
     }
 
     const newComment = newCommentParts.join(',');
     console.log('DEBUG: editComments: Prepared new comment string for Google Sheets:', newComment);
 
     // --- 5. Google Sheets API Interaction (within a try-catch for error handling) ---
-    try {
+    try { // INNER TRY BLOCK for API interaction
       console.log('DEBUG: editComments: Entering `try` block for Google Sheets API operations.');
 
       // 5.1. Token Validation and Refresh
@@ -1529,7 +1529,7 @@ async function editComments(name, itemNumber, status, comment) {
         showToast('warning', 'Info', 'Comment update not applicable for this candidate status.');
       }
       showToast('success', 'Success', `Comment for ${name} updated successfully.`);
-    } catch (error) {
+    } catch (error) { // INNER CATCH BLOCK - Handles errors specifically from Google Sheets API calls
       // --- CRITICAL ERROR Handling ---
       console.error('DEBUG: editComments: CRITICAL ERROR caught during Google Sheets API operation:', error);
       let errorMessage = 'An unexpected error occurred during comment update.';
@@ -1547,12 +1547,15 @@ async function editComments(name, itemNumber, status, comment) {
         }
       }
       showToast('error', 'Update Failed', `Failed to update comments: ${errorMessage}`);
-    } finally {
-      // --- CLEANUP: Ensure the operation is marked as complete ---
-      activeCommentModalOperations.delete(operationId); // Remove from active set
-      console.log(`DEBUG: Exiting editComments function. Operation ${operationId} cleared from active list.`);
     }
+  } catch (outerError) { // OUTER CATCH BLOCK - Catches errors from modal, promise, etc.
+    console.error('DEBUG: editComments: An outer error occurred:', outerError);
+    showToast('error', 'Error', `An unexpected error occurred: ${outerError.message || outerError}`);
+  } finally { // OUTER FINALLY BLOCK - Ensures cleanup always happens
+    activeCommentModalOperations.delete(operationId); // Remove from active set
+    console.log(`DEBUG: Exiting editComments function. Operation ${operationId} cleared from active list.`);
   }
+}
 
 
 
