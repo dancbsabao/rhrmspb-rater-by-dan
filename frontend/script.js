@@ -3691,17 +3691,17 @@ async function generatePdfSummary() {
         doc.text("Noted by:", margin, yOffset);
         yOffset += 20; 
 
-        const signatureLineLength = 120; // Increased line length for signatures
         const sigColWidth = (pageWidth - (2 * margin) - 40) / 2; 
         const sigCol1X = margin + sigColWidth / 2;
         const sigCol2X = margin + sigColWidth + 40 + sigColWidth / 2; 
 
         let currentSigY = yOffset;
-        const nameToLineGap = 4; 
         const nameToPositionStartGap = 18; 
-        const positionToEndOfLineGap = 2; // Further reduced gap from last line of position to start of assignment
+        const positionToEndOfLineGap = 2; // Reduced gap from last line of position to start of assignment
 
-        const textLineHeight = 9 * 1.2; 
+        // Define line heights for specific font sizes
+        const lineHeightFor8pt = 8 * 1.2; 
+        const lineHeightFor9pt = 9 * 1.2; 
 
         for (let i = 0; i < SIGNATORIES.length; i += 2) {
             let maxSignatoryBlockHeight = 0; 
@@ -3715,9 +3715,9 @@ async function generatePdfSummary() {
                 const positionLines1 = doc.splitTextToSize(sig1.position, sigColWidth);
                 const assignmentLines1 = doc.splitTextToSize(sig1.assignment, sigColWidth);
                 sig1DynamicHeight = nameToPositionStartGap + 
-                                    (positionLines1.length * textLineHeight) + 
+                                    (positionLines1.length * lineHeightFor8pt) + 
                                     positionToEndOfLineGap + 
-                                    (assignmentLines1.length * textLineHeight);
+                                    (assignmentLines1.length * lineHeightFor9pt);
             }
 
             // Calculate height for Signatory 2
@@ -3726,9 +3726,9 @@ async function generatePdfSummary() {
                 const positionLines2 = doc.splitTextToSize(sig2.position, sigColWidth);
                 const assignmentLines2 = doc.splitTextToSize(sig2.assignment, sigColWidth);
                 sig2DynamicHeight = nameToPositionStartGap + 
-                                    (positionLines2.length * textLineHeight) + 
+                                    (positionLines2.length * lineHeightFor8pt) + 
                                     positionToEndOfLineGap + 
-                                    (assignmentLines2.length * textLineHeight);
+                                    (assignmentLines2.length * lineHeightFor9pt);
             }
             
             maxSignatoryBlockHeight = Math.max(sig1DynamicHeight, sig2DynamicHeight);
@@ -3746,16 +3746,16 @@ async function generatePdfSummary() {
                 doc.text(sig1.name, sigCol1X, currentSigY, { align: 'center', maxWidth: sigColWidth });
                 doc.setFont("helvetica", "normal");
                 
-                const lineStartX1 = sigCol1X - (signatureLineLength / 2);
-                doc.line(lineStartX1, currentSigY + nameToLineGap, lineStartX1 + signatureLineLength, currentSigY + nameToLineGap);
+                // SIGNATURE LINE REMOVED AS REQUESTED
                 
-                doc.setFontSize(9);
+                doc.setFontSize(8); // Set font size for position
                 const positionLines1 = doc.splitTextToSize(sig1.position, sigColWidth);
                 let currentTextY1 = currentSigY + nameToPositionStartGap; 
                 doc.text(positionLines1, sigCol1X, currentTextY1, { align: 'center' });
                 
-                currentTextY1 += (positionLines1.length * textLineHeight) + positionToEndOfLineGap; 
+                currentTextY1 += (positionLines1.length * lineHeightFor8pt) + positionToEndOfLineGap; 
 
+                doc.setFontSize(9); // Set font size for assignment
                 doc.setFont("helvetica", "italic"); // Set assignment to italic
                 const assignmentLines1 = doc.splitTextToSize(sig1.assignment, sigColWidth);
                 doc.text(assignmentLines1, sigCol1X, currentTextY1, { align: 'center' });
@@ -3769,16 +3769,16 @@ async function generatePdfSummary() {
                 doc.text(sig2.name, sigCol2X, currentSigY, { align: 'center', maxWidth: sigColWidth });
                 doc.setFont("helvetica", "normal");
                 
-                const lineStartX2 = sigCol2X - (signatureLineLength / 2);
-                doc.line(lineStartX2, currentSigY + nameToLineGap, lineStartX2 + signatureLineLength, currentSigY + nameToLineGap);
+                // SIGNATURE LINE REMOVED AS REQUESTED
                 
-                doc.setFontSize(9);
+                doc.setFontSize(8); // Set font size for position
                 const positionLines2 = doc.splitTextToSize(sig2.position, sigColWidth);
                 let currentTextY2 = currentSigY + nameToPositionStartGap; 
                 doc.text(positionLines2, sigCol2X, currentTextY2, { align: 'center' });
                 
-                currentTextY2 += (positionLines2.length * textLineHeight) + positionToEndOfLineGap;
+                currentTextY2 += (positionLines2.length * lineHeightFor8pt) + positionToEndOfLineGap;
 
+                doc.setFontSize(9); // Set font size for assignment
                 doc.setFont("helvetica", "italic"); // Set assignment to italic
                 const assignmentLines2 = doc.splitTextToSize(sig2.assignment, sigColWidth);
                 doc.text(assignmentLines2, sigCol2X, currentTextY2, { align: 'center' });
