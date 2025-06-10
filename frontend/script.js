@@ -3447,138 +3447,154 @@ async function saveSecretariatMember(memberData) {
 async function generatePdfSummary() {
   showToast('info', 'Generating PDF...', 'Please wait while the PDF is being created.');
 
-  // Ensure jsPDF is available
-  if (typeof window.jspdf === 'undefined' || typeof html2canvas === 'undefined') {
-    showToast('error', 'Error', 'PDF generation libraries (jsPDF, html2canvas) not loaded. Please ensure they are included in your HTML.');
-    console.error('jsPDF or html2canvas not loaded.');
+  const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+  const currentItemNumber = secretariatItemDropdown?.value;
+
+  if (!currentItemNumber) {
+    showToast('error', 'Error', 'Please select an Item Number first.');
     return;
   }
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF('p', 'mm', 'a4'); // 'p' for portrait, 'mm' for millimeters, 'a4' for A4 size
+  // Debugging for PDF data
+  console.log('PDF Debug: currentItemNumber:', currentItemNumber);
+  console.log('PDF Debug: secretariatMemberId:', secretariatMemberId);
 
-  // Fetch current candidates data from the displayed table
-  const currentItemNumber = document.getElementById('secretariatItemDropdown').value;
-  if (!currentItemNumber) {
-      showToast('error', 'Error', 'Please select an Item Number to generate a PDF summary.');
-      return;
-  }
-
-  // Refetch data to ensure we have the latest and complete set for the PDF
   try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const [generalResponse, candidatesResponse, disqualifiedResponse] = await Promise.all([
-          gapi.client.sheets.spreadsheets.values.get({
-              spreadsheetId: SHEET_ID,
-              range: SHEET_RANGES.GENERAL_LIST,
-          }),
-          gapi.client.sheets.spreadsheets.values.get({
-              spreadsheetId: SHEET_ID,
-              range: SHEET_RANGES.CANDIDATES,
-          }),
-          gapi.client.sheets.spreadsheets.values.get({
-              spreadsheetId: SHEET_ID,
-              range: SHEET_RANGES.DISQUALIFIED,
-          }),
-      ]);
+    if (!await isTokenValid()) await refreshAccessToken();
 
-      const candidatesData = generalResponse.result.values || [];
-      const candidatesSheet = candidatesResponse.result.values || [];
-      const disqualifiedSheet = disqualifiedResponse.result.values || [];
+    const [generalResponse, candidatesResponse, disqualifiedResponse] = await Promise.all([
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.GENERAL_LIST,
+      }),
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.CANDIDATES,
+      }),
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.DISQUALIFIED,
+      }),
+    ]);
 
-      const submissions = new Map();
-      candidatesSheet.forEach(row => {
-          if (row[0] && row[1] && row[16]) { // Name, Item, SecretariatMemberId
-              submissions.set(`${row[0]}|${row[1]}|${row[16]}`, { status: 'CANDIDATES' });
-          }
-      });
-      disqualifiedSheet.forEach(row => {
-          if (row[0] && row[1] && row[4]) { // Name, Item, SecretariatMemberId
-              submissions.set(`${row[0]}|${row[1]}|${row[4]}`, { status: 'DISQUALIFIED' });
-          }
-      });
+    const candidatesData = generalResponse.result.values || [];
+    console.log('PDF Debug: candidatesData (from GENERAL_LIST):', candidatesData); // All data from GENERAL_LIST
 
-      const filteredCandidates = candidatesData
-          .filter(row => row[1] === currentItemNumber)
-          .map(row => ({
-              name: row[0],
-              submittedStatus: submissions.has(`${row[0]}|${currentItemNumber}|${secretariatMemberId}`)
-                  ? submissions.get(`${row[0]}|${currentItemNumber}|${secretariatMemberId}`).status
-                  : 'NOT_SUBMITTED',
-          }));
+    const candidatesSheet = candidatesResponse.result.values || [];
+    console.log('PDF Debug: candidatesSheet (from CANDIDATES):', candidatesSheet); // All data from CANDIDATES sheet
 
-      const longListCandidates = filteredCandidates.filter(c => c.submittedStatus === 'CANDIDATES').map(c => c.name);
-      const disqualifiedCandidates = filteredCandidates.filter(c => c.submittedStatus === 'DISQUALIFIED').map(c => c.name);
+    const disqualifiedSheet = disqualifiedResponse.result.values || [];
+    console.log('PDF Debug: disqualifiedSheet (from DISQUALIFIED):', disqualifiedSheet); // All data from DISQUALIFIED sheet
 
-      let y = 10; // Y-coordinate for drawing
-
-      // Header
-      doc.setFontSize(16);
-      doc.text('DENR CALABARZON', 105, y, { align: 'center' });
-      y += 7;
-      doc.text('COMPETENCY RATING SYSTEM', 105, y, { align: 'center' });
-      y += 10;
-      doc.setFontSize(12);
-      doc.text(`Candidate Summary for Item Number: ${currentItemNumber}`, 105, y, { align: 'center' });
-      y += 15;
-
-      // Table Headers
-      doc.setFontSize(10);
-      doc.text('Long List Candidates', 20, y);
-      doc.text('Disqualified Candidates', 110, y);
-      y += 5;
-
-      // Draw Separator Line
-      doc.line(105, y, 105, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Vertical line
-      doc.line(20, y, 190, y); // Horizontal top line
-      doc.line(20, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7, 190, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Horizontal bottom line
-      doc.line(20, y, 20, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Vertical left line
-      doc.line(190, y, 190, y + Math.max(longListCandidates.length, disqualifiedCandidates.length) * 7); // Vertical right line
-
-      // Candidate Lists
-      let yLongList = y + 7;
-      let yDisqualified = y + 7;
-
-      longListCandidates.forEach(name => {
-          doc.text(name, 25, yLongList);
-          yLongList += 7;
-      });
-
-      disqualifiedCandidates.forEach(name => {
-          doc.text(name, 115, yDisqualified);
-          yDisqualified += 7;
-      });
-
-      y = Math.max(yLongList, yDisqualified) + 20; // Move y below the longest list and add spacing
-
-      // Signatories
-      if (SIGNATORIES.length > 0) {
-          doc.setFontSize(12);
-          doc.text('Reviewed and Noted By:', 20, y);
-          y += 10;
-
-          SIGNATORIES.forEach(sig => {
-              doc.setFontSize(10);
-              doc.text(`_________________________`, 20, y); // Signature line
-              y += 5;
-              doc.text(`${sig.name}`, 20, y); // Name
-              y += 5;
-              doc.text(`${sig.position}`, 20, y); // Position
-              y += 10;
-          });
-      } else {
-          doc.setFontSize(10);
-          doc.text('No signatories defined.', 20, y);
-          y += 10;
+    const submissions = new Map();
+    candidatesSheet.forEach(row => {
+      // Assuming CANDIDATES sheet columns: [0]=Name, [1]=Item, [16]=SecretariatMemberId
+      if (row[0] && row[1] && row[16]) {
+        const key = `${row[0]?.trim()}|${row[1]?.trim()}|${row[16]?.trim()}`;
+        submissions.set(key, { status: 'CANDIDATES' });
+        console.log('PDF Debug: Added to submissions (CANDIDATES):', key);
       }
+    });
+    disqualifiedSheet.forEach(row => {
+      // Assuming DISQUALIFIED sheet columns: [0]=Name, [1]=Item, [4]=SecretariatMemberId
+      if (row[0] && row[1] && row[4]) {
+        const key = `${row[0]?.trim()}|${row[1]?.trim()}|${row[4]?.trim()}`;
+        submissions.set(key, { status: 'DISQUALIFIED' });
+        console.log('PDF Debug: Added to submissions (DISQUALIFIED):', key);
+      }
+    });
+    console.log('PDF Debug: Submissions map after processing sheets:', submissions);
 
-      const fileName = `Candidate_Summary_${currentItemNumber}_${new Date().toISOString().slice(0, 10)}.pdf`;
-      doc.save(fileName);
-      showToast('success', 'PDF Generated', `"${fileName}" has been successfully created.`);
+    const filteredCandidates = candidatesData
+      .filter(row => row[1]?.trim() === currentItemNumber?.trim()) // Filter by Item Number from GENERAL_LIST
+      .map(row => {
+        const name = row[0]?.trim();
+        // Construct the key that will be searched in the 'submissions' map
+        const keyToSearch = `${name}|${currentItemNumber?.trim()}|${secretariatMemberId?.trim()}`;
+        
+        let status = 'NOT_SUBMITTED';
+        if (submissions.has(keyToSearch)) {
+            status = submissions.get(keyToSearch).status;
+        }
+        
+        console.log(`PDF Debug: Candidate: "${name}", Item: "${currentItemNumber?.trim()}", SecretID: "${secretariatMemberId?.trim()}"`);
+        console.log(`PDF Debug: Key searched in submissions: "${keyToSearch}", Found status: "${status}"`);
+        
+        return {
+          name: name,
+          submittedStatus: status,
+        };
+      });
+
+    console.log('PDF Debug: filteredCandidates:', filteredCandidates);
+
+    const longListCandidates = filteredCandidates.filter(c => c.submittedStatus === 'CANDIDATES').map(c => c.name);
+    console.log('PDF Debug: longListCandidates:', longListCandidates);
+
+    const disqualifiedCandidates = filteredCandidates.filter(c => c.submittedStatus === 'DISQUALIFIED').map(c => c.name);
+    console.log('PDF Debug: disqualifiedCandidates:', disqualifiedCandidates);
+
+    // Continue with PDF generation only if there are candidates to include
+    if (longListCandidates.length === 0 && disqualifiedCandidates.length === 0) {
+      showToast('info', 'No Data', 'No candidates found for the selected item number and your secretariat ID.');
+      return;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    let yOffset = 20;
+    doc.setFontSize(16);
+    doc.text(`SUMMARY FOR ITEM: ${currentItemNumber}`, 10, yOffset);
+    yOffset += 10;
+    doc.setFontSize(12);
+    doc.text(`Secretariat Member ID: ${secretariatMemberId}`, 10, yOffset);
+    yOffset += 20;
+
+    // Long List Candidates
+    if (longListCandidates.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Long List Candidates:', 10, yOffset);
+      yOffset += 10;
+      doc.setFontSize(12);
+      longListCandidates.forEach(name => {
+        doc.text(`- ${name}`, 15, yOffset);
+        yOffset += 7;
+      });
+      yOffset += 10;
+    }
+
+    // Disqualified Candidates
+    if (disqualifiedCandidates.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Disqualified Candidates:', 10, yOffset);
+      yOffset += 10;
+      doc.setFontSize(12);
+      disqualifiedCandidates.forEach(name => {
+        doc.text(`- ${name}`, 15, yOffset);
+        yOffset += 7;
+      });
+      yOffset += 10;
+    }
+
+    // Signatories (from the SIGNATORIES array)
+    if (SIGNATORIES.length > 0) {
+        yOffset = Math.max(yOffset, doc.internal.pageSize.height - 50 - (SIGNATORIES.length * 10)); // Position at bottom
+        doc.setFontSize(12);
+        SIGNATORIES.forEach((sig, index) => {
+            doc.text(`${sig.name}`, 10, yOffset);
+            yOffset += 5;
+            doc.text(`${sig.position}`, 10, yOffset);
+            yOffset += 15;
+        });
+    }
+
+    doc.save(`Summary_${currentItemNumber}.pdf`);
+    showToast('success', 'Success', 'PDF generated successfully!');
 
   } catch (error) {
-      console.error('Error generating PDF:', error);
-      showToast('error', 'Error', 'Failed to generate PDF. Check console for details.');
+    console.error('Error generating PDF:', error);
+    showToast('error', 'Error', 'Failed to generate PDF. Check console for details.');
   }
 }
 
@@ -3612,6 +3628,7 @@ async function saveSignatories() {
 }
 
 function manageSignatories() {
+  console.log('manageSignatories function called!'); // Add this line
   elements.signatoriesModal.style.display = 'block';
   updateSignatoriesTableInModal();
 }
