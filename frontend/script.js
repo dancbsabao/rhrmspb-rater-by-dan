@@ -3454,18 +3454,16 @@ async function generatePdfSummary() {
 
   const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
   const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown'); // Get position dropdown
+  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
 
   const currentItemNumber = secretariatItemDropdown?.value;
   const currentAssignment = secretariatAssignmentDropdown?.value;
-  const currentPositionTitle = secretariatPositionDropdown?.value; // Get current position title
+  const currentPositionTitle = secretariatPositionDropdown?.value;
 
   if (!currentItemNumber) {
     showToast('error', 'Error', 'Please select an Item Number first.');
     return;
   }
-  // No explicit check for assignment/position as they might be pre-populated
-  // and we want to generate even if not explicitly selected by user.
 
   try {
     if (!await isTokenValid()) await refreshAccessToken();
@@ -3534,32 +3532,35 @@ async function generatePdfSummary() {
     // Set a professional font (Helvetica is standard and clean)
     doc.setFont("helvetica");
 
-    let yOffset = 20;
-    const margin = 15;
+    let yOffset = 15; // Adjusted starting yOffset for narrower margin
+    const margin = 10; // Narrower margin
     const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
 
     // PRESENT DATE AND TIME
+    doc.setFontSize(9); // Slightly smaller for less intrusion
     const now = new Date();
     const dateTimeString = now.toLocaleString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         hour12: true
     });
-    doc.setFontSize(10);
     doc.text(`Generated on: ${dateTimeString}`, margin, yOffset);
     yOffset += 10;
 
-    // PDF HEADER: POSITION TITLE AND ASSIGNMENT
-    doc.setFontSize(14);
-    doc.text(`${currentPositionTitle || 'N/A'}`, margin, yOffset); // Dynamic Position Title
-    yOffset += 7;
-    doc.text(`Assignment: ${currentAssignment || 'N/A'}`, margin, yOffset); // Dynamic Assignment
-    yOffset += 10;
+    // PDF HEADER: POSITION, ASSIGNMENT, ITEM
+    doc.setFontSize(12); // Consistent font size for these header lines
+    doc.text(`POSITION: ${currentPositionTitle || 'N/A'}`, margin, yOffset);
+    yOffset += 7; // Reduced spacing
+    doc.text(`ASSIGNMENT: ${currentAssignment || 'N/A'}`, margin, yOffset);
+    yOffset += 7; // Reduced spacing
+    doc.text(`ITEM: ${currentItemNumber}`, margin, yOffset);
+    yOffset += 15; // Space before main title
 
-    // Summary For Item
+    // Main Title of the Document
     doc.setFontSize(16);
-    doc.text(`SUMMARY FOR ITEM: ${currentItemNumber}`, margin, yOffset);
-    yOffset += 15; // Increased space after header
+    doc.text('SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST', pageWidth / 2, yOffset, { align: 'center' });
+    yOffset += 15; // Space after main title
 
     // Long List Candidates (Numbered List)
     if (longListCandidates.length > 0) {
@@ -3568,11 +3569,11 @@ async function generatePdfSummary() {
       yOffset += 10;
       doc.setFontSize(12);
       longListCandidates.forEach((name, idx) => {
-        doc.text(`${idx + 1}. ${name}`, margin + 5, yOffset); // Numbered list
+        doc.text(`${idx + 1}. ${name}`, margin + 5, yOffset);
         yOffset += 7;
-        if (yOffset > doc.internal.pageSize.height - 50) { // Check for page break
+        if (yOffset > pageHeight - margin - 20) { // Check for page break (added buffer for page number)
             doc.addPage();
-            yOffset = 20;
+            yOffset = margin + 5; // Reset yOffset for new page
             doc.setFontSize(12); // Reset font size after page break
         }
       });
@@ -3582,20 +3583,20 @@ async function generatePdfSummary() {
     // Disqualified Candidates (Numbered List)
     if (disqualifiedCandidates.length > 0) {
       // Check for page break before new section
-      if (yOffset > doc.internal.pageSize.height - 50) {
+      if (yOffset > pageHeight - margin - 20) { // Added buffer for page number
             doc.addPage();
-            yOffset = 20;
+            yOffset = margin + 5;
       }
       doc.setFontSize(14);
       doc.text('Disqualified Candidates:', margin, yOffset);
       yOffset += 10;
       doc.setFontSize(12);
       disqualifiedCandidates.forEach((name, idx) => {
-        doc.text(`${idx + 1}. ${name}`, margin + 5, yOffset); // Numbered list
+        doc.text(`${idx + 1}. ${name}`, margin + 5, yOffset);
         yOffset += 7;
-        if (yOffset > doc.internal.pageSize.height - 50) { // Check for page break
+        if (yOffset > pageHeight - margin - 20) { // Check for page break (added buffer for page number)
             doc.addPage();
-            yOffset = 20;
+            yOffset = margin + 5;
             doc.setFontSize(12); // Reset font size after page break
         }
       });
@@ -3605,46 +3606,57 @@ async function generatePdfSummary() {
     // Signatories (dynamic with lines and assignment)
     if (SIGNATORIES.length > 0) {
         // Calculate required space for signatories (approx 3 lines per signatory + buffer)
-        const signatoryBlockHeight = SIGNATORIES.length * 25 + 60; // Extra buffer for clause and "Noted by"
+        // Adjust signatoryBlockHeight to account for reduced spacing
+        const signatoryBlockHeight = SIGNATORIES.length * 20 + 55; // Reduced space per signatory, adjusted total
 
         // Add a new page if the signatory block doesn't fit on the current page
-        if (yOffset + signatoryBlockHeight > doc.internal.pageSize.height - margin) {
+        if (yOffset + signatoryBlockHeight > pageHeight - margin) {
             doc.addPage();
-            yOffset = 20; // Reset yOffset for new page
+            yOffset = margin + 5; // Reset yOffset for new page
         } else {
             // Otherwise, position them towards the bottom of the current page
-            yOffset = doc.internal.pageSize.height - signatoryBlockHeight;
+            yOffset = pageHeight - signatoryBlockHeight - margin; // Adjust for narrower margin
         }
 
         // CERTIFYING CLAUSE
         doc.setFontSize(10);
         const certifyingClause = "This certifies that the details contained herein have been thoroughly reviewed and validated.";
-        doc.text(certifyingClause, margin, yOffset, { maxWidth: pageWidth - (2 * margin) }); // Use maxWidth for wrapping
+        doc.text(certifyingClause, margin, yOffset, { maxWidth: pageWidth - (2 * margin) });
         yOffset += 15; // Space after clause
 
         doc.setFontSize(12);
-        doc.text("Noted by:", margin, yOffset); // Changed to "Noted by:"
+        doc.text("Noted by:", margin, yOffset);
         yOffset += 10;
 
         const signatureLineLength = 80; // Fixed length for signature line
 
         SIGNATORIES.forEach((sig) => {
             // Center name, position, and assignment
+            doc.setFont("helvetica", "bold"); // Set font to bold for name
             doc.setFontSize(12);
-            doc.text(sig.name, pageWidth / 2, yOffset, { align: 'center' }); // Centered
-            yOffset += 5; // Space after name
+            doc.text(sig.name, pageWidth / 2, yOffset, { align: 'center' });
+            yOffset += 3; // Reduced spacing here
 
             // Adjust line to be centered under the name/position
             const lineStartX = (pageWidth / 2) - (signatureLineLength / 2);
             doc.line(lineStartX, yOffset, lineStartX + signatureLineLength, yOffset); // Signature line centered below text
-            yOffset += 5; // Space after line
+            yOffset += 5; // Spacing after line
 
+            doc.setFont("helvetica", "normal"); // Reset font to normal for position and assignment
             doc.setFontSize(10);
-            doc.text(sig.position, pageWidth / 2, yOffset, { align: 'center' }); // Centered position
-            yOffset += 5; // Space after position
-            doc.text(sig.assignment, pageWidth / 2, yOffset, { align: 'center' }); // Centered assignment
-            yOffset += 15; // Space for next signatory block
+            doc.text(sig.position, pageWidth / 2, yOffset, { align: 'center' });
+            yOffset += 5; // Spacing after position
+            doc.text(sig.assignment, pageWidth / 2, yOffset, { align: 'center' });
+            yOffset += 15; // Spacing for next signatory block
         });
+    }
+
+    // Add Page Numbers
+    const pageCount = doc.internal.pages.length;
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin, pageHeight - margin + 5, { align: 'right' }); // Position at bottom-right
     }
 
     doc.save(`Summary_${currentItemNumber}.pdf`);
