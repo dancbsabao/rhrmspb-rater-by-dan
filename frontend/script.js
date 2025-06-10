@@ -3531,29 +3531,30 @@ async function generatePdfSummary() {
     const margin = 15;
     const pageWidth = doc.internal.pageSize.width;
 
-    // Header
+    // PRESENT DATE AND TIME
+    const now = new Date();
+    const dateTimeString = now.toLocaleString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: true
+    });
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${dateTimeString}`, margin, yOffset);
+    yOffset += 10;
+
+    // Header (includes Item Number)
     doc.setFontSize(16);
     doc.text(`SUMMARY FOR ITEM: ${currentItemNumber}`, margin, yOffset);
-    yOffset += 10;
-    doc.setFontSize(12);
-    
-    // Display Secretariat Member Info (no longer includes position/assignment from this sheet)
-    const loggedInMember = SECRETARIAT_MEMBERS.find(m => m.id === secretariatMemberId);
-    if (loggedInMember) {
-        doc.text(`Secretariat Member: ${loggedInMember.name} (ID: ${loggedInMember.id})`, margin, yOffset);
-    } else {
-        doc.text(`Secretariat Member ID: ${secretariatMemberId}`, margin, yOffset);
-    }
-    yOffset += 15; // Space after secretariat member info
+    yOffset += 15; // Increased space after header
 
-    // Long List Candidates
+    // Long List Candidates (Numbered List)
     if (longListCandidates.length > 0) {
       doc.setFontSize(14);
       doc.text('Long List Candidates:', margin, yOffset);
       yOffset += 10;
       doc.setFontSize(12);
-      longListCandidates.forEach(name => {
-        doc.text(`- ${name}`, margin + 5, yOffset);
+      longListCandidates.forEach((name, idx) => {
+        doc.text(`${idx + 1}. ${name}`, margin + 5, yOffset); // Numbered list
         yOffset += 7;
         if (yOffset > doc.internal.pageSize.height - 50) { // Check for page break
             doc.addPage();
@@ -3564,7 +3565,7 @@ async function generatePdfSummary() {
       yOffset += 10;
     }
 
-    // Disqualified Candidates
+    // Disqualified Candidates (Numbered List)
     if (disqualifiedCandidates.length > 0) {
       // Check for page break before new section
       if (yOffset > doc.internal.pageSize.height - 50) {
@@ -3575,8 +3576,8 @@ async function generatePdfSummary() {
       doc.text('Disqualified Candidates:', margin, yOffset);
       yOffset += 10;
       doc.setFontSize(12);
-      disqualifiedCandidates.forEach(name => {
-        doc.text(`- ${name}`, margin + 5, yOffset);
+      disqualifiedCandidates.forEach((name, idx) => {
+        doc.text(`${idx + 1}. ${name}`, margin + 5, yOffset); // Numbered list
         yOffset += 7;
         if (yOffset > doc.internal.pageSize.height - 50) { // Check for page break
             doc.addPage();
@@ -3589,8 +3590,8 @@ async function generatePdfSummary() {
 
     // Signatories (dynamic with lines and assignment)
     if (SIGNATORIES.length > 0) {
-        // Calculate required space for signatories
-        const signatoryBlockHeight = SIGNATORIES.length * 25 + 40; // Approx height for each signatory + buffer (25px = name, pos, assign, space)
+        // Calculate required space for signatories (approx 3 lines per signatory + buffer)
+        const signatoryBlockHeight = SIGNATORIES.length * 25 + 60; // Extra buffer for clause and "Noted by"
 
         // Add a new page if the signatory block doesn't fit on the current page
         if (yOffset + signatoryBlockHeight > doc.internal.pageSize.height - margin) {
@@ -3601,8 +3602,14 @@ async function generatePdfSummary() {
             yOffset = doc.internal.pageSize.height - signatoryBlockHeight;
         }
 
+        // CERTIFYING CLAUSE
+        doc.setFontSize(10);
+        const certifyingClause = "This certifies that the details contained herein have been thoroughly reviewed and validated.";
+        doc.text(certifyingClause, margin, yOffset, { maxWidth: pageWidth - (2 * margin) }); // Use maxWidth for wrapping
+        yOffset += 15; // Space after clause
+
         doc.setFontSize(12);
-        doc.text("Prepared by:", margin, yOffset);
+        doc.text("Noted by:", margin, yOffset); // Changed to "Noted by:"
         yOffset += 10;
 
         const signatureLineStartX = margin + 5;
@@ -3616,7 +3623,7 @@ async function generatePdfSummary() {
             doc.setFontSize(10);
             doc.text(sig.position, signatureLineStartX, yOffset); // Display position
             yOffset += 5; // Space after position
-            doc.text(`Assignment: ${sig.assignment}`, signatureLineStartX, yOffset); // NEW: Display assignment
+            doc.text(sig.assignment, signatureLineStartX, yOffset); // Display assignment (without "Assignment: ")
             yOffset += 15; // Space for next signatory block
         });
     }
@@ -3681,18 +3688,57 @@ function updateSignatoriesTableInModal() {
       <span>
         <strong>${sig.name}</strong><br>
         <em>${sig.position}</em><br>
-        <em>Assignment: ${sig.assignment}</em> </span>
-      <button class="delete-signatory-btn" data-index="${index}">Delete</button>
+        <em>${sig.assignment}</em>
+      </span>
+      <div class="signatory-actions">
+        <button class="move-signatory-up-btn" data-index="${index}" ${index === 0 ? 'disabled' : ''}>↑</button>
+        <button class="move-signatory-down-btn" data-index="${index}" ${index === SIGNATORIES.length - 1 ? 'disabled' : ''}>↓</button>
+        <button class="delete-signatory-btn" data-index="${index}">Delete</button>
+      </div>
     `;
     ul.appendChild(li);
   });
-  // Add event listeners for delete buttons
+
+  // Add event listeners for delete and reorder buttons
   ul.querySelectorAll('.delete-signatory-btn').forEach(button => {
     button.addEventListener('click', (event) => {
       const index = parseInt(event.target.dataset.index);
       deleteSignatory(index);
     });
   });
+
+  ul.querySelectorAll('.move-signatory-up-btn').forEach(button => {
+    button.addEventListener('click', (event) => {
+      const index = parseInt(event.target.dataset.index);
+      moveSignatoryUp(index);
+    });
+  });
+
+  ul.querySelectorAll('.move-signatory-down-btn').forEach(button => {
+    button.addEventListener('click', (event) => {
+      const index = parseInt(event.target.dataset.index);
+      moveSignatoryDown(index);
+    });
+  });
+}
+
+
+async function moveSignatoryUp(index) {
+  if (index > 0) {
+    [SIGNATORIES[index], SIGNATORIES[index - 1]] = [SIGNATORIES[index - 1], SIGNATORIES[index]]; // Swap
+    await saveSignatories();
+    updateSignatoriesTableInModal();
+    showToast('success', 'Success', 'Signatory moved up.');
+  }
+}
+
+async function moveSignatoryDown(index) {
+  if (index < SIGNATORIES.length - 1) {
+    [SIGNATORIES[index], SIGNATORIES[index + 1]] = [SIGNATORIES[index + 1], SIGNATORIES[index]]; // Swap
+    await saveSignatories();
+    updateSignatoriesTableInModal();
+    showToast('success', 'Success', 'Signatory moved down.');
+  }
 }
 
 
