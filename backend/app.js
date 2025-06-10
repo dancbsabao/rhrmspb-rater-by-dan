@@ -43,6 +43,7 @@ app.get('/config', (req, res) => {
     const sheetRanges = process.env.SHEET_RANGES ? JSON.parse(process.env.SHEET_RANGES) : {};
     console.log('Parsed SHEET_RANGES:', sheetRanges);
     sheetRanges.SECRETARIAT_MEMBERS = 'SECRETARIAT_MEMBERS!A:D'; // Add new sheet range
+    sheetRanges.SECRETARIAT_SIGNATORIES = 'SECRETARIAT_MEMBERS!E:F'; // New range for signatories
     res.json({
       CLIENT_ID: process.env.CLIENT_ID || '',
       API_KEY: process.env.API_KEY || '',
