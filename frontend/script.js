@@ -3548,8 +3548,8 @@ async function generatePdfSummary() {
     // Set a professional font (Helvetica is standard and clean)
     doc.setFont("helvetica");
 
-    let yOffset = 10; // Adjusted starting yOffset for narrower margin
-    const margin = 10; // Narrower margin
+    let yOffset = 10; // Starting yOffset
+    const margin = 10;
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     const footerHeight = 15; // Space needed for page number at bottom
@@ -3557,7 +3557,7 @@ async function generatePdfSummary() {
     // Main Title of the Document (VERY TOP)
     doc.setFontSize(15);
     doc.text('SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST', pageWidth / 2, yOffset, { align: 'center' });
-    yOffset += 15; // Increased spacing
+    yOffset += 20; // Increased spacing
 
     // PDF HEADER: POSITION, ASSIGNMENT, ITEM (Aligned like tabs)
     doc.setFontSize(11);
@@ -3571,15 +3571,15 @@ async function generatePdfSummary() {
 
     doc.text(`POSITION:`, margin, yOffset);
     doc.text(`${currentPositionTitle || 'N/A'}`, valueX, yOffset);
-    yOffset += 9; // Increased spacing
+    yOffset += 12; // Increased spacing
 
     doc.text(`ASSIGNMENT:`, margin, yOffset);
     doc.text(`${currentAssignment || 'N/A'}`, valueX, yOffset);
-    yOffset += 9; // Increased spacing
+    yOffset += 12; // Increased spacing
 
     doc.text(`ITEM:`, margin, yOffset);
     doc.text(`${currentItemNumber}`, valueX, yOffset);
-    yOffset += 12; // Increased spacing
+    yOffset += 15; // Increased spacing
 
     // PRESENT DATE AND TIME
     doc.setFontSize(8);
@@ -3590,7 +3590,7 @@ async function generatePdfSummary() {
         hour12: true
     });
     doc.text(`Generated on: ${dateTimeString}`, margin, yOffset);
-    yOffset += 20; // Increased spacing before first list
+    yOffset += 25; // Increased spacing before first list
 
     // Helper function for 2-column lists
     function drawTwoColumnList(title, candidates, currentY, isBoldTitle = true) {
@@ -3603,7 +3603,7 @@ async function generatePdfSummary() {
       doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
       doc.text(title, margin, currentY);
       doc.setFont("helvetica", "normal");
-      currentY += 10; // Increased spacing
+      currentY += 15; // Increased spacing after title
 
       doc.setFontSize(10);
       const colWidth = (pageWidth - (2 * margin) - 10) / 2; // 10pt gutter
@@ -3621,12 +3621,12 @@ async function generatePdfSummary() {
         if (candidates[i + 1]) {
           doc.text(`${i + 2}. ${candidates[i + 1]}`, col2X, currentY);
         }
-        currentY += 8; // Increased line height
+        currentY += 12; // Significantly increased line height for list items
       }
       
-      currentY += 5; // Increased space before breaker
+      currentY += 8; // Increased space before breaker
       doc.text('*** END OF LIST ***', pageWidth / 2, currentY, { align: 'center' });
-      currentY += 15; // Increased space after breaker
+      currentY += 20; // Increased space after breaker
       return currentY;
     }
 
@@ -3639,13 +3639,13 @@ async function generatePdfSummary() {
     if (disqualifiedCandidates.length > 0) {
       yOffset = drawTwoColumnList('DISQUALIFIED CANDIDATES:', disqualifiedCandidates, yOffset);
     } else {
-        yOffset += 10; // A small buffer if there was no disqualified list
+        yOffset += 15; // Increased buffer if no disqualified list
     }
 
     // Signatories (dynamic with lines and assignment) - IMMEDIATELY AFTER LIST
     if (SIGNATORIES.length > 0) {
         // Calculate required space for signatories (approx 3 lines per signatory + buffer)
-        const signatoryBlockHeight = (SIGNATORIES.length / 2) * 35 + 40; // Increased height estimation
+        const signatoryBlockHeight = (SIGNATORIES.length / 2) * 45 + 50; // Increased height estimation
 
         if (yOffset + signatoryBlockHeight > pageHeight - margin - footerHeight) {
             doc.addPage();
@@ -3656,11 +3656,11 @@ async function generatePdfSummary() {
         doc.setFontSize(9);
         const certifyingClause = "This certifies that the details contained herein have been thoroughly reviewed and validated.";
         doc.text(certifyingClause, margin, yOffset, { maxWidth: pageWidth - (2 * margin) });
-        yOffset += 15; // Increased spacing
+        yOffset += 20; // Increased spacing
 
         doc.setFontSize(11);
         doc.text("Noted by:", margin, yOffset);
-        yOffset += 10; // Increased spacing
+        yOffset += 15; // Increased spacing
 
         const signatureLineLength = 70;
         const sigColWidth = (pageWidth - (2 * margin) - 20) / 2; // 20pt gutter
@@ -3688,8 +3688,8 @@ async function generatePdfSummary() {
                 doc.line(lineStartX1, currentSigY + 2, lineStartX1 + signatureLineLength, currentSigY + 2);
                 
                 doc.setFontSize(9);
-                doc.text(sig1.position, sigCol1X, currentSigY + 10, { align: 'center' }); // Adjusted spacing
-                doc.text(sig1.assignment, sigCol1X, currentSigY + 18, { align: 'center' }); // Adjusted spacing
+                doc.text(sig1.position, sigCol1X, currentSigY + 12, { align: 'center' }); // Adjusted spacing
+                doc.text(sig1.assignment, sigCol1X, currentSigY + 25, { align: 'center' }); // Adjusted spacing
             }
 
             // Signatory 2
@@ -3703,15 +3703,15 @@ async function generatePdfSummary() {
                 doc.line(lineStartX2, currentSigY + 2, lineStartX2 + signatureLineLength, currentSigY + 2);
                 
                 doc.setFontSize(9);
-                doc.text(sig2.position, sigCol2X, currentSigY + 10, { align: 'center' }); // Adjusted spacing
-                doc.text(sig2.assignment, sigCol2X, currentSigY + 18, { align: 'center' }); // Adjusted spacing
+                doc.text(sig2.position, sigCol2X, currentSigY + 12, { align: 'center' }); // Adjusted spacing
+                doc.text(sig2.assignment, sigCol2X, currentSigY + 25, { align: 'center' }); // Adjusted spacing
             }
-            currentSigY += 35; // Significantly increased space for next row of signatories
+            currentSigY += 45; // Significantly increased space for next row of signatories
         }
         yOffset = currentSigY;
     }
 
-    // REMOVED: Page numbering loop
+    // Page numbering has been removed as requested.
 
     doc.save(`Summary_${currentItemNumber}.pdf`);
     showToast('success', 'Success', 'PDF generated successfully!');
@@ -3721,7 +3721,6 @@ async function generatePdfSummary() {
     showToast('error', 'Error', 'Failed to generate PDF. Check console for details.');
   }
 }
-
 
 
 async function saveSignatories() {
