@@ -3454,7 +3454,7 @@ async function generatePdfSummary() {
 
   const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
   const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown'); // Corrected variable name
+  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
 
   const currentItemNumber = secretariatItemDropdown?.value;
   const currentAssignment = secretariatAssignmentDropdown?.value;
@@ -3689,7 +3689,7 @@ async function generatePdfSummary() {
 
         doc.setFontSize(11);
         doc.text("Noted by:", margin, yOffset);
-        yOffset += 20; 
+        yOffset += 40; // Adjusted vertical spacing between "Noted by:" and first signatory
 
         const sigColWidth = (pageWidth - (2 * margin) - 40) / 2; 
         const sigCol1X = margin + sigColWidth / 2;
@@ -3784,7 +3784,7 @@ async function generatePdfSummary() {
                 doc.setFont("helvetica", "normal"); // Revert font to normal
             }
             
-            currentSigY += maxSignatoryBlockHeight + 20; 
+            currentSigY += maxSignatoryBlockHeight + 40; // Adjusted vertical spacing between signatory blocks
         }
         yOffset = currentSigY;
     }
