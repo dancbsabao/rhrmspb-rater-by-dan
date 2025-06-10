@@ -1269,9 +1269,12 @@ async function checkDuplicateSubmission(name, itemNumber, action) {
 async function viewComments(name, itemNumber, status, comment) {
     const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
 
-    // Fetch the 'forReview' status to display it accurately
+    // --- Fetch the 'forReview' status to determine the final color-coding ---
     let forReviewStatus = 'No';
+    let statusClass = ''; // This will hold the CSS class for the color
+
     try {
+        // This logic is necessary to get the most up-to-date 'forReview' status
         const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
         const response = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -1297,40 +1300,55 @@ async function viewComments(name, itemNumber, status, comment) {
     } catch (error) {
         console.error("Could not fetch 'for review' status:", error);
     }
+
+    // --- Determine the final status color based on the hierarchy ---
+    if (forReviewStatus === 'Yes') {
+        statusClass = 'review'; // Amber
+    } else if (status === 'DISQUALIFIED') {
+        statusClass = 'disqualified'; // Red
+    } else {
+        statusClass = 'longlisted'; // Green
+    }
     
+    // --- Generate the improved and professionally styled modal content ---
     const modalContent = `
-    <div class="view-comment-modal">
-        <div class="comment-header">
-            <h2 class="candidate-name">${name}</h2>
-            <span class="candidate-status ${status.toLowerCase()}">${status.replace('_', ' ')}</span>
+    <div class="view-comment-modal-professional">
+        
+        <div class="comment-header-professional ${statusClass}">
+            <h2 class="candidate-name-professional">${name}</h2>
+            <span class="candidate-status-professional">
+                ${forReviewStatus === 'Yes' ? 'FOR REVIEW' : status.replace('_', ' ')}
+            </span>
         </div>
-        <div class="comment-grid">
-            <div class="comment-item">
-                <span class="comment-label">Education</span>
-                <p class="comment-value">${education || 'No comment provided.'}</p>
+
+        <div class="comment-grid-professional">
+            
+            <div class="comment-item-professional">
+                <h3 class="comment-title-professional">Education</h3>
+                <p class="comment-text-professional">${education || 'No comment provided.'}</p>
             </div>
-            <div class="comment-item">
-                <span class="comment-label">Training</span>
-                <p class="comment-value">${training || 'No comment provided.'}</p>
+            
+            <div class="comment-item-professional">
+                <h3 class="comment-title-professional">Training</h3>
+                <p class="comment-text-professional">${training || 'No comment provided.'}</p>
             </div>
-            <div class="comment-item">
-                <span class="comment-label">Experience</span>
-                <p class="comment-value">${experience || 'No comment provided.'}</p>
+            
+            <div class="comment-item-professional">
+                <h3 class="comment-title-professional">Experience</h3>
+                <p class="comment-text-professional">${experience || 'No comment provided.'}</p>
             </div>
-            <div class="comment-item">
-                <span class="comment-label">Eligibility</span>
-                <p class="comment-value">${eligibility || 'No comment provided.'}</p>
+            
+            <div class="comment-item-professional">
+                <h3 class="comment-title-professional">Eligibility</h3>
+                <p class="comment-text-professional">${eligibility || 'No comment provided.'}</p>
             </div>
-        </div>
-        <div class="comment-footer">
-            <span class="comment-label">For Review of the Board:</span>
-            <span class="review-status ${forReviewStatus.toLowerCase()}">${forReviewStatus}</span>
+
         </div>
     </div>
     `;
     
-    // Using a generic modal function that doesn't need confirm/cancel actions
-    showModal('View Comments', modalContent, null, null, false);
+    // Display the modal (no confirm/cancel buttons are needed for viewing)
+    showModal('View Candidate Comments', modalContent, null, null, false);
 }
 
 function filterTableByStatus(status, itemNumber) {
