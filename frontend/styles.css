@@ -514,25 +514,27 @@ select:disabled {
 }
 
 /* Modal */
+/* In your styles.css */
 .modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.3s ease;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex; /* Keep this as default */
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    opacity: 0;          /* Keep this */
+    visibility: hidden;  /* Keep this */
+    transition: opacity 0.3s ease, visibility 0.3s ease; /* Add visibility to transition */
 }
 
+/* NEW: Add this class to your styles.css */
 .modal-overlay.active {
-  opacity: 1;
-  visibility: visible;
+    opacity: 1;
+    visibility: visible;
 }
 
 .modal {
