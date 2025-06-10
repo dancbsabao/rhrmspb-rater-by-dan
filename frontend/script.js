@@ -3555,8 +3555,7 @@ async function generatePdfSummary() {
 
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
-    // Note: Footer height is now effectively managed by the generous overall margins.
-
+    
     // Main Title of the Document (VERY TOP)
     doc.setFontSize(15);
     doc.text('SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST', pageWidth / 2, yOffset, { align: 'center' });
@@ -3596,7 +3595,7 @@ async function generatePdfSummary() {
     doc.text(`Generated on: ${dateTimeString}`, margin, yOffset);
     yOffset += 30; // Increased spacing before first list
 
-    // Helper function for 2-column lists
+    // Helper function for 2-column lists with vertical ordering
     function drawTwoColumnList(title, candidates, currentY, isBoldTitle = true) {
       // Check for page break before drawing list title
       if (currentY > pageHeight - margin - 30) { // Check against a reasonable buffer for bottom margin
@@ -3611,28 +3610,45 @@ async function generatePdfSummary() {
       currentY += 20; // Increased spacing after list title
 
       doc.setFontSize(10);
-      const colWidth = (pageWidth - (2 * margin) - 20) / 2; // 20pt gutter for clarity
-      const col1X = margin; // Start from the new margin
-      const col2X = margin + colWidth + 20; // Adjust based on new colWidth and gutter
+      const colWidth = (pageWidth - (2 * margin) - 30) / 2; // 30pt gutter for more separation
+      const col1X = margin; 
+      const col2X = margin + colWidth + 30; // Adjust based on new colWidth and gutter
 
-      for (let i = 0; i < candidates.length; i += 2) {
-        if (currentY > pageHeight - margin - 30) { // Check for page break for each item
+      const halfCount = Math.ceil(candidates.length / 2);
+      let col1CurrentY = currentY;
+      let col2CurrentY = currentY;
+      const listItemLineHeight = 15; // Consistent line height for list items
+
+      // Draw first column (odd-indexed items)
+      for (let i = 0; i < halfCount; i++) {
+        if (col1CurrentY > pageHeight - margin - 30) { 
             doc.addPage();
-            currentY = margin + 5; // Reset yOffset for new page
-            doc.setFontSize(10); // Reset font size
+            col1CurrentY = margin + 5;
+            col2CurrentY = margin + 5; // Reset both columns on new page
+            doc.setFontSize(10);
         }
-        
-        doc.text(`${i + 1}. ${candidates[i]}`, col1X, currentY, { maxWidth: colWidth }); // Add maxWidth to prevent overflow
-        if (candidates[i + 1]) {
-          doc.text(`${i + 2}. ${candidates[i + 1]}`, col2X, currentY, { maxWidth: colWidth }); // Add maxWidth
+        doc.text(`${i + 1}. ${candidates[i]}`, col1X, col1CurrentY, { maxWidth: colWidth });
+        col1CurrentY += listItemLineHeight;
+      }
+
+      // Draw second column (even-indexed items)
+      for (let i = halfCount; i < candidates.length; i++) {
+        if (col2CurrentY > pageHeight - margin - 30) {
+            doc.addPage();
+            col1CurrentY = margin + 5;
+            col2CurrentY = margin + 5; // Reset both columns on new page
+            doc.setFontSize(10);
         }
-        currentY += 15; // Significantly increased line height for list items
+        doc.text(`${i + 1}. ${candidates[i]}`, col2X, col2CurrentY, { maxWidth: colWidth });
+        col2CurrentY += listItemLineHeight;
       }
       
-      currentY += 10; // Increased space before breaker
-      doc.text('*** END OF LIST ***', pageWidth / 2, currentY, { align: 'center' });
-      currentY += 25; // Increased space after breaker
-      return currentY;
+      let finalY = Math.max(col1CurrentY, col2CurrentY); // Use the lowest point of either column
+      
+      finalY += 10; // Increased space before breaker
+      doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
+      finalY += 25; // Increased space after breaker
+      return finalY;
     }
 
     // Long List Candidates
@@ -3650,12 +3666,13 @@ async function generatePdfSummary() {
     // Signatories (dynamic with lines and assignment)
     if (SIGNATORIES.length > 0) {
         // Estimate space needed for signatory block to predict page breaks more accurately
-        const signatoryLineHeight = 30; // Approx space for name, line, position, assignment
-        const signatoryBlockHeight = (Math.ceil(SIGNATORIES.length / 2) * signatoryLineHeight) + 50; // Buffer for clause and "Noted by"
+        // This is a rough estimate; actual height will be calculated dynamically.
+        const avgSignatoryHeightEstimate = 80; // Estimate for a single signatory block including wrapped text and internal padding
+        const totalEstimatedSignatoryHeight = (Math.ceil(SIGNATORIES.length / 2) * avgSignatoryHeightEstimate) + 50; 
 
-        if (yOffset + signatoryBlockHeight > pageHeight - margin) {
+        if (yOffset + totalEstimatedSignatoryHeight > pageHeight - margin) {
             doc.addPage();
-            yOffset = margin + 10; // Reset yOffset for new page, with a bit more top buffer
+            yOffset = margin + 10; 
         }
 
         // CERTIFYING CLAUSE
@@ -3671,19 +3688,39 @@ async function generatePdfSummary() {
         const signatureLineLength = 90; // Increased line length for signatures
         const sigColWidth = (pageWidth - (2 * margin) - 40) / 2; // Increased gutter for more separation
         const sigCol1X = margin + sigColWidth / 2;
-        const sigCol2X = margin + sigColWidth + 40 + sigColWidth / 2; // Adjusted with larger gutter
+        const sigCol2X = margin + sigColWidth + 40 + sigColWidth / 2; 
 
         let currentSigY = yOffset;
-        for (let i = 0; i < SIGNATORIES.length; i += 2) {
-            if (currentSigY > pageHeight - margin - 30) { // Check for page break for each signatory pair
-                doc.addPage();
-                currentSigY = margin + 10; // Reset yOffset for new page
-            }
+        const nameLineGap = 4; // Gap from name to underline
+        const positionLineGap = 18; // Gap from name to position (first line)
+        const assignmentLineGap = 15; // Gap from last line of position to first line of assignment
+        const textLineHeight = 9 * 1.2; // 9pt font size * 1.2 line height multiplier
 
+        for (let i = 0; i < SIGNATORIES.length; i += 2) {
+            // Predict height for this pair to avoid page break mid-block
+            let estimatedHeightForThisPair = 0;
             const sig1 = SIGNATORIES[i];
             const sig2 = SIGNATORIES[i+1];
 
-            // Signatory 1
+            if (sig1) {
+                const posLines1 = doc.splitTextToSize(sig1.position, sigColWidth).length;
+                const assigLines1 = doc.splitTextToSize(sig1.assignment, sigColWidth).length;
+                estimatedHeightForThisPair = Math.max(estimatedHeightForThisPair, 
+                    positionLineGap + (posLines1 * textLineHeight) + assignmentLineGap + (assigLines1 * textLineHeight));
+            }
+            if (sig2) {
+                const posLines2 = doc.splitTextToSize(sig2.position, sigColWidth).length;
+                const assigLines2 = doc.splitTextToSize(sig2.assignment, sigColWidth).length;
+                estimatedHeightForThisPair = Math.max(estimatedHeightForThisPair, 
+                    positionLineGap + (posLines2 * textLineHeight) + assignmentLineGap + (assigLines2 * textLineHeight));
+            }
+
+            if (currentSigY + estimatedHeightForThisPair + 30 > pageHeight - margin) { // Add buffer
+                doc.addPage();
+                currentSigY = margin + 10; 
+            }
+
+            // Draw Signatory 1
             if (sig1) {
                 doc.setFont("helvetica", "bold");
                 doc.setFontSize(11);
@@ -3691,14 +3728,19 @@ async function generatePdfSummary() {
                 doc.setFont("helvetica", "normal");
                 
                 const lineStartX1 = sigCol1X - (signatureLineLength / 2);
-                doc.line(lineStartX1, currentSigY + 4, lineStartX1 + signatureLineLength, currentSigY + 4); // Line adjusted to text
+                doc.line(lineStartX1, currentSigY + nameLineGap, lineStartX1 + signatureLineLength, currentSigY + nameLineGap);
                 
                 doc.setFontSize(9);
-                doc.text(sig1.position, sigCol1X, currentSigY + 18, { align: 'center', maxWidth: sigColWidth }); // Increased spacing
-                doc.text(sig1.assignment, sigCol1X, currentSigY + 33, { align: 'center', maxWidth: sigColWidth }); // Increased spacing
+                const positionLines1 = doc.splitTextToSize(sig1.position, sigColWidth);
+                let currentSig1Y = currentSigY + positionLineGap;
+                doc.text(positionLines1, sigCol1X, currentSig1Y, { align: 'center' });
+                currentSig1Y += (positionLines1.length * textLineHeight) + assignmentLineGap;
+
+                const assignmentLines1 = doc.splitTextToSize(sig1.assignment, sigColWidth);
+                doc.text(assignmentLines1, sigCol1X, currentSig1Y, { align: 'center' });
             }
 
-            // Signatory 2
+            // Draw Signatory 2
             if (sig2) {
                 doc.setFont("helvetica", "bold");
                 doc.setFontSize(11);
@@ -3706,18 +3748,23 @@ async function generatePdfSummary() {
                 doc.setFont("helvetica", "normal");
                 
                 const lineStartX2 = sigCol2X - (signatureLineLength / 2);
-                doc.line(lineStartX2, currentSigY + 4, lineStartX2 + signatureLineLength, currentSigY + 4); // Line adjusted to text
+                doc.line(lineStartX2, currentSigY + nameLineGap, lineStartX2 + signatureLineLength, currentSigY + nameLineGap);
                 
                 doc.setFontSize(9);
-                doc.text(sig2.position, sigCol2X, currentSigY + 18, { align: 'center', maxWidth: sigColWidth }); // Increased spacing
-                doc.text(sig2.assignment, sigCol2X, currentSigY + 33, { align: 'center', maxWidth: sigColWidth }); // Increased spacing
+                const positionLines2 = doc.splitTextToSize(sig2.position, sigColWidth);
+                let currentSig2Y = currentSigY + positionLineGap;
+                doc.text(positionLines2, sigCol2X, currentSig2Y, { align: 'center' });
+                currentSig2Y += (positionLines2.length * textLineHeight) + assignmentLineGap;
+
+                const assignmentLines2 = doc.splitTextToSize(sig2.assignment, sigColWidth);
+                doc.text(assignmentLines2, sigCol2X, currentSig2Y, { align: 'center' });
             }
-            currentSigY += 60; // Very significantly increased space for next row of signatories
+            
+            // Advance Y for the next pair of signatories based on the tallest signatory in the current row
+            currentSigY += estimatedHeightForThisPair + 20; // Add extra buffer between rows
         }
         yOffset = currentSigY;
     }
-
-    // Page numbering has been permanently removed.
 
     doc.save(`Summary_${currentItemNumber}.pdf`);
     showToast('success', 'Success', 'PDF generated successfully!');
