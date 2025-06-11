@@ -943,7 +943,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <td>
           ${comment ? `
             <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
-            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
+            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}', '${sex}')">Edit</button>
           ` : 'No comments yet'}
         </td>
         <td>
@@ -962,24 +962,24 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
 }
 
 
-async function handlePostComment(button) {
-  const name = button.dataset.name;
-  const itemNumber = button.dataset.item;
-  const sex = button.dataset.sex;
+async function handlePostComment(button, preFilledData = {}) {
+  const name = preFilledData.name || button.dataset.name;
+  const itemNumber = preFilledData.item || button.dataset.item;
+  const sex = preFilledData.sex || button.dataset.sex;
 
   const modalContent = `
     <div class="modal-body">
       <p>Please enter comments for ${name}:</p>
       <label for="educationComment">Education:</label>
-      <input type="text" id="educationComment" class="modal-input">
+      <input type="text" id="educationComment" class="modal-input" value="${preFilledData.education || ''}">
       <label for="trainingComment">Training:</label>
-      <input type="text" id="trainingComment" class="modal-input">
+      <input type="text" id="trainingComment" class="modal-input" value="${preFilledData.training || ''}">
       <label for="experienceComment">Experience:</label>
-      <input type="text" id="experienceComment" class="modal-input">
+      <input type="text" id="experienceComment" class="modal-input" value="${preFilledData.experience || ''}">
       <label for="eligibilityComment">Eligibility:</label>
-      <input type="text" id="eligibilityComment" class="modal-input">
+      <input type="text" id="eligibilityComment" class="modal-input" value="${preFilledData.eligibility || ''}">
       <div class="modal-checkbox">
-        <input type="checkbox" id="forReviewCheckbox">
+        <input type="checkbox" id="forReviewCheckbox" ${preFilledData.forReview ? 'checked' : ''}>
         <label for="forReviewCheckbox">For Review of the Board</label>
       </div>
     </div>
@@ -1029,8 +1029,9 @@ async function handlePostComment(button) {
   }
 }
 
+
 // A new helper function to show a modal and get input values back
-function showModalWithInputs(title, contentHTML, onConfirmCallback) {
+function showModalWithInputs(title, contentHTML, onConfirmCallback, customFooter = false) {
   return new Promise((resolve) => {
     let modalOverlay = document.getElementById('modalOverlay');
     if (!modalOverlay) {
@@ -1045,8 +1046,7 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback) {
         <div class="modal-header"><h3 class="modal-title">${title}</h3><span class="modal-close">×</span></div>
         <div class="modal-content">${contentHTML}</div>
         <div class="modal-actions">
-          <button class="modal-cancel">Cancel</button>
-          <button class="modal-confirm">Confirm</button>
+          ${customFooter ? '' : '<button class="modal-cancel">Cancel</button><button class="modal-confirm">Confirm</button>'}
         </div>
       </div>
     `;
@@ -1061,14 +1061,27 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback) {
       resolve(result);
     };
 
-    confirmBtn.onclick = () => {
-      const result = onConfirmCallback();
-      if (result !== null) { // Allow callback to prevent closing
-        closeHandler(result);
-      }
-    };
-    cancelBtn.onclick = () => closeHandler(false);
-    closeBtn.onclick = () => closeHandler(false);
+    if (confirmBtn) { // These buttons might not exist if customFooter is true
+      confirmBtn.onclick = () => {
+        const result = onConfirmCallback();
+        if (result !== null) { // Allow callback to prevent closing
+          closeHandler(result);
+        }
+      };
+    }
+    if (cancelBtn) {
+      cancelBtn.onclick = () => closeHandler(false);
+    }
+    if (closeBtn) {
+      closeBtn.onclick = () => closeHandler(false);
+    }
+
+    // If customFooter is true, the resolver needs to be triggered by manually added buttons
+    if (customFooter) {
+        // Expose resolve to the global scope or pass it to dynamically added buttons' event listeners
+        // This is a simplified approach, in a larger app you might use event delegation or more robust patterns
+        window.resolveModalPromise = resolve; 
+    }
   });
 }
 
@@ -1405,115 +1418,128 @@ function filterTableByStatus(status, itemNumber) {
 
 
 
-async function editComments(name, itemNumber, status, comment) {
-    console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
+async function editComments(name, itemNumber, status, comment, sex) {
+  console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
 
-    const operationId = `${name}|${itemNumber}|${status}`;
-    if (activeCommentModalOperations.has(operationId)) {
-        console.log(`DEBUG: editComments: Operation for ${name} is already active. Aborting duplicate call.`);
-        return;
-    }
-    activeCommentModalOperations.add(operationId);
+  const operationId = `${name}|${itemNumber}|${status}`;
+  if (activeCommentModalOperations.has(operationId)) {
+      console.log(`DEBUG: editComments: Operation for ${name} is already active. Aborting duplicate call.`);
+      return;
+  }
+  activeCommentModalOperations.add(operationId);
 
-    try {
-        // --- 1. Fetch current 'forReview' status ---
-        const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
-        const response = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: sheetNameToFetch,
-        });
-        const values = response.result.values || [];
-        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-        const normalizedItemNumber = itemNumber.trim();
-        
-        let existingForReview = false;
-        const rowIndex = values.slice(1).findIndex(row => {
-            const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-            const rowItem = row[1]?.trim();
-            const memberIdCol = status === 'CANDIDATES' ? 16 : 4;
-            return rowName === normalizedName && rowItem === normalizedItemNumber && row[memberIdCol]?.toString() === secretariatMemberId;
-        });
+  try {
+      // --- 1. Fetch current 'forReview' status ---
+      const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: sheetNameToFetch,
+      });
+      const values = response.result.values || [];
+      const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+      const normalizedItemNumber = itemNumber.trim();
+      
+      let existingForReview = false;
+      const rowIndex = values.slice(1).findIndex(row => {
+          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+          const rowItem = row[1]?.trim();
+          const memberIdCol = status === 'CANDIDATES' ? 16 : 4;
+          return rowName === normalizedName && rowItem === normalizedItemNumber && row[memberIdCol]?.toString() === secretariatMemberId;
+      });
 
-        if (rowIndex !== -1) {
-            const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
-            existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
-        }
+      if (rowIndex !== -1) {
+          const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
+          existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
+      }
 
-        // --- 2. Prepare Modal Content with the Checkbox ---
-        const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
-        const modalContent = `
-            <div class="modal-body">
-                <p>Edit comments for ${name} (${status}):</p>
-                <label for="educationComment">Education:</label>
-                <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
-                <label for="trainingComment">Training:</label>
-                <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
-                <label for="experienceComment">Experience:</label>
-                <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
-                <label for="eligibilityComment">Eligibility:</label>
-                <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
-                <div class="modal-checkbox" style="margin-top: 15px;">
-                  <input type="checkbox" id="forReviewCheckbox" ${existingForReview ? 'checked' : ''}>
-                  <label for="forReviewCheckbox">For Review of the Board</label>
-                </div>
-            </div>
-        `;
+      // --- 2. Prepare Modal Content with the Checkbox ---
+      const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+      const modalContent = `
+          <div class="modal-body">
+              <p>Edit comments for ${name} (${status}):</p>
+              <label for="editEducationComment">Education:</label>
+              <input type="text" id="editEducationComment" class="modal-input" value="${education || ''}">
+              <label for="editTrainingComment">Training:</label>
+              <input type="text" id="editTrainingComment" class="modal-input" value="${training || ''}">
+              <label for="editExperienceComment">Experience:</label>
+              <input type="text" id="editExperienceComment" class="modal-input" value="${experience || ''}">
+              <label for="editEligibilityComment">Eligibility:</label>
+              <input type="text" id="editEligibilityComment" class="modal-input" value="${eligibility || ''}">
+              <div class="modal-checkbox" style="margin-top: 15px;">
+                <input type="checkbox" id="editForReviewCheckbox" ${existingForReview ? 'checked' : ''}>
+                <label for="editForReviewCheckbox">For Review of the Board</label>
+              </div>
+          </div>
+      `;
 
-        // --- 3. Show Modal and Await User Input ---
-        const commentResult = await showModalWithInputs(
-            `Edit Comments (${status})`,
-            modalContent,
-            () => {
-                const education = document.getElementById('educationComment').value.trim();
-                const training = document.getElementById('trainingComment').value.trim();
-                const experience = document.getElementById('experienceComment').value.trim();
-                const eligibility = document.getElementById('eligibilityComment').value.trim();
-                const forReview = document.getElementById('forReviewCheckbox').checked;
-                return { education, training, experience, eligibility, forReview };
-            }
-        );
+      // --- 3. Show Modal and Await User Input ---
+      // Use showModalWithInputs which returns a promise with the result of the confirm callback
+      await showModalWithInputs(
+        `Edit Comments (${status})`,
+        modalContent,
+        () => {
+          // On confirm, return the edited values (if direct editing was allowed)
+          const editedEducation = document.getElementById('editEducationComment').value.trim();
+          const editedTraining = document.getElementById('editTrainingComment').value.trim();
+          const editedExperience = document.getElementById('editExperienceComment').value.trim();
+          const editedEligibility = document.getElementById('editEligibilityComment').value.trim();
+          const editedForReview = document.getElementById('editForReviewCheckbox').checked;
+          
+          // This return value is captured if a "Confirm" button was pressed on this modal.
+          // We will handle the "Change Action" button separately.
+          return {
+            education: editedEducation,
+            training: editedTraining,
+            experience: editedExperience,
+            eligibility: editedEligibility,
+            forReview: editedForReview
+          };
+        },
+        // Custom actions for the modal, specifically for the "Change Action" button
+        true // Pass true to indicate that we need a custom footer
+      );
 
-        if (!commentResult) {
-            showToast('info', 'Canceled', 'Comment update was canceled.');
-            return;
-        }
-        
-        const newComment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
+      // Manually add the "Change Action" button to the modal after it's rendered by showModalWithInputs
+      const modalOverlay = document.getElementById('modalOverlay');
+      if (modalOverlay) {
+        const modalActions = modalOverlay.querySelector('.modal-actions');
+        if (modalActions) {
+          const changeActionButton = document.createElement('button');
+          changeActionButton.className = 'modal-btn';
+          changeActionButton.textContent = 'Change Action';
+          changeActionButton.onclick = async () => {
+            const currentEducation = document.getElementById('editEducationComment').value.trim();
+            const currentTraining = document.getElementById('editTrainingComment').value.trim();
+            const currentExperience = document.getElementById('editExperienceComment').value.trim();
+            const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
+            const currentForReview = document.getElementById('editForReviewCheckbox').checked;
 
-        // --- 4. Update Google Sheet ---
-        if (rowIndex !== -1) {
-            const sheetRowIndex = rowIndex + 2; // +1 for 0-based index, +1 for header row
-            let rangeToUpdate, valuesToUpdate;
+            // Close the edit modal
+            modalOverlay.classList.remove('active');
 
-            if (status === 'CANDIDATES') {
-                rangeToUpdate = `CANDIDATES!R${sheetRowIndex}:S${sheetRowIndex}`;
-                valuesToUpdate = [[newComment, commentResult.forReview]];
-            } else { // DISQUALIFIED
-                rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
-                // Note the empty value for column E (Secretariat Member ID) which we are not changing
-                valuesToUpdate = [[newComment, , commentResult.forReview]];
-            }
-            
-            await gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID,
-                range: rangeToUpdate,
-                valueInputOption: 'RAW',
-                resource: { values: valuesToUpdate },
+            // Call handlePostComment with pre-filled data
+            await handlePostComment(null, { // Pass null for button as it's not a direct button click
+              name: name, // Pass name, itemNumber, sex as well
+              item: itemNumber,
+              sex: sex,
+              education: currentEducation,
+              training: currentTraining,
+              experience: currentExperience,
+              eligibility: currentEligibility,
+              forReview: currentForReview
             });
-
-            showToast('success', 'Success', 'Comments updated successfully!');
-            fetchSecretariatCandidates(itemNumber); // Refresh UI
-        } else {
-            showToast('error', 'Error', 'Could not find the original record to update.');
+          };
+          modalActions.prepend(changeActionButton); // Add to the left of existing buttons
         }
+      }
 
-    } catch (error) {
-        console.error('DEBUG: CRITICAL ERROR caught during editComments:', error);
-        showToast('error', 'Update Failed', `Failed to update comments: ${error.message}`);
-    } finally {
-        activeCommentModalOperations.delete(operationId);
-        console.log(`DEBUG: Exiting editComments. Operation ${operationId} cleared.`);
-    }
+  } catch (error) {
+      console.error('DEBUG: CRITICAL ERROR caught during editComments:', error);
+      showToast('error', 'Update Failed', `Failed to update comments: ${error.message}`);
+  } finally {
+      activeCommentModalOperations.delete(operationId);
+      console.log(`DEBUG: Exiting editComments. Operation ${operationId} cleared.`);
+  }
 }
 
 
