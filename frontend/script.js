@@ -3551,36 +3551,42 @@ async function generatePdfSummary() {
     doc.setFont("helvetica");
 
     // --- IMPORTANT MARGIN AND INITIAL Y-OFFSET ADJUSTMENTS ---
-    let yOffset = 80; // Adjusted starting yOffset for bigger top margin
-    const margin = 50; // Significantly increased margin for all sides
+    // Start yOffset for the logo near the top, allowing some margin
+    let yOffset = 20; 
+    const margin = 50; 
     // --- END MARGIN ADJUSTMENTS ---
-
+    
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     
-    // --- START: New Header Text and Logo Placeholder ---
-    // Placeholder for Logo (Cannot add directly without image data)
-    // To add the logo, you would use:
-    // doc.addImage(imageData, 'PNG', x, y, width, height);
-    // For example: doc.addImage(base64ImageData, 'PNG', (pageWidth - 100) / 2, 20, 100, 100);
-    // However, I cannot directly fetch image data from the provided URL or local file system.
-
+    // --- START: Logo and New Header Text ---
+    // Add the logo
+    const logoWidth = 100; // Based on your index.html
+    const logoHeight = 100; // Based on your index.html
+    const logoX = (pageWidth - logoWidth) / 2; // Center the logo horizontally
+    const logoY = yOffset; // Place logo at current yOffset
+    
+    doc.addImage(base64Logo, 'PNG', logoX, logoY, logoWidth, logoHeight);
+    
+    // Adjust yOffset for the text headers to start after the logo
+    yOffset = logoY + logoHeight + 10; // Logo bottom + 10pt padding
+    
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.text('DEPARTMENT OF ENVIRONMENT AND NATURAL RESOURCES (CALABARZON)', pageWidth / 2, yOffset, { align: 'center' });
     yOffset += 15; // Spacing after first new header line
-
+    
     doc.setFontSize(10);
     doc.text('REGIONAL HUMAN RESOURCE SELECTION AND PROMOTION BOARD', pageWidth / 2, yOffset, { align: 'center' });
     yOffset += 25; // Spacing before the main title
-
+    
     // Main Title of the Document
     doc.setFontSize(15);
     doc.setFont("helvetica", "bold"); // Set header title to bold
     doc.text('SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST', pageWidth / 2, yOffset, { align: 'center' });
     doc.setFont("helvetica", "normal"); // Revert font after title
     yOffset += 30; // Increased spacing after title block
-    // --- END: New Header Text and Logo Placeholder ---
+    // --- END: Logo and New Header Text ---
 
 
     // PDF HEADER: POSITION, ASSIGNMENT, ITEM (Aligned like tabs)
