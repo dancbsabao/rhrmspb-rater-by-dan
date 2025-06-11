@@ -3560,16 +3560,17 @@ async function generatePdfSummary() {
     const pageHeight = doc.internal.pageSize.height;
     
     // --- START: Logo and New Header Text ---
-    // Add the logo
-    const logoWidth = 100; // Based on your index.html
-    const logoHeight = 100; // Based on your index.html
-    const logoX = (pageWidth - logoWidth) / 2; // Center the logo horizontally
-    const logoY = yOffset; // Place logo at current yOffset
+    // Add the logo with adjusted size
+    const logoWidth = 60;   // Reduced logo width for better fit (e.g., 60 points)
+    const logoHeight = 60;  // Reduced logo height for better fit (e.g., 60 points)
+    const logoX = (pageWidth - logoWidth) / 2; // Keep centered horizontally
+    const logoY = yOffset; // Place logo at current yOffset (still 20pt from top)
     
-    doc.addImage(base64Logo, 'PNG', logoX, logoY, logoWidth, logoHeight);
-    
-    // Adjust yOffset for the text headers to start after the logo
-    yOffset = logoY + logoHeight + 10; // Logo bottom + 10pt padding
+    doc.addImage(base60Logo, 'PNG', logoX, logoY, logoWidth, logoHeight);
+
+    // Adjust yOffset for the text headers to start after the logo with more spacing
+    yOffset = logoY + logoHeight + 15; // Logo bottom + 15pt padding (increased for more space)
+    // The 'DEPARTMENT OF ENVIRONMENT...' text will now start from this new yOffset.
     
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
