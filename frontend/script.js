@@ -4078,7 +4078,17 @@ async function deleteSignatory(index) {
 }
 
 
-
+function hideModal(modalOverlay) {
+    if (modalOverlay) {
+        modalOverlay.classList.remove('active');
+        // Add a small delay to allow the fade-out transition to complete
+        setTimeout(() => {
+            if (modalOverlay.parentNode) {
+                modalOverlay.parentNode.removeChild(modalOverlay);
+            }
+        }, 300); // This delay should match your CSS transition duration for .modal-overlay.active opacity
+    }
+}
 
 
 
