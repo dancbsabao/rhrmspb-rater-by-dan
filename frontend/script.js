@@ -3708,76 +3708,94 @@ async function generatePdfSummary() {
     yOffset += 30; // Increased spacing before first list
 
     // Helper function for 2-column lists with vertical ordering - FIXED VERSION
-function drawTwoColumnList(title, candidates, currentY, isBoldTitle = true) {
-    // Check for page break before drawing list title
-    if (currentY > pageHeight - margin - 30) { 
-        doc.addPage();
-        currentY = margin + 5; 
-    }
-  
-    doc.setFontSize(13);
-    doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
-    doc.text(title, margin, currentY);
-    doc.setFont("helvetica", "normal");
-    currentY += 20; // Increased spacing after list title
-  
-    doc.setFontSize(10);
-    const colWidth = (pageWidth - (2 * margin) - 30) / 2; // 30pt gutter for more separation
-    const col1X = margin; 
-    const col2X = margin + colWidth + 30; 
-  
-    const halfCount = Math.ceil(candidates.length / 2);
-    let col1CurrentY = currentY;
-    let col2CurrentY = currentY;
-    const baseLineHeight = 15; // Base line height for single line items
-  
-    // Draw first column (items 1, 3, 5...)
-    for (let i = 0; i < halfCount; i++) {
-      if (col1CurrentY > pageHeight - margin - 50) { // Increased margin check
+    function drawTwoColumnList(title, candidates, currentY, isBoldTitle = true) {
+      // Check for page break before drawing list title
+      if (currentY > pageHeight - margin - 30) { 
           doc.addPage();
-          col1CurrentY = margin + 5;
-          col2CurrentY = margin + 5; // Reset both columns on new page
-          doc.setFontSize(10);
+          currentY = margin + 5; 
+      }
+    
+      doc.setFontSize(13);
+      doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
+      doc.text(title, margin, currentY);
+      doc.setFont("helvetica", "normal");
+      currentY += 20; // Increased spacing after list title
+    
+      doc.setFontSize(10);
+      const colWidth = (pageWidth - (2 * margin) - 30) / 2; // 30pt gutter for more separation
+      const col1X = margin; 
+      const col2X = margin + colWidth + 30; 
+    
+      const halfCount = Math.ceil(candidates.length / 2);
+      let col1CurrentY = currentY;
+      let col2CurrentY = currentY;
+      const baseLineHeight = 15; // Base line height for single line items
+    
+      // Draw first column (items 1, 3, 5...)
+      for (let i = 0; i < halfCount; i++) {
+        if (col1CurrentY > pageHeight - margin - 50) { // Increased margin check
+            doc.addPage();
+            col1CurrentY = margin + 5;
+            col2CurrentY = margin + 5; // Reset both columns on new page
+            doc.setFontSize(10);
+        }
+        
+        const itemNumber = `${i + 1}. `;
+        const candidateName = candidates[i];
+        const nameLines = doc.splitTextToSize(candidateName, colWidth - doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor);
+        
+        // Calculate indent for continuation lines (width of number + ". ")
+        const indentWidth = doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor;
+        
+        // Draw first line with number
+        doc.text(`${itemNumber}${nameLines[0]}`, col1X, col1CurrentY);
+        
+        // Draw continuation lines with indent
+        for (let lineIndex = 1; lineIndex < nameLines.length; lineIndex++) {
+          col1CurrentY += doc.getFontSize() * 1.2;
+          doc.text(nameLines[lineIndex], col1X + indentWidth, col1CurrentY);
+        }
+        
+        // Move to next item position
+        col1CurrentY += doc.getFontSize() * 1.2 + 2; // Base line height + padding
+      }
+    
+      // Draw second column (items 2, 4, 6...)
+      for (let i = halfCount; i < candidates.length; i++) {
+        if (col2CurrentY > pageHeight - margin - 50) { // Increased margin check
+            doc.addPage();
+            col1CurrentY = margin + 5;
+            col2CurrentY = margin + 5; // Reset both columns on new page
+            doc.setFontSize(10);
+        }
+        
+        const itemNumber = `${i + 1}. `;
+        const candidateName = candidates[i];
+        const nameLines = doc.splitTextToSize(candidateName, colWidth - doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor);
+        
+        // Calculate indent for continuation lines (width of number + ". ")
+        const indentWidth = doc.getStringUnitWidth(itemNumber) * doc.getFontSize() / doc.internal.scaleFactor;
+        
+        // Draw first line with number
+        doc.text(`${itemNumber}${nameLines[0]}`, col2X, col2CurrentY);
+        
+        // Draw continuation lines with indent
+        for (let lineIndex = 1; lineIndex < nameLines.length; lineIndex++) {
+          col2CurrentY += doc.getFontSize() * 1.2;
+          doc.text(nameLines[lineIndex], col2X + indentWidth, col2CurrentY);
+        }
+        
+        // Move to next item position
+        col2CurrentY += doc.getFontSize() * 1.2 + 2; // Base line height + padding
       }
       
-      const itemText = `${i + 1}. ${candidates[i]}`;
-      const textLines = doc.splitTextToSize(itemText, colWidth);
+      let finalY = Math.max(col1CurrentY, col2CurrentY); // Use the lowest point of either column
       
-      // Draw the text (can be multiple lines)
-      doc.text(textLines, col1X, col1CurrentY, { maxWidth: colWidth });
-      
-      // Calculate actual height used by this item
-      const actualItemHeight = textLines.length * (doc.getFontSize() * 1.2); // 1.2 is line height multiplier
-      col1CurrentY += Math.max(actualItemHeight, baseLineHeight) + 2; // Add small padding between items
+      finalY += 10; // Increased space before breaker
+      doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
+      finalY += 25; // Increased space after breaker
+      return finalY;
     }
-  
-    // Draw second column (items 2, 4, 6...)
-    for (let i = halfCount; i < candidates.length; i++) {
-      if (col2CurrentY > pageHeight - margin - 50) { // Increased margin check
-          doc.addPage();
-          col1CurrentY = margin + 5;
-          col2CurrentY = margin + 5; // Reset both columns on new page
-          doc.setFontSize(10);
-      }
-      
-      const itemText = `${i + 1}. ${candidates[i]}`;
-      const textLines = doc.splitTextToSize(itemText, colWidth);
-      
-      // Draw the text (can be multiple lines)
-      doc.text(textLines, col2X, col2CurrentY, { maxWidth: colWidth });
-      
-      // Calculate actual height used by this item
-      const actualItemHeight = textLines.length * (doc.getFontSize() * 1.2); // 1.2 is line height multiplier
-      col2CurrentY += Math.max(actualItemHeight, baseLineHeight) + 2; // Add small padding between items
-    }
-    
-    let finalY = Math.max(col1CurrentY, col2CurrentY); // Use the lowest point of either column
-    
-    finalY += 10; // Increased space before breaker
-    doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
-    finalY += 25; // Increased space after breaker
-    return finalY;
-  }
 
     // Long List Candidates
     if (longListCandidates.length > 0) {
