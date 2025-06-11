@@ -1040,33 +1040,37 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback, customFooter
       document.body.appendChild(modalOverlay);
     }
 
-    modalOverlay.innerHTML = `
-      <div class="modal">
+    // Always create a new modal structure for clarity and to avoid old event listeners
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
         <div class="modal-header"><h3 class="modal-title">${title}</h3><span class="modal-close">×</span></div>
         <div class="modal-content">${contentHTML}</div>
         <div class="modal-actions">
           ${customFooter ? '' : '<button class="modal-cancel">Cancel</button><button class="modal-confirm">Confirm</button>'}
         </div>
-      </div>
     `;
+    // Clear previous content and append the new modal
+    modalOverlay.innerHTML = ''; 
+    modalOverlay.appendChild(modal);
     modalOverlay.classList.add('active');
 
-    const confirmBtn = modalOverlay.querySelector('.modal-confirm');
-    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
-    const closeBtn = modalOverlay.querySelector('.modal-close');
+    const confirmBtn = modal.querySelector('.modal-confirm');
+    const cancelBtn = modal.querySelector('.modal-cancel');
+    const closeBtn = modal.querySelector('.modal-close');
 
     const closeHandler = (result) => {
       modalOverlay.classList.remove('active');
-      resolve(result);
+      resolve({result: result, modalElement: modal}); // Resolve with the result and the modal element
     };
 
     if (confirmBtn) { // These buttons might not exist if customFooter is true
-      confirmBtn.onclick = () => {
-        const result = onConfirmCallback();
+      confirmBtn.onclick = async () => { // Make async to await onConfirmCallback if it's async
+        const callbackResult = await onConfirmCallback();
         // Only close if the callback explicitly returns true or a non-null/non-false value
         // or if it doesn't return anything (implies success)
-        if (result === true || result === undefined || (result !== null && result !== false)) {
-          closeHandler(result);
+        if (callbackResult === true || callbackResult === undefined || (callbackResult !== null && callbackResult !== false)) {
+          closeHandler(callbackResult);
         }
       };
     }
@@ -1467,8 +1471,8 @@ async function editComments(name, itemNumber, status, comment, sex) {
       `;
 
       // --- 3. Show Modal and Await User Input ---
-      // We are no longer setting customFooter to true here, so it will render default buttons.
-      const commentResult = await showModalWithInputs(
+      // showModalWithInputs now returns an object including the result and the modalElement
+      const { result: commentResult, modalElement } = await showModalWithInputs(
         `Edit Comments (${status})`,
         modalContent,
         async () => { // onConfirm callback
@@ -1509,9 +1513,8 @@ async function editComments(name, itemNumber, status, comment, sex) {
       );
 
       // Now, dynamically add the "Change Action" button to the existing modal footer
-      const modalOverlay = document.getElementById('modalOverlay');
-      if (modalOverlay) {
-          const modalActions = modalOverlay.querySelector('.modal-actions');
+      if (modalElement) { // Use the returned modal element
+          const modalActions = modalElement.querySelector('.modal-actions');
           if (modalActions) {
               const changeActionButton = document.createElement('button');
               changeActionButton.className = 'modal-btn';
@@ -1524,8 +1527,11 @@ async function editComments(name, itemNumber, status, comment, sex) {
                   const currentForReview = document.getElementById('editForReviewCheckbox').checked;
 
                   // Manually close the current edit modal before opening the next
-                  modalOverlay.classList.remove('active');
-
+                  const modalOverlay = document.getElementById('modalOverlay'); // Get the overlay to hide it
+                  if(modalOverlay) {
+                    modalOverlay.classList.remove('active');
+                  }
+                  
                   await handlePostComment(null, { // Pass null for button as it's not a direct button click
                       name: name,
                       item: itemNumber,
@@ -1541,7 +1547,7 @@ async function editComments(name, itemNumber, status, comment, sex) {
           }
       }
 
-      if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked
+      if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked on the edit modal
         showToast('info', 'Canceled', 'Comment update was canceled.');
       }
 
