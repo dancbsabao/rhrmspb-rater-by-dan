@@ -943,7 +943,7 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
         <td>
           ${comment ? `
             <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
-            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}', '${sex}')">Edit</button>
+            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
           ` : 'No comments yet'}
         </td>
         <td>
@@ -962,24 +962,24 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
 }
 
 
-async function handlePostComment(button, preFilledData = {}) { // Added preFilledData parameter for consistency
-  const name = preFilledData.name || button.dataset.name;
-  const itemNumber = preFilledData.item || button.dataset.item;
-  const sex = preFilledData.sex || button.dataset.sex;
+async function handlePostComment(button) {
+  const name = button.dataset.name;
+  const itemNumber = button.dataset.item;
+  const sex = button.dataset.sex;
 
   const modalContent = `
     <div class="modal-body">
       <p>Please enter comments for ${name}:</p>
       <label for="educationComment">Education:</label>
-      <input type="text" id="educationComment" class="modal-input" value="${preFilledData.education || ''}">
+      <input type="text" id="educationComment" class="modal-input">
       <label for="trainingComment">Training:</label>
-      <input type="text" id="trainingComment" class="modal-input" value="${preFilledData.training || ''}">
+      <input type="text" id="trainingComment" class="modal-input">
       <label for="experienceComment">Experience:</label>
-      <input type="text" id="text" id="experienceComment" class="modal-input" value="${preFilledData.experience || ''}">
+      <input type="text" id="experienceComment" class="modal-input">
       <label for="eligibilityComment">Eligibility:</label>
-      <input type="text" id="eligibilityComment" class="modal-input" value="${preFilledData.eligibility || ''}">
+      <input type="text" id="eligibilityComment" class="modal-input">
       <div class="modal-checkbox">
-        <input type="checkbox" id="forReviewCheckbox" ${preFilledData.forReview ? 'checked' : ''}>
+        <input type="checkbox" id="forReviewCheckbox">
         <label for="forReviewCheckbox">For Review of the Board</label>
       </div>
     </div>
@@ -987,9 +987,9 @@ async function handlePostComment(button, preFilledData = {}) { // Added preFille
 
   // Use a modified showModal or a custom one that can return complex objects
   const commentResult = await showModalWithInputs(
-    'Post a Comment', // modalId (now interpreted as title)
-    modalContent,     // HTML string (now correctly accepted as htmlContent)
-    () => { // onConfirm callback (now correctly processed)
+    'Post a Comment',
+    modalContent,
+    () => { // onConfirm callback
       const education = document.getElementById('educationComment').value.trim();
       const training = document.getElementById('trainingComment').value.trim();
       const experience = document.getElementById('experienceComment').value.trim();
@@ -998,9 +998,9 @@ async function handlePostComment(button, preFilledData = {}) { // Added preFille
 
       if (!education || !training || !experience || !eligibility) {
         showToast('error', 'Error', 'All comment fields are required.');
-        return null; // Prevent modal from closing on validation failure
+        return null; // Prevent modal from closing
       }
-      return { education, training, experience, eligibility, forReview }; // Return the values
+      return { education, training, experience, eligibility, forReview };
     }
   );
 
@@ -1029,115 +1029,47 @@ async function handlePostComment(button, preFilledData = {}) { // Added preFille
   }
 }
 
-
 // A new helper function to show a modal and get input values back
-async function showModalWithInputs(
-    modalId, title, htmlContent, confirmText, cancelText,
-    onConfirm, onCancel, closeOnConfirm = true, customActionButtons = []
-) {
-    return new Promise(resolve => { // Wrap the entire modal logic in a Promise
-        const existingModalOverlay = document.getElementById('modalOverlay');
-        if (existingModalOverlay) {
-            existingModalOverlay.remove(); // Remove any existing overlay
-        }
-
-        const modalOverlay = document.createElement('div');
-        modalOverlay.id = 'modalOverlay'; // Keep a consistent ID for removal
-        modalOverlay.className = 'modal-overlay';
-
-        const modal = document.createElement('div');
-        modal.className = 'modal';
-
-        const modalHeader = document.createElement('div');
-        modalHeader.className = 'modal-header';
-        modalHeader.innerHTML = `
-            <h3 class="modal-title">${title}</h3>
-            <span class="modal-close">×</span>
-        `;
-        modal.appendChild(modalHeader);
-
-        const modalContentElement = document.createElement('div');
-        modalContentElement.className = 'modal-content';
-        modalContentElement.innerHTML = htmlContent; // Directly inject the HTML content
-        modal.appendChild(modalContentElement);
-
-        const modalActions = document.createElement('div');
-        modalActions.className = 'modal-actions';
-
-        // Add custom action buttons first
-        customActionButtons.forEach(button => {
-            modalActions.appendChild(button);
-        });
-
-        const cancelButton = document.createElement('button');
-        cancelButton.className = 'modal-cancel';
-        cancelButton.textContent = cancelText;
-        cancelButton.onclick = () => {
-            if (onCancel) onCancel();
-            hideModal(modalOverlay);
-            resolve(null); // Resolve with null on cancel
-        };
-        modalActions.appendChild(cancelButton);
-
-        const confirmButton = document.createElement('button');
-        confirmButton.className = 'modal-confirm';
-        confirmButton.textContent = confirmText;
-        confirmButton.onclick = async () => {
-            let resultFromOnConfirm = true; // Assume success initially
-
-            if (onConfirm) {
-                // Call the onConfirm callback. It is expected to
-                // perform its own validation and collect values
-                // from the DOM using document.getElementById,
-                // and return them (or null for validation failure).
-                resultFromOnConfirm = await onConfirm();
-            }
-
-            // If onConfirm did not explicitly return null (indicating validation failure)
-            if (resultFromOnConfirm !== null && closeOnConfirm) {
-                hideModal(modalOverlay);
-                // Resolve the promise with the result directly from onConfirm
-                resolve(resultFromOnConfirm);
-            } else if (resultFromOnConfirm === null) {
-                // If onConfirm returned null, it means validation failed.
-                // The modal stays open, awaiting correct input or user cancellation.
-            }
-        };
-        modalActions.appendChild(confirmButton);
-
-        modal.appendChild(modalActions);
-        modalOverlay.appendChild(modal);
-        document.body.appendChild(modalOverlay);
-
-        // Event listener for closing modal via 'x'
-        modalHeader.querySelector('.modal-close').onclick = () => {
-            hideModal(modalOverlay);
-            resolve(null); // Resolve with null on close 'x'
-        };
-
-        requestAnimationFrame(() => {
-            modalOverlay.classList.add('active');
-            // Focus on the first input field
-            const firstInput = modal.querySelector('.modal-input, textarea, input[type="checkbox"]');
-            if (firstInput) {
-                firstInput.focus();
-            }
-        });
-    }); // End of Promise
-}
-
-// Ensure the hideModal function is defined globally, if it isn't already
-// (You should have this from our previous discussion, but including it here for completeness)
-function hideModal(modalOverlay) {
-    if (modalOverlay) {
-        modalOverlay.classList.remove('active');
-        // Add a small delay to allow the fade-out transition to complete
-        setTimeout(() => {
-            if (modalOverlay.parentNode) {
-                modalOverlay.parentNode.removeChild(modalOverlay);
-            }
-        }, 300); // This delay should match your CSS transition duration
+function showModalWithInputs(title, contentHTML, onConfirmCallback) {
+  return new Promise((resolve) => {
+    let modalOverlay = document.getElementById('modalOverlay');
+    if (!modalOverlay) {
+      modalOverlay = document.createElement('div');
+      modalOverlay.id = 'modalOverlay';
+      modalOverlay.className = 'modal-overlay';
+      document.body.appendChild(modalOverlay);
     }
+
+    modalOverlay.innerHTML = `
+      <div class="modal">
+        <div class="modal-header"><h3 class="modal-title">${title}</h3><span class="modal-close">×</span></div>
+        <div class="modal-content">${contentHTML}</div>
+        <div class="modal-actions">
+          <button class="modal-cancel">Cancel</button>
+          <button class="modal-confirm">Confirm</button>
+        </div>
+      </div>
+    `;
+    modalOverlay.classList.add('active');
+
+    const confirmBtn = modalOverlay.querySelector('.modal-confirm');
+    const cancelBtn = modalOverlay.querySelector('.modal-cancel');
+    const closeBtn = modalOverlay.querySelector('.modal-close');
+
+    const closeHandler = (result) => {
+      modalOverlay.classList.remove('active');
+      resolve(result);
+    };
+
+    confirmBtn.onclick = () => {
+      const result = onConfirmCallback();
+      if (result !== null) { // Allow callback to prevent closing
+        closeHandler(result);
+      }
+    };
+    cancelBtn.onclick = () => closeHandler(false);
+    closeBtn.onclick = () => closeHandler(false);
+  });
 }
 
 
@@ -1473,7 +1405,7 @@ function filterTableByStatus(status, itemNumber) {
 
 
 
-async function editComments(name, itemNumber, status, comment, sex) {
+async function editComments(name, itemNumber, status, comment) {
     console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
 
     const operationId = `${name}|${itemNumber}|${status}`;
@@ -1507,99 +1439,72 @@ async function editComments(name, itemNumber, status, comment, sex) {
             existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
         }
 
-        // --- Prepare Modal Content using the 'inputs' array format ---
+        // --- 2. Prepare Modal Content with the Checkbox ---
         const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+        const modalContent = `
+            <div class="modal-body">
+                <p>Edit comments for ${name} (${status}):</p>
+                <label for="educationComment">Education:</label>
+                <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
+                <label for="trainingComment">Training:</label>
+                <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
+                <label for="experienceComment">Experience:</label>
+                <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
+                <label for="eligibilityComment">Eligibility:</label>
+                <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
+                <div class="modal-checkbox" style="margin-top: 15px;">
+                  <input type="checkbox" id="forReviewCheckbox" ${existingForReview ? 'checked' : ''}>
+                  <label for="forReviewCheckbox">For Review of the Board</label>
+                </div>
+            </div>
+        `;
 
-        const inputs = [
-            { id: 'editEducationComment', label: 'Education:', name: 'education', type: 'textarea', value: education, placeholder: 'Add comment on Education', rows: 3 },
-            { id: 'editTrainingComment', label: 'Training:', name: 'training', type: 'textarea', value: training, placeholder: 'Add comment on Training', rows: 3 },
-            { id: 'editExperienceComment', label: 'Experience:', name: 'experience', type: 'textarea', value: experience, placeholder: 'Add comment on Experience', rows: 3 },
-            { id: 'editEligibilityComment', label: 'Eligibility:', name: 'eligibility', type: 'textarea', value: eligibility, placeholder: 'Add comment on Eligibility', rows: 3 },
-            { id: 'editForReviewCheckbox', label: 'For Review of the Board', name: 'forReview', type: 'checkbox', value: existingForReview }
-        ];
-
-        // --- Create the "Change Action" button element ---
-        const changeActionButton = document.createElement('button');
-        changeActionButton.className = 'modal-btn'; // Use your existing class for modal buttons
-        changeActionButton.textContent = 'Change Action';
-        changeActionButton.onclick = async () => {
-            // Manually close the current edit modal before opening the next
-            const modalOverlayToClose = document.getElementById('modalOverlay');
-            if(modalOverlayToClose) {
-                modalOverlayToClose.classList.remove('active');
+        // --- 3. Show Modal and Await User Input ---
+        const commentResult = await showModalWithInputs(
+            `Edit Comments (${status})`,
+            modalContent,
+            () => {
+                const education = document.getElementById('educationComment').value.trim();
+                const training = document.getElementById('trainingComment').value.trim();
+                const experience = document.getElementById('experienceComment').value.trim();
+                const eligibility = document.getElementById('eligibilityComment').value.trim();
+                const forReview = document.getElementById('forReviewCheckbox').checked;
+                return { education, training, experience, eligibility, forReview };
             }
-
-            // Get current values from the form fields before calling handlePostComment
-            const currentEducation = document.getElementById('editEducationComment').value.trim();
-            const currentTraining = document.getElementById('editTrainingComment').value.trim();
-            const currentExperience = document.getElementById('editExperienceComment').value.trim();
-            const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
-            const currentForReview = document.getElementById('editForReviewCheckbox').checked;
-
-            await handlePostComment(null, {
-                name: name,
-                item: itemNumber,
-                sex: sex,
-                education: currentEducation,
-                training: currentTraining,
-                experience: currentExperience,
-                eligibility: currentEligibility,
-                forReview: currentForReview
-            });
-        };
-
-        // --- Show Modal and Await User Input ---
-        const { result: commentResult, modalElement } = await showModalWithInputs(
-            'editCommentModal', // Corrected: modalId
-            `Edit Comments for ${name} (${status})`, // Corrected: title
-            inputs, // Corrected: inputs array
-            'Save Changes', // confirmText
-            'Cancel',       // cancelText
-            async (values) => { // onConfirm callback now receives 'values' object from showModalWithInputs
-                const editedEducation = values.education;
-                const editedTraining = values.training;
-                const editedExperience = values.experience;
-                const editedEligibility = values.eligibility;
-                const editedForReview = values.forReview;
-
-                const newComment = `${editedEducation},${editedTraining},${editedExperience},${editedEligibility}`;
-
-                if (rowIndex !== -1) {
-                    const sheetRowIndex = rowIndex + 2; // +1 for 0-based index, +1 for header row
-                    let rangeToUpdate, valuesToUpdate;
-
-                    if (status === 'CANDIDATES') {
-                        rangeToUpdate = `CANDIDATES!R${sheetRowIndex}:S${sheetRowIndex}`;
-                        valuesToUpdate = [[newComment, editedForReview]];
-                    } else { // DISQUALIFIED
-                        rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
-                        valuesToUpdate = [[newComment, , editedForReview]];
-                    }
-                    
-                    await gapi.client.sheets.spreadsheets.values.update({
-                        spreadsheetId: SHEET_ID,
-                        range: rangeToUpdate,
-                        valueInputOption: 'RAW',
-                        resource: { values: valuesToUpdate },
-                    });
-                    showToast('success', 'Success', 'Comments updated successfully!');
-                    fetchSecretariatCandidates(itemNumber); // Refresh UI
-                    return true; // Indicate success and close modal
-                } else {
-                    showToast('error', 'Error', 'Could not find the original record to update.');
-                    return false; // Prevent modal from closing on error
-                }
-            },
-            null, // onCancel: no specific action needed other than closing
-            true, // closeOnConfirm: true
-            [changeActionButton] // IMPORTANT: Pass the custom button here!
         );
 
-        // --- REMOVE THE ENTIRE setTimeout BLOCK FROM HERE ---
-        // It is no longer needed as the button is added during modal construction.
-
-        if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked on the edit modal
+        if (!commentResult) {
             showToast('info', 'Canceled', 'Comment update was canceled.');
+            return;
+        }
+        
+        const newComment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
+
+        // --- 4. Update Google Sheet ---
+        if (rowIndex !== -1) {
+            const sheetRowIndex = rowIndex + 2; // +1 for 0-based index, +1 for header row
+            let rangeToUpdate, valuesToUpdate;
+
+            if (status === 'CANDIDATES') {
+                rangeToUpdate = `CANDIDATES!R${sheetRowIndex}:S${sheetRowIndex}`;
+                valuesToUpdate = [[newComment, commentResult.forReview]];
+            } else { // DISQUALIFIED
+                rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
+                // Note the empty value for column E (Secretariat Member ID) which we are not changing
+                valuesToUpdate = [[newComment, , commentResult.forReview]];
+            }
+            
+            await gapi.client.sheets.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: rangeToUpdate,
+                valueInputOption: 'RAW',
+                resource: { values: valuesToUpdate },
+            });
+
+            showToast('success', 'Success', 'Comments updated successfully!');
+            fetchSecretariatCandidates(itemNumber); // Refresh UI
+        } else {
+            showToast('error', 'Error', 'Could not find the original record to update.');
         }
 
     } catch (error) {
@@ -1610,7 +1515,6 @@ async function editComments(name, itemNumber, status, comment, sex) {
         console.log(`DEBUG: Exiting editComments. Operation ${operationId} cleared.`);
     }
 }
-
 
 
 
@@ -4080,17 +3984,7 @@ async function deleteSignatory(index) {
 }
 
 
-function hideModal(modalOverlay) {
-    if (modalOverlay) {
-        modalOverlay.classList.remove('active');
-        // Add a small delay to allow the fade-out transition to complete
-        setTimeout(() => {
-            if (modalOverlay.parentNode) {
-                modalOverlay.parentNode.removeChild(modalOverlay);
-            }
-        }, 300); // This delay should match your CSS transition duration for .modal-overlay.active opacity
-    }
-}
+
 
 
 
