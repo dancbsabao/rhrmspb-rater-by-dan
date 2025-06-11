@@ -962,24 +962,35 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
 }
 
 
+// Modified handlePostComment function to use transferred data
 async function handlePostComment(button) {
   const name = button.dataset.name;
   const itemNumber = button.dataset.item;
   const sex = button.dataset.sex;
 
+  // Check if we have transferred comment data from editComments
+  const transferredData = window.transferredCommentData;
+  let defaultValues = { education: '', training: '', experience: '', eligibility: '', forReview: false };
+  
+  if (transferredData) {
+    defaultValues = transferredData;
+    // Clear the transferred data
+    window.transferredCommentData = null;
+  }
+
   const modalContent = `
     <div class="modal-body">
       <p>Please enter comments for ${name}:</p>
       <label for="educationComment">Education:</label>
-      <input type="text" id="educationComment" class="modal-input">
+      <input type="text" id="educationComment" class="modal-input" value="${defaultValues.education}">
       <label for="trainingComment">Training:</label>
-      <input type="text" id="trainingComment" class="modal-input">
+      <input type="text" id="trainingComment" class="modal-input" value="${defaultValues.training}">
       <label for="experienceComment">Experience:</label>
-      <input type="text" id="experienceComment" class="modal-input">
+      <input type="text" id="experienceComment" class="modal-input" value="${defaultValues.experience}">
       <label for="eligibilityComment">Eligibility:</label>
-      <input type="text" id="eligibilityComment" class="modal-input">
+      <input type="text" id="eligibilityComment" class="modal-input" value="${defaultValues.eligibility}">
       <div class="modal-checkbox">
-        <input type="checkbox" id="forReviewCheckbox">
+        <input type="checkbox" id="forReviewCheckbox" ${defaultValues.forReview ? 'checked' : ''}>
         <label for="forReviewCheckbox">For Review of the Board</label>
       </div>
     </div>
@@ -1029,8 +1040,8 @@ async function handlePostComment(button) {
   }
 }
 
-// A new helper function to show a modal and get input values back
-function showModalWithInputs(title, contentHTML, onConfirmCallback) {
+// Modified showModalWithInputs function to support multiple action buttons
+function showModalWithInputs(title, contentHTML, onConfirmCallback, additionalActions = []) {
   return new Promise((resolve) => {
     let modalOverlay = document.getElementById('modalOverlay');
     if (!modalOverlay) {
@@ -1040,12 +1051,18 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback) {
       document.body.appendChild(modalOverlay);
     }
 
+    // Build additional action buttons HTML
+    const additionalButtonsHTML = additionalActions.map(action => 
+      `<button class="modal-action-btn" data-action="${action.key}">${action.label}</button>`
+    ).join('');
+
     modalOverlay.innerHTML = `
       <div class="modal">
         <div class="modal-header"><h3 class="modal-title">${title}</h3><span class="modal-close">×</span></div>
         <div class="modal-content">${contentHTML}</div>
         <div class="modal-actions">
           <button class="modal-cancel">Cancel</button>
+          ${additionalButtonsHTML}
           <button class="modal-confirm">Confirm</button>
         </div>
       </div>
@@ -1055,6 +1072,7 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback) {
     const confirmBtn = modalOverlay.querySelector('.modal-confirm');
     const cancelBtn = modalOverlay.querySelector('.modal-cancel');
     const closeBtn = modalOverlay.querySelector('.modal-close');
+    const actionBtns = modalOverlay.querySelectorAll('.modal-action-btn');
 
     const closeHandler = (result) => {
       modalOverlay.classList.remove('active');
@@ -1067,6 +1085,21 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback) {
         closeHandler(result);
       }
     };
+
+    // Handle additional action buttons
+    actionBtns.forEach(btn => {
+      btn.onclick = () => {
+        const actionKey = btn.dataset.action;
+        const action = additionalActions.find(a => a.key === actionKey);
+        if (action && action.callback) {
+          const result = action.callback();
+          if (result !== null) {
+            closeHandler({ action: actionKey, data: result });
+          }
+        }
+      };
+    });
+
     cancelBtn.onclick = () => closeHandler(false);
     closeBtn.onclick = () => closeHandler(false);
   });
@@ -1405,6 +1438,7 @@ function filterTableByStatus(status, itemNumber) {
 
 
 
+// Modified editComments function with Change Action button
 async function editComments(name, itemNumber, status, comment) {
     console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
 
@@ -1459,6 +1493,20 @@ async function editComments(name, itemNumber, status, comment) {
             </div>
         `;
 
+        // Define additional actions (Change Action button)
+        const additionalActions = [{
+            key: 'changeAction',
+            label: 'Change Action',
+            callback: () => {
+                const education = document.getElementById('educationComment').value.trim();
+                const training = document.getElementById('trainingComment').value.trim();
+                const experience = document.getElementById('experienceComment').value.trim();
+                const eligibility = document.getElementById('eligibilityComment').value.trim();
+                const forReview = document.getElementById('forReviewCheckbox').checked;
+                return { education, training, experience, eligibility, forReview };
+            }
+        }];
+
         // --- 3. Show Modal and Await User Input ---
         const commentResult = await showModalWithInputs(
             `Edit Comments (${status})`,
@@ -1470,11 +1518,40 @@ async function editComments(name, itemNumber, status, comment) {
                 const eligibility = document.getElementById('eligibilityComment').value.trim();
                 const forReview = document.getElementById('forReviewCheckbox').checked;
                 return { education, training, experience, eligibility, forReview };
-            }
+            },
+            additionalActions
         );
 
         if (!commentResult) {
             showToast('info', 'Canceled', 'Comment update was canceled.');
+            return;
+        }
+
+        // --- Handle Change Action ---
+        if (commentResult.action === 'changeAction') {
+            console.log('DEBUG: Change Action button clicked, transferring to handlePostComment');
+            
+            // Find the sex value from the original data
+            let sex = '';
+            if (rowIndex !== -1) {
+                const sexCol = status === 'CANDIDATES' ? 2 : 2; // Assuming sex is in column C (index 2)
+                sex = values[rowIndex + 1][sexCol] || '';
+            }
+
+            // Create a mock button with the necessary data attributes
+            const mockButton = {
+                dataset: {
+                    name: name,
+                    item: itemNumber,
+                    sex: sex
+                }
+            };
+
+            // Transfer the comment data to a global variable or use another method
+            window.transferredCommentData = commentResult.data;
+            
+            // Call handlePostComment with the mock button
+            await handlePostComment(mockButton);
             return;
         }
         
