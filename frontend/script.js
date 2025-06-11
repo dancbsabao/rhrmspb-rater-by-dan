@@ -1030,57 +1030,114 @@ async function handlePostComment(button, preFilledData = {}) {
 
 
 // A new helper function to show a modal and get input values back
-function showModalWithInputs(title, contentHTML, onConfirmCallback, customFooter = false) {
-  return new Promise((resolve) => {
-    let modalOverlay = document.getElementById('modalOverlay');
-    if (!modalOverlay) {
-      modalOverlay = document.createElement('div');
-      modalOverlay.id = 'modalOverlay';
-      modalOverlay.className = 'modal-overlay';
-      document.body.appendChild(modalOverlay);
+async function showModalWithInputs(
+    modalId, title, inputs, confirmText, cancelText,
+    onConfirm, onCancel, closeOnConfirm = true, customActionButtons = [] // ADD THIS NEW PARAMETER
+) {
+    const existingModalOverlay = document.getElementById('modalOverlay');
+    if (existingModalOverlay) {
+        existingModalOverlay.remove();
     }
 
-    // Always create a new modal structure for clarity and to avoid old event listeners
+    const modalOverlay = document.createElement('div');
+    modalOverlay.id = 'modalOverlay';
+    modalOverlay.className = 'modal-overlay';
+
     const modal = document.createElement('div');
     modal.className = 'modal';
-    modal.innerHTML = `
-        <div class="modal-header"><h3 class="modal-title">${title}</h3><span class="modal-close">×</span></div>
-        <div class="modal-content">${contentHTML}</div>
-        <div class="modal-actions">
-          ${customFooter ? '' : '<button class="modal-cancel">Cancel</button><button class="modal-confirm">Confirm</button>'}
-        </div>
+
+    const modalHeader = document.createElement('div');
+    modalHeader.className = 'modal-header';
+    modalHeader.innerHTML = `
+        <h3 class="modal-title">${title}</h3>
+        <span class="modal-close">×</span>
     `;
-    // Clear previous content and append the new modal
-    modalOverlay.innerHTML = ''; 
-    modalOverlay.appendChild(modal);
-    modalOverlay.classList.add('active');
+    modal.appendChild(modalHeader);
 
-    const confirmBtn = modal.querySelector('.modal-confirm');
-    const cancelBtn = modal.querySelector('.modal-cancel');
-    const closeBtn = modal.querySelector('.modal-close');
+    const modalContent = document.createElement('div');
+    modalContent.className = 'modal-content';
 
-    const closeHandler = (result) => {
-      modalOverlay.classList.remove('active');
-      resolve({result: result, modalElement: modal}); // Resolve with the result and the modal element
-    };
-
-    if (confirmBtn) { // These buttons might not exist if customFooter is true
-      confirmBtn.onclick = async () => { // Make async to await onConfirmCallback if it's async
-        const callbackResult = await onConfirmCallback();
-        // Only close if the callback explicitly returns true or a non-null/non-false value
-        // or if it doesn't return anything (implies success)
-        if (callbackResult === true || callbackResult === undefined || (callbackResult !== null && callbackResult !== false)) {
-          closeHandler(callbackResult);
+    inputs.forEach(input => {
+        if (input.type === 'checkbox') {
+            const checkboxContainer = document.createElement('div');
+            checkboxContainer.className = 'modal-checkbox-container'; // Add a class for styling if needed
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = input.id;
+            checkbox.checked = input.value;
+            const label = document.createElement('label');
+            label.htmlFor = input.id;
+            label.textContent = input.label;
+            checkboxContainer.appendChild(checkbox);
+            checkboxContainer.appendChild(label);
+            modalContent.appendChild(checkboxContainer);
+        } else if (input.type === 'textarea') {
+            const label = document.createElement('label');
+            label.htmlFor = input.id;
+            label.textContent = input.label;
+            label.className = 'modal-label-textarea'; // Add a class for textarea labels
+            modalContent.appendChild(label);
+            const textarea = document.createElement('textarea');
+            textarea.id = input.id;
+            textarea.className = 'modal-input comment-textarea'; // Add comment-textarea class
+            textarea.placeholder = input.placeholder || '';
+            textarea.value = input.value;
+            textarea.rows = input.rows || 3;
+            modalContent.appendChild(textarea);
         }
-      };
-    }
-    if (cancelBtn) {
-      cancelBtn.onclick = () => closeHandler(false);
-    }
-    if (closeBtn) {
-      closeBtn.onclick = () => closeHandler(false);
-    }
-  });
+    });
+    modal.appendChild(modalContent);
+
+    const modalActions = document.createElement('div');
+    modalActions.className = 'modal-actions';
+
+    // NEW: Add custom action buttons first
+    customActionButtons.forEach(button => {
+        modalActions.appendChild(button);
+    });
+
+    const cancelButton = document.createElement('button');
+    cancelButton.className = 'modal-cancel';
+    cancelButton.textContent = cancelText;
+    cancelButton.onclick = () => {
+        if (onCancel) onCancel();
+        hideModal(modalOverlay);
+    };
+    modalActions.appendChild(cancelButton);
+
+    const confirmButton = document.createElement('button');
+    confirmButton.className = 'modal-confirm';
+    confirmButton.textContent = confirmText;
+    confirmButton.onclick = async () => {
+        const inputValues = {};
+        inputs.forEach(input => {
+            const element = document.getElementById(input.id);
+            if (element) {
+                inputValues[input.name] = (input.type === 'checkbox') ? element.checked : element.value;
+            }
+        });
+        if (onConfirm) await onConfirm(inputValues);
+        if (closeOnConfirm) hideModal(modalOverlay);
+    };
+    modalActions.appendChild(confirmButton);
+
+    modal.appendChild(modalActions);
+    modalOverlay.appendChild(modal);
+    document.body.appendChild(modalOverlay);
+
+    // Event listener for closing modal
+    modalHeader.querySelector('.modal-close').onclick = () => hideModal(modalOverlay);
+
+    requestAnimationFrame(() => {
+        modalOverlay.classList.add('active');
+        // Focus on the first input field
+        const firstInput = modal.querySelector('.modal-input');
+        if (firstInput) {
+            firstInput.focus();
+        }
+    });
+
+    return modalOverlay;
 }
 
 
@@ -1417,158 +1474,141 @@ function filterTableByStatus(status, itemNumber) {
 
 
 async function editComments(name, itemNumber, status, comment, sex) {
-  console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
+    console.log(`DEBUG: Entering editComments for ${name} (Status: ${status}, Item: ${itemNumber}).`);
 
-  const operationId = `${name}|${itemNumber}|${status}`;
-  if (activeCommentModalOperations.has(operationId)) {
-      console.log(`DEBUG: editComments: Operation for ${name} is already active. Aborting duplicate call.`);
-      return;
-  }
-  activeCommentModalOperations.add(operationId);
+    const operationId = `${name}|${itemNumber}|${status}`;
+    if (activeCommentModalOperations.has(operationId)) {
+        console.log(`DEBUG: editComments: Operation for ${name} is already active. Aborting duplicate call.`);
+        return;
+    }
+    activeCommentModalOperations.add(operationId);
 
-  try {
-      // --- 1. Fetch current 'forReview' status ---
-      const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-          spreadsheetId: SHEET_ID,
-          range: sheetNameToFetch,
-      });
-      const values = response.result.values || [];
-      const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
-      const normalizedItemNumber = itemNumber.trim();
-      
-      let existingForReview = false;
-      const rowIndex = values.slice(1).findIndex(row => {
-          const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
-          const rowItem = row[1]?.trim();
-          const memberIdCol = status === 'CANDIDATES' ? 16 : 4;
-          return rowName === normalizedName && rowItem === normalizedItemNumber && row[memberIdCol]?.toString() === secretariatMemberId;
-      });
+    try {
+        // --- 1. Fetch current 'forReview' status ---
+        const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: sheetNameToFetch,
+        });
+        const values = response.result.values || [];
+        const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
+        const normalizedItemNumber = itemNumber.trim();
+        
+        let existingForReview = false;
+        const rowIndex = values.slice(1).findIndex(row => {
+            const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
+            const rowItem = row[1]?.trim();
+            const memberIdCol = status === 'CANDIDATES' ? 16 : 4;
+            return rowName === normalizedName && rowItem === normalizedItemNumber && row[memberIdCol]?.toString() === secretariatMemberId;
+        });
 
-      if (rowIndex !== -1) {
-          const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
-          existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
-      }
-
-      // --- 2. Prepare Modal Content with the Checkbox ---
-      const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
-      const modalContent = `
-          <div class="modal-body">
-              <p>Edit comments for ${name} (${status}):</p>
-              <label for="editEducationComment">Education:</label>
-              <input type="text" id="editEducationComment" class="modal-input" value="${education || ''}">
-              <label for="editTrainingComment">Training:</label>
-              <input type="text" id="editTrainingComment" class="modal-input" value="${training || ''}">
-              <label for="editExperienceComment">Experience:</label>
-              <input type="text" id="editExperienceComment" class="modal-input" value="${experience || ''}">
-              <label for="editEligibilityComment">Eligibility:</label>
-              <input type="text" id="editEligibilityComment" class="modal-input" value="${eligibility || ''}">
-              <div class="modal-checkbox" style="margin-top: 15px;">
-                <input type="checkbox" id="editForReviewCheckbox" ${existingForReview ? 'checked' : ''}>
-                <label for="editForReviewCheckbox">For Review of the Board</label>
-              </div>
-          </div>
-      `;
-
-      // --- 3. Show Modal and Await User Input ---
-      const { result: commentResult, modalElement } = await showModalWithInputs(
-        `Edit Comments (${status})`,
-        modalContent,
-        async () => { // onConfirm callback
-          const editedEducation = document.getElementById('editEducationComment').value.trim();
-          const editedTraining = document.getElementById('editTrainingComment').value.trim();
-          const editedExperience = document.getElementById('editExperienceComment').value.trim();
-          const editedEligibility = document.getElementById('editEligibilityComment').value.trim();
-          const editedForReview = document.getElementById('editForReviewCheckbox').checked;
-
-          const newComment = `${editedEducation},${editedTraining},${editedExperience},${editedEligibility}`;
-
-          if (rowIndex !== -1) {
-            const sheetRowIndex = rowIndex + 2; // +1 for 0-based index, +1 for header row
-            let rangeToUpdate, valuesToUpdate;
-
-            if (status === 'CANDIDATES') {
-              rangeToUpdate = `CANDIDATES!R${sheetRowIndex}:S${sheetRowIndex}`;
-              valuesToUpdate = [[newComment, editedForReview]];
-            } else { // DISQUALIFIED
-              rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
-              valuesToUpdate = [[newComment, , editedForReview]];
-            }
-            
-            await gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId: SHEET_ID,
-                range: rangeToUpdate,
-                valueInputOption: 'RAW',
-                resource: { values: valuesToUpdate },
-            });
-            showToast('success', 'Success', 'Comments updated successfully!');
-            fetchSecretariatCandidates(itemNumber); // Refresh UI
-            return true; // Indicate success and close modal
-          } else {
-            showToast('error', 'Error', 'Could not find the original record to update.');
-            return false; // Prevent modal from closing on error
-          }
+        if (rowIndex !== -1) {
+            const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
+            existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
         }
-      );
 
-      // --- DELAYED BUTTON ADDITION using setTimeout ---
-      // Adding console logs for debugging
-      setTimeout(() => {
-          console.log("DEBUG (setTimeout): Timeout callback fired.");
-          console.log("DEBUG (setTimeout): modalElement exists:", !!modalElement);
-          if (modalElement) {
-              const modalActions = modalElement.querySelector('.modal-actions');
-              console.log("DEBUG (setTimeout): modalActions found:", !!modalActions);
-              if (modalActions) {
-                  const changeActionButton = document.createElement('button');
-                  changeActionButton.className = 'modal-btn';
-                  changeActionButton.textContent = 'Change Action';
-                  changeActionButton.onclick = async () => {
-                      const currentEducation = document.getElementById('editEducationComment').value.trim();
-                      const currentTraining = document.getElementById('editTrainingComment').value.trim();
-                      const currentExperience = document.getElementById('editExperienceComment').value.trim();
-                      const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
-                      const currentForReview = document.getElementById('editForReviewCheckbox').checked;
+        // --- Prepare Modal Content using the 'inputs' array format ---
+        const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
 
-                      // Manually close the current edit modal before opening the next
-                      const modalOverlayToClose = document.getElementById('modalOverlay');
-                      if(modalOverlayToClose) {
-                        modalOverlayToClose.classList.remove('active');
-                      }
+        const inputs = [
+            { id: 'editEducationComment', label: 'Education:', name: 'education', type: 'textarea', value: education, placeholder: 'Add comment on Education', rows: 3 },
+            { id: 'editTrainingComment', label: 'Training:', name: 'training', type: 'textarea', value: training, placeholder: 'Add comment on Training', rows: 3 },
+            { id: 'editExperienceComment', label: 'Experience:', name: 'experience', type: 'textarea', value: experience, placeholder: 'Add comment on Experience', rows: 3 },
+            { id: 'editEligibilityComment', label: 'Eligibility:', name: 'eligibility', type: 'textarea', value: eligibility, placeholder: 'Add comment on Eligibility', rows: 3 },
+            { id: 'editForReviewCheckbox', label: 'For Review of the Board', name: 'forReview', type: 'checkbox', value: existingForReview }
+        ];
 
-                      await handlePostComment(null, {
-                          name: name,
-                          item: itemNumber,
-                          sex: sex,
-                          education: currentEducation,
-                          training: currentTraining,
-                          experience: currentExperience,
-                          eligibility: currentEligibility,
-                          forReview: currentForReview
-                      });
-                  };
-                  modalActions.prepend(changeActionButton);
-                  console.log("DEBUG (setTimeout): Change Action button PREPENDED.");
-              } else {
-                  console.log("DEBUG (setTimeout): modalActions NOT FOUND within modalElement.");
-              }
-          } else {
-              console.log("DEBUG (setTimeout): modalElement is NULL.");
-          }
-      }, 50); // A small 50ms delay
-      // --- END DELAYED BUTTON ADDITION ---
+        // --- Create the "Change Action" button element ---
+        const changeActionButton = document.createElement('button');
+        changeActionButton.className = 'modal-btn'; // Use your existing class for modal buttons
+        changeActionButton.textContent = 'Change Action';
+        changeActionButton.onclick = async () => {
+            // Manually close the current edit modal before opening the next
+            const modalOverlayToClose = document.getElementById('modalOverlay');
+            if(modalOverlayToClose) {
+                modalOverlayToClose.classList.remove('active');
+            }
 
-      if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked on the edit modal
-        showToast('info', 'Canceled', 'Comment update was canceled.');
-      }
+            // Get current values from the form fields before calling handlePostComment
+            const currentEducation = document.getElementById('editEducationComment').value.trim();
+            const currentTraining = document.getElementById('editTrainingComment').value.trim();
+            const currentExperience = document.getElementById('editExperienceComment').value.trim();
+            const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
+            const currentForReview = document.getElementById('editForReviewCheckbox').checked;
 
-  } catch (error) {
-      console.error('DEBUG: CRITICAL ERROR caught during editComments:', error);
-      showToast('error', 'Update Failed', `Failed to update comments: ${error.message}`);
-  } finally {
-      activeCommentModalOperations.delete(operationId);
-      console.log(`DEBUG: Exiting editComments. Operation ${operationId} cleared.`);
-  }
+            await handlePostComment(null, {
+                name: name,
+                item: itemNumber,
+                sex: sex,
+                education: currentEducation,
+                training: currentTraining,
+                experience: currentExperience,
+                eligibility: currentEligibility,
+                forReview: currentForReview
+            });
+        };
+
+        // --- Show Modal and Await User Input ---
+        const { result: commentResult, modalElement } = await showModalWithInputs(
+            'editCommentModal', // Corrected: modalId
+            `Edit Comments for ${name} (${status})`, // Corrected: title
+            inputs, // Corrected: inputs array
+            'Save Changes', // confirmText
+            'Cancel',       // cancelText
+            async (values) => { // onConfirm callback now receives 'values' object from showModalWithInputs
+                const editedEducation = values.education;
+                const editedTraining = values.training;
+                const editedExperience = values.experience;
+                const editedEligibility = values.eligibility;
+                const editedForReview = values.forReview;
+
+                const newComment = `${editedEducation},${editedTraining},${editedExperience},${editedEligibility}`;
+
+                if (rowIndex !== -1) {
+                    const sheetRowIndex = rowIndex + 2; // +1 for 0-based index, +1 for header row
+                    let rangeToUpdate, valuesToUpdate;
+
+                    if (status === 'CANDIDATES') {
+                        rangeToUpdate = `CANDIDATES!R${sheetRowIndex}:S${sheetRowIndex}`;
+                        valuesToUpdate = [[newComment, editedForReview]];
+                    } else { // DISQUALIFIED
+                        rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
+                        valuesToUpdate = [[newComment, , editedForReview]];
+                    }
+                    
+                    await gapi.client.sheets.spreadsheets.values.update({
+                        spreadsheetId: SHEET_ID,
+                        range: rangeToUpdate,
+                        valueInputOption: 'RAW',
+                        resource: { values: valuesToUpdate },
+                    });
+                    showToast('success', 'Success', 'Comments updated successfully!');
+                    fetchSecretariatCandidates(itemNumber); // Refresh UI
+                    return true; // Indicate success and close modal
+                } else {
+                    showToast('error', 'Error', 'Could not find the original record to update.');
+                    return false; // Prevent modal from closing on error
+                }
+            },
+            null, // onCancel: no specific action needed other than closing
+            true, // closeOnConfirm: true
+            [changeActionButton] // IMPORTANT: Pass the custom button here!
+        );
+
+        // --- REMOVE THE ENTIRE setTimeout BLOCK FROM HERE ---
+        // It is no longer needed as the button is added during modal construction.
+
+        if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked on the edit modal
+            showToast('info', 'Canceled', 'Comment update was canceled.');
+        }
+
+    } catch (error) {
+        console.error('DEBUG: CRITICAL ERROR caught during editComments:', error);
+        showToast('error', 'Update Failed', `Failed to update comments: ${error.message}`);
+    } finally {
+        activeCommentModalOperations.delete(operationId);
+        console.log(`DEBUG: Exiting editComments. Operation ${operationId} cleared.`);
+    }
 }
 
 
