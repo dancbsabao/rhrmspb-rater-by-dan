@@ -1471,7 +1471,6 @@ async function editComments(name, itemNumber, status, comment, sex) {
       `;
 
       // --- 3. Show Modal and Await User Input ---
-      // showModalWithInputs now returns an object including the result and the modalElement
       const { result: commentResult, modalElement } = await showModalWithInputs(
         `Edit Comments (${status})`,
         modalContent,
@@ -1512,40 +1511,43 @@ async function editComments(name, itemNumber, status, comment, sex) {
         }
       );
 
-      // Now, dynamically add the "Change Action" button to the existing modal footer
-      if (modalElement) { // Use the returned modal element
-          const modalActions = modalElement.querySelector('.modal-actions');
-          if (modalActions) {
-              const changeActionButton = document.createElement('button');
-              changeActionButton.className = 'modal-btn';
-              changeActionButton.textContent = 'Change Action';
-              changeActionButton.onclick = async () => {
-                  const currentEducation = document.getElementById('editEducationComment').value.trim();
-                  const currentTraining = document.getElementById('editTrainingComment').value.trim();
-                  const currentExperience = document.getElementById('editExperienceComment').value.trim();
-                  const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
-                  const currentForReview = document.getElementById('editForReviewCheckbox').checked;
+      // --- DEFERRED BUTTON ADDITION using requestAnimationFrame ---
+      requestAnimationFrame(() => {
+        if (modalElement) { // Use the returned modal element
+            const modalActions = modalElement.querySelector('.modal-actions');
+            if (modalActions) {
+                const changeActionButton = document.createElement('button');
+                changeActionButton.className = 'modal-btn';
+                changeActionButton.textContent = 'Change Action';
+                changeActionButton.onclick = async () => {
+                    const currentEducation = document.getElementById('editEducationComment').value.trim();
+                    const currentTraining = document.getElementById('editTrainingComment').value.trim();
+                    const currentExperience = document.getElementById('editExperienceComment').value.trim();
+                    const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
+                    const currentForReview = document.getElementById('editForReviewCheckbox').checked;
 
-                  // Manually close the current edit modal before opening the next
-                  const modalOverlay = document.getElementById('modalOverlay'); // Get the overlay to hide it
-                  if(modalOverlay) {
-                    modalOverlay.classList.remove('active');
-                  }
-                  
-                  await handlePostComment(null, { // Pass null for button as it's not a direct button click
-                      name: name,
-                      item: itemNumber,
-                      sex: sex,
-                      education: currentEducation,
-                      training: currentTraining,
-                      experience: currentExperience,
-                      eligibility: currentEligibility,
-                      forReview: currentForReview
-                  });
-              };
-              modalActions.prepend(changeActionButton); // Add to the left of existing buttons
-          }
-      }
+                    // Manually close the current edit modal before opening the next
+                    const modalOverlayToClose = document.getElementById('modalOverlay'); 
+                    if(modalOverlayToClose) {
+                      modalOverlayToClose.classList.remove('active');
+                    }
+                    
+                    await handlePostComment(null, { // Pass null for button as it's not a direct button click
+                        name: name,
+                        item: itemNumber,
+                        sex: sex,
+                        education: currentEducation,
+                        training: currentTraining,
+                        experience: currentExperience,
+                        eligibility: currentEligibility,
+                        forReview: currentForReview
+                    });
+                };
+                modalActions.prepend(changeActionButton); // Add to the left of existing buttons
+            }
+        }
+      });
+      // --- END DEFERRED BUTTON ADDITION ---
 
       if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked on the edit modal
         showToast('info', 'Canceled', 'Comment update was canceled.');
