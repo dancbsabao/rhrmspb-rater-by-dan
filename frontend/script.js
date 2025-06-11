@@ -1053,7 +1053,7 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback, additionalAc
 
     // Build additional action buttons HTML
     const additionalButtonsHTML = additionalActions.map(action => 
-      `<button class="modal-action-btn" data-action="${action.key}">${action.label}</button>`
+      `<button class="modal-cancel" data-action="${action.key}">${action.label}</button>`
     ).join('');
 
     modalOverlay.innerHTML = `
@@ -1072,7 +1072,7 @@ function showModalWithInputs(title, contentHTML, onConfirmCallback, additionalAc
     const confirmBtn = modalOverlay.querySelector('.modal-confirm');
     const cancelBtn = modalOverlay.querySelector('.modal-cancel');
     const closeBtn = modalOverlay.querySelector('.modal-close');
-    const actionBtns = modalOverlay.querySelectorAll('.modal-action-btn');
+    const actionBtns = modalOverlay.querySelectorAll('[data-action]');
 
     const closeHandler = (result) => {
       modalOverlay.classList.remove('active');
