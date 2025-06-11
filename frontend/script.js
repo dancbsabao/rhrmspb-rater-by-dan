@@ -3566,7 +3566,7 @@ async function generatePdfSummary() {
     const logoX = (pageWidth - logoWidth) / 2; // Keep centered horizontally
     const logoY = yOffset; // Place logo at current yOffset (still 20pt from top)
     
-    doc.addImage(base60Logo, 'PNG', logoX, logoY, logoWidth, logoHeight);
+    doc.addImage(base64Logo, 'PNG', logoX, logoY, logoWidth, logoHeight);
 
     // Adjust yOffset for the text headers to start after the logo with more spacing
     yOffset = logoY + logoHeight + 15; // Logo bottom + 15pt padding (increased for more space)
