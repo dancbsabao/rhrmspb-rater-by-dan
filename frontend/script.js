@@ -3458,7 +3458,7 @@ async function generatePdfSummary() {
 
   const currentItemNumber = secretariatItemDropdown?.value;
   const currentAssignment = secretariatAssignmentDropdown?.value;
-  const currentPositionTitle = secretariatPositionDropdown?.value; // Corrected variable usage
+  const currentPositionTitle = secretariatPositionDropdown?.value;
 
   if (!currentItemNumber) {
     showToast('error', 'Error', 'Please select an Item Number first.');
@@ -3549,19 +3549,37 @@ async function generatePdfSummary() {
     doc.setFont("helvetica");
 
     // --- IMPORTANT MARGIN AND INITIAL Y-OFFSET ADJUSTMENTS ---
-    let yOffset = 40; // Significantly increased starting yOffset for top margin
+    let yOffset = 80; // Adjusted starting yOffset for bigger top margin
     const margin = 50; // Significantly increased margin for all sides
     // --- END MARGIN ADJUSTMENTS ---
 
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     
-    // Main Title of the Document (VERY TOP)
+    // --- START: New Header Text and Logo Placeholder ---
+    // Placeholder for Logo (Cannot add directly without image data)
+    // To add the logo, you would use:
+    // doc.addImage(imageData, 'PNG', x, y, width, height);
+    // For example: doc.addImage(base64ImageData, 'PNG', (pageWidth - 100) / 2, 20, 100, 100);
+    // However, I cannot directly fetch image data from the provided URL or local file system.
+
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text('DEPARTMENT OF ENVIRONMENT AND NATURAL RESOURCES (CALABARZON)', pageWidth / 2, yOffset, { align: 'center' });
+    yOffset += 15; // Spacing after first new header line
+
+    doc.setFontSize(10);
+    doc.text('REGIONAL HUMAN RESOURCE SELECTION AND PROMOTION BOARD', pageWidth / 2, yOffset, { align: 'center' });
+    yOffset += 25; // Spacing before the main title
+
+    // Main Title of the Document
     doc.setFontSize(15);
     doc.setFont("helvetica", "bold"); // Set header title to bold
     doc.text('SUMMARY OF THE DELIBERATION OF CANDIDATES FOR LONG LIST', pageWidth / 2, yOffset, { align: 'center' });
     doc.setFont("helvetica", "normal"); // Revert font after title
     yOffset += 30; // Increased spacing after title block
+    // --- END: New Header Text and Logo Placeholder ---
+
 
     // PDF HEADER: POSITION, ASSIGNMENT, ITEM (Aligned like tabs)
     doc.setFontSize(11);
