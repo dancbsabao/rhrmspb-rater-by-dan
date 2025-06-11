@@ -3969,8 +3969,12 @@ async function generatePdfSummary() {
         yOffset = currentSigY;
     }
 
-    // Add footer to the last page
-    addFooter();
+    // Add footer to ALL pages (including the first page)
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        addFooter();
+    }
 
     doc.save(`Summary_${currentItemNumber}.pdf`);
     showToast('success', 'Success', 'PDF generated successfully!');
