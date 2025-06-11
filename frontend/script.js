@@ -963,69 +963,67 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
 
 
 async function handlePostComment(button, preFilledData = {}) {
-  const name = preFilledData.name || button.dataset.name;
-  const itemNumber = preFilledData.item || button.dataset.item;
-  const sex = preFilledData.sex || button.dataset.sex;
+    console.log("DEBUG: Entering handlePostComment.");
 
-  const modalContent = `
-    <div class="modal-body">
-      <p>Please enter comments for ${name}:</p>
-      <label for="educationComment">Education:</label>
-      <input type="text" id="educationComment" class="modal-input" value="${preFilledData.education || ''}">
-      <label for="trainingComment">Training:</label>
-      <input type="text" id="trainingComment" class="modal-input" value="${preFilledData.training || ''}">
-      <label for="experienceComment">Experience:</label>
-      <input type="text" id="experienceComment" class="modal-input" value="${preFilledData.experience || ''}">
-      <label for="eligibilityComment">Eligibility:</label>
-      <input type="text" id="eligibilityComment" class="modal-input" value="${preFilledData.eligibility || ''}">
-      <div class="modal-checkbox">
-        <input type="checkbox" id="forReviewCheckbox" ${preFilledData.forReview ? 'checked' : ''}>
-        <label for="forReviewCheckbox">For Review of the Board</label>
-      </div>
-    </div>
-  `;
+    const name = preFilledData.name || button.dataset.name;
+    const itemNumber = preFilledData.item || button.dataset.item;
+    const sex = preFilledData.sex || button.dataset.sex;
 
-  const commentResult = await showModalWithInputs(
-    'Post a Comment',
-    modalContent,
-    () => { // onConfirm callback
-      const education = document.getElementById('educationComment').value.trim();
-      const training = document.getElementById('trainingComment').value.trim();
-      const experience = document.getElementById('experienceComment').value.trim();
-      const eligibility = document.getElementById('eligibilityComment').value.trim();
-      const forReview = document.getElementById('forReviewCheckbox').checked;
+    // Construct the inputs array as expected by showModalWithInputs
+    const inputs = [
+        { id: 'educationComment', label: 'Education:', name: 'education', type: 'textarea', value: preFilledData.education || '', placeholder: 'Add comment on Education', rows: 3 },
+        { id: 'trainingComment', label: 'Training:', name: 'training', type: 'textarea', value: preFilledData.training || '', placeholder: 'Add comment on Training', rows: 3 },
+        { id: 'experienceComment', label: 'Experience:', name: 'experience', type: 'textarea', value: preFilledData.experience || '', placeholder: 'Add comment on Experience', rows: 3 },
+        { id: 'eligibilityComment', label: 'Eligibility:', name: 'eligibility', type: 'textarea', value: preFilledData.eligibility || '', placeholder: 'Add comment on Eligibility', rows: 3 },
+        { id: 'forReviewCheckbox', label: 'For Review of the Board', name: 'forReview', type: 'checkbox', value: preFilledData.forReview || false }
+    ];
 
-      if (!education || !training || !experience || !eligibility) {
-        showToast('error', 'Error', 'All comment fields are required.');
-        return null; // Prevent modal from closing
-      }
-      return { education, training, experience, eligibility, forReview };
+    const { result: commentResult } = await showModalWithInputs(
+        'postCommentModal', // modalId: A unique ID for this specific modal instance
+        `Post a Comment for ${name}`, // title: Descriptive title
+        inputs, // Corrected: Pass the inputs array here
+        'Post Comment', // confirmText
+        'Cancel', // cancelText
+        async (values) => { // onConfirm callback now receives 'values' object from showModalWithInputs
+            const education = values.education.trim();
+            const training = values.training.trim();
+            const experience = values.experience.trim();
+            const eligibility = values.eligibility.trim();
+            const forReview = values.forReview;
+
+            if (!education || !training || !experience || !eligibility) {
+                showToast('error', 'Error', 'All comment fields are required.');
+                return false; // Prevent modal from closing
+            }
+            return { education, training, experience, eligibility, forReview }; // Return the values to be stored in commentResult
+        },
+        null, // onCancel
+        true // closeOnConfirm
+    );
+
+    if (!commentResult) { // Check if commentResult is null/undefined (e.g., if onConfirm returned false or cancel was clicked)
+        showToast('info', 'Info', 'Comment posting cancelled.');
+        return;
     }
-  );
 
-  if (!commentResult.result) { // CORRECTED: Check the 'result' property
-    showToast('info', 'Info', 'Comment posting cancelled.');
-    return;
-  }
+    // Step 2: Prompt for action (Long List or Disqualification)
+    const action = await promptForSubmissionAction(); // Assuming this function exists and works
+    if (!action) {
+        showToast('info', 'Info', 'Submission cancelled.');
+        return;
+    }
 
-  // Step 2: Prompt for action (Long List or Disqualification)
-  const action = await promptForSubmissionAction();
-  if (!action) {
-    showToast('info', 'Info', 'Submission cancelled.');
-    return;
-  }
+    // Format the comment for submission
+    const comment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
 
-  // Format the comment for submission
-  const comment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
-
-  // Step 3: Final confirmation and submission
-  try {
-    await submitCandidateAction(name, itemNumber, sex, action, comment, commentResult.forReview);
-    showToast('success', 'Success', 'Candidate action submitted successfully');
-  } catch (error) {
-    console.error('Error submitting candidate action:', error);
-    showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
-  }
+    // Step 3: Final confirmation and submission
+    try {
+        await submitCandidateAction(name, itemNumber, sex, action, comment, commentResult.forReview); // Assuming this function exists and works
+        showToast('success', 'Success', 'Candidate action submitted successfully');
+    } catch (error) {
+        console.error('Error submitting candidate action:', error);
+        showToast('error', 'Error', `Failed to submit candidate action: ${error.message}`);
+    }
 }
 
 
