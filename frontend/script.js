@@ -1511,52 +1511,52 @@ async function editComments(name, itemNumber, status, comment, sex) {
         }
       );
 
-      // --- DEFERRED BUTTON ADDITION using requestAnimationFrame ---
+      // --- DELAYED BUTTON ADDITION using setTimeout ---
       // Adding console logs for debugging
-      requestAnimationFrame(() => {
-        console.log("DEBUG: requestAnimationFrame callback fired.");
-        console.log("DEBUG: modalElement exists:", !!modalElement);
-        if (modalElement) {
-            const modalActions = modalElement.querySelector('.modal-actions');
-            console.log("DEBUG: modalActions found:", !!modalActions);
-            if (modalActions) {
-                const changeActionButton = document.createElement('button');
-                changeActionButton.className = 'modal-btn';
-                changeActionButton.textContent = 'Change Action';
-                changeActionButton.onclick = async () => {
-                    const currentEducation = document.getElementById('editEducationComment').value.trim();
-                    const currentTraining = document.getElementById('editTrainingComment').value.trim();
-                    const currentExperience = document.getElementById('editExperienceComment').value.trim();
-                    const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
-                    const currentForReview = document.getElementById('editForReviewCheckbox').checked;
+      setTimeout(() => {
+          console.log("DEBUG (setTimeout): Timeout callback fired.");
+          console.log("DEBUG (setTimeout): modalElement exists:", !!modalElement);
+          if (modalElement) {
+              const modalActions = modalElement.querySelector('.modal-actions');
+              console.log("DEBUG (setTimeout): modalActions found:", !!modalActions);
+              if (modalActions) {
+                  const changeActionButton = document.createElement('button');
+                  changeActionButton.className = 'modal-btn';
+                  changeActionButton.textContent = 'Change Action';
+                  changeActionButton.onclick = async () => {
+                      const currentEducation = document.getElementById('editEducationComment').value.trim();
+                      const currentTraining = document.getElementById('editTrainingComment').value.trim();
+                      const currentExperience = document.getElementById('editExperienceComment').value.trim();
+                      const currentEligibility = document.getElementById('editEligibilityComment').value.trim();
+                      const currentForReview = document.getElementById('editForReviewCheckbox').checked;
 
-                    // Manually close the current edit modal before opening the next
-                    const modalOverlayToClose = document.getElementById('modalOverlay'); 
-                    if(modalOverlayToClose) {
-                      modalOverlayToClose.classList.remove('active');
-                    }
-                    
-                    await handlePostComment(null, { // Pass null for button as it's not a direct button click
-                        name: name,
-                        item: itemNumber,
-                        sex: sex,
-                        education: currentEducation,
-                        training: currentTraining,
-                        experience: currentExperience,
-                        eligibility: currentEligibility,
-                        forReview: currentForReview
-                    });
-                };
-                modalActions.prepend(changeActionButton); // Add to the left of existing buttons
-                console.log("DEBUG: Change Action button PREPENDED.");
-            } else {
-                console.log("DEBUG: modalActions NOT FOUND within modalElement.");
-            }
-        } else {
-            console.log("DEBUG: modalElement is NULL.");
-        }
-      });
-      // --- END DEFERRED BUTTON ADDITION ---
+                      // Manually close the current edit modal before opening the next
+                      const modalOverlayToClose = document.getElementById('modalOverlay');
+                      if(modalOverlayToClose) {
+                        modalOverlayToClose.classList.remove('active');
+                      }
+
+                      await handlePostComment(null, {
+                          name: name,
+                          item: itemNumber,
+                          sex: sex,
+                          education: currentEducation,
+                          training: currentTraining,
+                          experience: currentExperience,
+                          eligibility: currentEligibility,
+                          forReview: currentForReview
+                      });
+                  };
+                  modalActions.prepend(changeActionButton);
+                  console.log("DEBUG (setTimeout): Change Action button PREPENDED.");
+              } else {
+                  console.log("DEBUG (setTimeout): modalActions NOT FOUND within modalElement.");
+              }
+          } else {
+              console.log("DEBUG (setTimeout): modalElement is NULL.");
+          }
+      }, 50); // A small 50ms delay
+      // --- END DELAYED BUTTON ADDITION ---
 
       if (!commentResult) { // This handles cases where 'Cancel' or 'x' is clicked on the edit modal
         showToast('info', 'Canceled', 'Comment update was canceled.');
