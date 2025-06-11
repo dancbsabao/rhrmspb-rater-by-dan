@@ -1003,7 +1003,7 @@ async function handlePostComment(button, preFilledData = {}) {
     }
   );
 
-  if (!commentResult) {
+  if (!commentResult.result) { // CORRECTED: Check the 'result' property
     showToast('info', 'Info', 'Comment posting cancelled.');
     return;
   }
@@ -1512,9 +1512,13 @@ async function editComments(name, itemNumber, status, comment, sex) {
       );
 
       // --- DEFERRED BUTTON ADDITION using requestAnimationFrame ---
+      // Adding console logs for debugging
       requestAnimationFrame(() => {
-        if (modalElement) { // Use the returned modal element
+        console.log("DEBUG: requestAnimationFrame callback fired.");
+        console.log("DEBUG: modalElement exists:", !!modalElement);
+        if (modalElement) {
             const modalActions = modalElement.querySelector('.modal-actions');
+            console.log("DEBUG: modalActions found:", !!modalActions);
             if (modalActions) {
                 const changeActionButton = document.createElement('button');
                 changeActionButton.className = 'modal-btn';
@@ -1544,7 +1548,12 @@ async function editComments(name, itemNumber, status, comment, sex) {
                     });
                 };
                 modalActions.prepend(changeActionButton); // Add to the left of existing buttons
+                console.log("DEBUG: Change Action button PREPENDED.");
+            } else {
+                console.log("DEBUG: modalActions NOT FOUND within modalElement.");
             }
+        } else {
+            console.log("DEBUG: modalElement is NULL.");
         }
       });
       // --- END DEFERRED BUTTON ADDITION ---
