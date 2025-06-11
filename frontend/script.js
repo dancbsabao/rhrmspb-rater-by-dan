@@ -3707,61 +3707,77 @@ async function generatePdfSummary() {
     doc.text(`Generated on: ${dateTimeString}`, margin, yOffset);
     yOffset += 30; // Increased spacing before first list
 
-    // Helper function for 2-column lists with vertical ordering
-    function drawTwoColumnList(title, candidates, currentY, isBoldTitle = true) {
-      // Check for page break before drawing list title
-      if (currentY > pageHeight - margin - 30) { 
-          doc.addPage();
-          currentY = margin + 5; 
-      }
-
-      doc.setFontSize(13);
-      doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
-      doc.text(title, margin, currentY);
-      doc.setFont("helvetica", "normal");
-      currentY += 20; // Increased spacing after list title
-
-      doc.setFontSize(10);
-      const colWidth = (pageWidth - (2 * margin) - 30) / 2; // 30pt gutter for more separation
-      const col1X = margin; 
-      const col2X = margin + colWidth + 30; 
-
-      const halfCount = Math.ceil(candidates.length / 2);
-      let col1CurrentY = currentY;
-      let col2CurrentY = currentY;
-      const listItemLineHeight = 15; // Consistent line height for list items
-
-      // Draw first column (items 1, 3, 5...)
-      for (let i = 0; i < halfCount; i++) {
-        if (col1CurrentY > pageHeight - margin - 30) { 
-            doc.addPage();
-            col1CurrentY = margin + 5;
-            col2CurrentY = margin + 5; // Reset both columns on new page
-            doc.setFontSize(10);
-        }
-        doc.text(`${i + 1}. ${candidates[i]}`, col1X, col1CurrentY, { maxWidth: colWidth });
-        col1CurrentY += listItemLineHeight;
-      }
-
-      // Draw second column (items 2, 4, 6...)
-      for (let i = halfCount; i < candidates.length; i++) {
-        if (col2CurrentY > pageHeight - margin - 30) {
-            doc.addPage();
-            col1CurrentY = margin + 5;
-            col2CurrentY = margin + 5; // Reset both columns on new page
-            doc.setFontSize(10);
-        }
-        doc.text(`${i + 1}. ${candidates[i]}`, col2X, col2CurrentY, { maxWidth: colWidth });
-        col2CurrentY += listItemLineHeight;
-      }
-      
-      let finalY = Math.max(col1CurrentY, col2CurrentY); // Use the lowest point of either column
-      
-      finalY += 10; // Increased space before breaker
-      doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
-      finalY += 25; // Increased space after breaker
-      return finalY;
+    // Helper function for 2-column lists with vertical ordering - FIXED VERSION
+function drawTwoColumnList(title, candidates, currentY, isBoldTitle = true) {
+    // Check for page break before drawing list title
+    if (currentY > pageHeight - margin - 30) { 
+        doc.addPage();
+        currentY = margin + 5; 
     }
+  
+    doc.setFontSize(13);
+    doc.setFont("helvetica", isBoldTitle ? "bold" : "normal");
+    doc.text(title, margin, currentY);
+    doc.setFont("helvetica", "normal");
+    currentY += 20; // Increased spacing after list title
+  
+    doc.setFontSize(10);
+    const colWidth = (pageWidth - (2 * margin) - 30) / 2; // 30pt gutter for more separation
+    const col1X = margin; 
+    const col2X = margin + colWidth + 30; 
+  
+    const halfCount = Math.ceil(candidates.length / 2);
+    let col1CurrentY = currentY;
+    let col2CurrentY = currentY;
+    const baseLineHeight = 15; // Base line height for single line items
+  
+    // Draw first column (items 1, 3, 5...)
+    for (let i = 0; i < halfCount; i++) {
+      if (col1CurrentY > pageHeight - margin - 50) { // Increased margin check
+          doc.addPage();
+          col1CurrentY = margin + 5;
+          col2CurrentY = margin + 5; // Reset both columns on new page
+          doc.setFontSize(10);
+      }
+      
+      const itemText = `${i + 1}. ${candidates[i]}`;
+      const textLines = doc.splitTextToSize(itemText, colWidth);
+      
+      // Draw the text (can be multiple lines)
+      doc.text(textLines, col1X, col1CurrentY, { maxWidth: colWidth });
+      
+      // Calculate actual height used by this item
+      const actualItemHeight = textLines.length * (doc.getFontSize() * 1.2); // 1.2 is line height multiplier
+      col1CurrentY += Math.max(actualItemHeight, baseLineHeight) + 2; // Add small padding between items
+    }
+  
+    // Draw second column (items 2, 4, 6...)
+    for (let i = halfCount; i < candidates.length; i++) {
+      if (col2CurrentY > pageHeight - margin - 50) { // Increased margin check
+          doc.addPage();
+          col1CurrentY = margin + 5;
+          col2CurrentY = margin + 5; // Reset both columns on new page
+          doc.setFontSize(10);
+      }
+      
+      const itemText = `${i + 1}. ${candidates[i]}`;
+      const textLines = doc.splitTextToSize(itemText, colWidth);
+      
+      // Draw the text (can be multiple lines)
+      doc.text(textLines, col2X, col2CurrentY, { maxWidth: colWidth });
+      
+      // Calculate actual height used by this item
+      const actualItemHeight = textLines.length * (doc.getFontSize() * 1.2); // 1.2 is line height multiplier
+      col2CurrentY += Math.max(actualItemHeight, baseLineHeight) + 2; // Add small padding between items
+    }
+    
+    let finalY = Math.max(col1CurrentY, col2CurrentY); // Use the lowest point of either column
+    
+    finalY += 10; // Increased space before breaker
+    doc.text('*** END OF LIST ***', pageWidth / 2, finalY, { align: 'center' });
+    finalY += 25; // Increased space after breaker
+    return finalY;
+  }
 
     // Long List Candidates
     if (longListCandidates.length > 0) {
