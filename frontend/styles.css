@@ -1262,7 +1262,7 @@ html, body {
 }
 
 /* ADD THIS - Make the signatories list scrollable */
-.signatories-ul {
+#signatoriesUl {
     max-height: 100px;
     overflow-y: auto;
     border: 1px solid #ddd;
