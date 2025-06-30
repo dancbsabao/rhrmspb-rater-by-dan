@@ -1228,13 +1228,12 @@ html, body {
   color: #333;
 }
 
-/* In your styles.css */
+/* signatories */
 .signatory-actions {
     display: flex;
     gap: 5px;
     align-items: center;
 }
-
 .signatory-actions button {
     padding: 5px 8px;
     font-size: 14px;
@@ -1245,23 +1244,28 @@ html, body {
     color: #333;
     transition: background-color 0.2s;
 }
-
 .signatory-actions button:hover:not(:disabled) {
     background-color: #e0e0e0;
 }
-
 .signatory-actions button:disabled {
     cursor: not-allowed;
     opacity: 0.5;
 }
-
 /* Specific styling for delete button (if you want it red) */
 .signatory-actions .delete-signatory-btn {
     background-color: #dc3545;
     color: white;
     border-color: #dc3545;
 }
-
 .signatory-actions .delete-signatory-btn:hover:not(:disabled) {
     background-color: #c82333;
+}
+
+/* ADD THIS - Make the signatories list scrollable */
+.signatories-ul {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    margin: 10px 0;
 }
