@@ -1934,7 +1934,7 @@ function initializeDropdowns(vacancies) {
     if (assignment && isAuthorized) {
       const positions = vacancies
         .filter((row) => row[2] === assignment)
-        .map((row) => row[1]);
+        .map((row) => row[1]).sort();
       updateDropdown(elements.positionDropdown, [...new Set(positions)], 'Select Position');
       setDropdownState(elements.positionDropdown, true);
     } else {
@@ -1953,7 +1953,7 @@ function initializeDropdowns(vacancies) {
     if (assignment && position) {
       const items = vacancies
         .filter((row) => row[2] === assignment && row[1] === position)
-        .map((row) => row[0]);
+        .map((row) => row[0]).sort();
       updateDropdown(elements.itemDropdown, [...new Set(items)], 'Select Item');
       setDropdownState(elements.itemDropdown, true);
     } else {
