@@ -1886,7 +1886,7 @@ function initializeDropdowns(vacancies) {
   elements.itemDropdown.setAttribute('data-placeholder', 'Select Item');
   elements.nameDropdown.setAttribute('data-placeholder', 'Select Name');
 
-  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))];
+  const uniqueAssignments = [...new Set(vacancies.slice(1).map((row) => row[2]))].sort();
   updateDropdown(elements.assignmentDropdown, uniqueAssignments, 'Select Assignment');
 
   setDropdownState(elements.positionDropdown, false);
