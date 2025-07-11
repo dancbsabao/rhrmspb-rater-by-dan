@@ -1969,7 +1969,7 @@ function initializeDropdowns(vacancies) {
     if (item) {
       const names = candidates
         .filter((row) => row[1] === item)
-        .map((row) => row[0]);
+        .map((row) => row[0]).sort();
       updateDropdown(elements.nameDropdown, [...new Set(names)], 'Select Name');
       setDropdownState(elements.nameDropdown, true);
     } else {
