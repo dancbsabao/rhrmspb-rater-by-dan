@@ -1270,3 +1270,33 @@ html, body {
     margin: 10px 0;
 }
 
+/* Vacancy Details Styling */
+.vacancy-details {
+  margin-bottom: 20px;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  background-color: #f9f9f9;
+}
+
+.vacancy-container {
+  max-width: 600px;
+}
+
+.vacancy-item {
+  display: flex;
+  justify-content: space-between;
+  margin: 5px 0;
+}
+
+.vacancy-label {
+  font-weight: bold;
+  min-width: 120px;
+}
+
+.vacancy-value {
+  color: #333;
+  flex: 1;
+  margin-left: 10px;
+  word-wrap: break-word;
+}
