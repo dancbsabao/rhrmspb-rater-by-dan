@@ -827,6 +827,39 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
   container.innerHTML = '';
 
+
+
+  // ADD THIS: Create vacancy details container
+const vacancyDiv = document.createElement('div');
+vacancyDiv.className = 'vacancy-details';
+
+const vacancyData = getVacancyDetails(itemNumber);
+
+vacancyDiv.innerHTML = `
+  <div class="vacancy-container">
+    <h3>Vacancy Details</h3>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Education:</span>
+      <span class="vacancy-value">${vacancyData.education}</span>
+    </div>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Training:</span>
+      <span class="vacancy-value">${vacancyData.training}</span>
+    </div>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Experience:</span>
+      <span class="vacancy-value">${vacancyData.experience}</span>
+    </div>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Eligibility:</span>
+      <span class="vacancy-value">${vacancyData.eligibility}</span>
+    </div>
+  </div>
+`;
+container.appendChild(vacancyDiv);
+
+  
+
   // Calculate summary counts
   const longListCount = candidates.filter(c => c.submitted?.status === 'CANDIDATES').length;
   const disqualifiedCount = candidates.filter(c => c.submitted?.status === 'DISQUALIFIED').length;
