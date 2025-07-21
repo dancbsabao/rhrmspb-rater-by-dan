@@ -1278,25 +1278,27 @@ html, body {
   border-radius: 5px;
   background-color: #f9f9f9;
 }
-
 .vacancy-container {
-  max-width: 600px;
+  /* Remove or increase max-width to allow full width usage */
+  /* max-width: 600px; */
+  width: 100%; /* Optional: explicitly set to full width */
 }
-
 .vacancy-item {
   display: flex;
-  justify-content: space-between;
+  align-items: flex-start;
   margin: 5px 0;
+  width: 100%;
 }
-
 .vacancy-label {
   font-weight: bold;
   min-width: 120px;
+  flex-shrink: 0; /* Prevent label from shrinking */
 }
-
 .vacancy-value {
   color: #333;
   flex: 1;
   margin-left: 10px;
   word-wrap: break-word;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
