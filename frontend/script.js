@@ -16,6 +16,7 @@ let secretariatMemberId = null; // Initialize secretariat member ID
 let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
+let vacanciesData = [];
 
 
 let CLIENT_ID;
@@ -457,6 +458,7 @@ function initializeApp() {
     createEvaluatorSelector();
     setupTabNavigation();
     fetchSecretariatMembers(); // Fetch members on app init
+    await fetchVacanciesData();
     loadSignatories(); // Load signatories on app initialization
     restoreState();
 
@@ -1600,6 +1602,35 @@ async function editComments(name, itemNumber, status, comment) {
 async function displaySecretariatCandidateDetails(name, itemNumber) {
   const container = document.getElementById('secretariat-candidate-details');
   container.innerHTML = '';
+
+  // ADD THIS: Create vacancy details container
+const vacancyDiv = document.createElement('div');
+vacancyDiv.className = 'vacancy-details';
+
+const vacancyData = getVacancyDetails(itemNumber);
+
+vacancyDiv.innerHTML = `
+  <div class="vacancy-container">
+    <h3>Vacancy Details</h3>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Education:</span>
+      <span class="vacancy-value">${vacancyData.education}</span>
+    </div>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Training:</span>
+      <span class="vacancy-value">${vacancyData.training}</span>
+    </div>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Experience:</span>
+      <span class="vacancy-value">${vacancyData.experience}</span>
+    </div>
+    <div class="vacancy-item">
+      <span class="vacancy-label">Eligibility:</span>
+      <span class="vacancy-value">${vacancyData.eligibility}</span>
+    </div>
+  </div>
+`;
+container.appendChild(vacancyDiv);
 
   try {
     if (!await isTokenValid()) await refreshAccessToken();
@@ -4145,10 +4176,48 @@ async function deleteSignatory(index) {
 }
 
 
+// Add this function to your script.js
+async function fetchVacanciesData() {
+  try {
+    if (!gapiInitialized) return;
+    
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.VACANCIES,
+    });
+    
+    const values = response.result.values;
+    if (values && values.length > 1) {
+      vacanciesData = values.slice(1); // Skip header row
+      console.log('Vacancies data loaded:', vacanciesData.length, 'records');
+    }
+  } catch (error) {
+    console.error('Error fetching vacancies data:', error);
+  }
+}
 
 
-
-
+// Add this function to your script.js
+function getVacancyDetails(itemNumber) {
+  // Find vacancy by item number (assuming item number is in column A)
+  const vacancy = vacanciesData.find(row => row[0] === itemNumber);
+  
+  if (vacancy) {
+    return {
+      education: vacancy[4] || 'N/A',    // Column E
+      training: vacancy[5] || 'N/A',     // Column F
+      experience: vacancy[6] || 'N/A',   // Column G
+      eligibility: vacancy[7] || 'N/A'   // Column H
+    };
+  }
+  
+  return {
+    education: 'N/A',
+    training: 'N/A',
+    experience: 'N/A',
+    eligibility: 'N/A'
+  };
+}
 
 
 
