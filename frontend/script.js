@@ -394,41 +394,6 @@ async function initializeSecretariatDropdowns() {
   };
   itemDropdown.addEventListener('change', itemDropdown._changeHandler);
 
-
-
-
-  
-  itemDropdown._changeHandler = () => {
-  console.log('Item changed to:', itemDropdown.value);
-  saveDropdownState();
-  if (itemDropdown.value) {
-    fetchSecretariatCandidates(itemDropdown.value);
-    // Add code to display vacancy details
-    const selectedItem = itemDropdown.value;
-    const vacancy = vacancies.slice(1).find(row => row[0]?.trim().toUpperCase() === selectedItem.toUpperCase());
-    const vacancyDetailsContainer = document.getElementById('vacancyDetails');
-    if (vacancy && vacancyDetailsContainer) {
-      vacancyDetailsContainer.innerHTML = `
-        <p><strong>Education:</strong> ${vacancy[4] || 'N/A'}</p>
-        <p><strong>Training:</strong> ${vacancy[5] || 'N/A'}</p>
-        <p><strong>Experience:</strong> ${vacancy[6] || 'N/A'}</p>
-        <p><strong>Eligibility:</strong> ${vacancy[7] || 'N/A'}</p>
-      `;
-    } else {
-      vacancyDetailsContainer.innerHTML = '<p>No details available for this item.</p>';
-    }
-  } else {
-    document.getElementById('vacancyDetails').innerHTML = '';
-  }
-};
-
-
-
-
-
-
-
-
   
   if (assignmentDropdown.value && !dropdownStateRestoring) {
     console.log('Triggering initial assignment change');
