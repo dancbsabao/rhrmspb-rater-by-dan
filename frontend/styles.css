@@ -1270,18 +1270,3 @@ html, body {
     margin: 10px 0;
 }
 
-.vacancy-details {
-  margin-top: 20px;
-  padding: 15px;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  background-color: #f9f9f9;
-  font-size: 14px;
-}
-.vacancy-details p {
-  margin: 5px 0;
-}
-.vacancy-details strong {
-  display: inline-block;
-  width: 120px;
-}
