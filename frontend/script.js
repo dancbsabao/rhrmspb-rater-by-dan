@@ -823,42 +823,39 @@ async function fetchSecretariatCandidates(itemNumber) {
 }
 
 
+// MODIFIED displaySecretariatCandidatesTable function
 function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
   container.innerHTML = '';
 
-
-
   // ADD THIS: Create vacancy details container
-const vacancyDiv = document.createElement('div');
-vacancyDiv.className = 'vacancy-details';
+  const vacancyDiv = document.createElement('div');
+  vacancyDiv.className = 'vacancy-details';
 
-const vacancyData = getVacancyDetails(itemNumber);
+  const vacancyData = getVacancyDetails(itemNumber);
 
-vacancyDiv.innerHTML = `
-  <div class="vacancy-container">
-    <h3>Vacancy Details</h3>
-    <div class="vacancy-item">
-      <span class="vacancy-label">Education:</span>
-      <span class="vacancy-value">${vacancyData.education}</span>
+  vacancyDiv.innerHTML = `
+    <div class="vacancy-container">
+      <h3>Vacancy Details</h3>
+      <div class="vacancy-item">
+        <span class="vacancy-label">Education:</span>
+        <span class="vacancy-value">${vacancyData.education}</span>
+      </div>
+      <div class="vacancy-item">
+        <span class="vacancy-label">Training:</span>
+        <span class="vacancy-value">${vacancyData.training}</span>
+      </div>
+      <div class="vacancy-item">
+        <span class="vacancy-label">Experience:</span>
+        <span class="vacancy-value">${vacancyData.experience}</span>
+      </div>
+      <div class="vacancy-item">
+        <span class="vacancy-label">Eligibility:</span>
+        <span class="vacancy-value">${vacancyData.eligibility}</span>
+      </div>
     </div>
-    <div class="vacancy-item">
-      <span class="vacancy-label">Training:</span>
-      <span class="vacancy-value">${vacancyData.training}</span>
-    </div>
-    <div class="vacancy-item">
-      <span class="vacancy-label">Experience:</span>
-      <span class="vacancy-value">${vacancyData.experience}</span>
-    </div>
-    <div class="vacancy-item">
-      <span class="vacancy-label">Eligibility:</span>
-      <span class="vacancy-value">${vacancyData.eligibility}</span>
-    </div>
-  </div>
-`;
-container.appendChild(vacancyDiv);
-
-  
+  `;
+  container.appendChild(vacancyDiv);
 
   // Calculate summary counts
   const longListCount = candidates.filter(c => c.submitted?.status === 'CANDIDATES').length;
@@ -983,7 +980,11 @@ container.appendChild(vacancyDiv);
           ` : 'No comments yet'}
         </td>
         <td>
-          <button class="post-comment-button" onclick="handlePostComment(this)" data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">Post a Comment</button>
+          <button class="post-comment-button" onclick="handlePostComment(this)" 
+                  data-name="${name}" 
+                  data-sex="${sex}" 
+                  data-item="${itemNumber}"
+                  data-candidate='${JSON.stringify(row).replace(/'/g, "&#39;")}'>Post a Comment</button>
         </td>
       `;
       tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'not-submitted';
@@ -997,12 +998,12 @@ container.appendChild(vacancyDiv);
   }
 }
 
-
-// Modified handlePostComment function to use transferred data
+// MODIFIED handlePostComment function
 async function handlePostComment(button) {
   const name = button.dataset.name;
   const itemNumber = button.dataset.item;
   const sex = button.dataset.sex;
+  const candidateData = JSON.parse(button.dataset.candidate.replace(/&#39;/g, "'"));
 
   // Check if we have transferred comment data from editComments
   const transferredData = window.transferredCommentData;
@@ -1048,7 +1049,8 @@ async function handlePostComment(button) {
         return null; // Prevent modal from closing
       }
       return { education, training, experience, eligibility, forReview };
-    }
+    },
+    candidateData  // Pass candidate data here
   );
 
   if (!commentResult) {
@@ -2954,7 +2956,8 @@ function showFullScreenModal(title, contentHTML) {
  * @param {object} initialValues - Object containing initial values for input fields (education, training, experience, eligibility).
  * @returns {object} An object containing the promise and a setter for the isRestoring flag.
  */
-function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = {}) {
+// MODIFIED showCommentModal function
+function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, onConfirm = null, onCancel = null, showCancel = true, initialValues = {}, candidateData = null) {
     let modalOverlay = document.getElementById('modalOverlay');
 
     if (!modalOverlay) {
@@ -2965,6 +2968,38 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
     }
 
     const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Generate document buttons HTML if candidateData is provided
+    let documentButtonsHTML = '';
+    if (candidateData) {
+        const documentLinks = [
+            { label: 'Letter of Intent', url: candidateData[7] },
+            { label: 'Personal Data Sheet', url: candidateData[8] },
+            { label: 'Work Experience', url: candidateData[9] },
+            { label: 'Proof of Eligibility', url: candidateData[10] },
+            { label: 'Certificates', url: candidateData[11] },
+            { label: 'IPCR', url: candidateData[12] },
+            { label: 'Certificate of Employment', url: candidateData[13] },
+            { label: 'Diploma', url: candidateData[14] },
+            { label: 'Transcript of Records', url: candidateData[15] },
+        ];
+        
+        const linksHtml = documentLinks
+            .map(link => {
+                if (link.url) {
+                    return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
+                }
+                return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
+            })
+            .join('');
+            
+        documentButtonsHTML = `
+            <div class="document-section">
+                <h4>Documents:</h4>
+                <div class="document-links">${linksHtml}</div>
+            </div>
+        `;
+    }
 
     // Use provided contentHTML or generate with initialValues if provided
     let renderedContentHTML = contentHTML;
@@ -2977,6 +3012,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         renderedContentHTML = `
             <div class="modal-body">
                 <p>${actionText}</p>
+                ${documentButtonsHTML}
                 <label for="educationComment">Education:</label>
                 <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
                 <label for="trainingComment">Training:</label>
@@ -2987,6 +3023,9 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
                 <input type="text" id="eligibilityComment" class="modal-input" value="${initialValues.eligibility || ''}">
             </div>
         `;
+    } else if (contentHTML && candidateData) {
+        // If contentHTML is provided but we also have candidateData, inject the document buttons
+        renderedContentHTML = contentHTML.replace('<div class="modal-body">', `<div class="modal-body">${documentButtonsHTML}`);
     }
 
     modalOverlay.innerHTML = `
