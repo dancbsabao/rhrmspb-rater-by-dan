@@ -1367,7 +1367,10 @@ async function checkDuplicateSubmission(name, itemNumber, action) {
 }
 
 async function viewComments(name, itemNumber, status, comment) {
-    const [education, training, experience, eligibility] = comment ? comment.split(',') : ['','','',''];
+    console.log('viewComments called:', { name, itemNumber, status, comment });
+
+    // Parse the comment string into structured data
+    const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
 
     // --- Fetch the 'forReview' status to determine the final color-coding ---
     let forReviewStatus = 'No';
@@ -1398,6 +1401,20 @@ async function viewComments(name, itemNumber, status, comment) {
         console.error("Could not fetch 'for review' status:", error);
     }
 
+    // --- Fetch candidateData for document links ---
+    let candidateData = null;
+    try {
+        const response = await gapi.client.sheets.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range: 'GENERAL_LIST!A:P',
+        });
+        const candidatesData = response.result.values || [];
+        candidateData = candidatesData.find(row => row[0]?.trim() === name && row[1]?.trim() === itemNumber) || null;
+    } catch (error) {
+        console.error('Error fetching candidate data for document links:', error);
+        showToast('error', 'Error', 'Failed to fetch candidate documents');
+    }
+
     // --- Determine the final status text and inline styles for the header ---
     let headerStyle = '';
     let displayStatus = status.replace('_', ' '); // Start with the base status like "FOR LONG LIST"
@@ -1406,7 +1423,7 @@ async function viewComments(name, itemNumber, status, comment) {
         // AMBER style for "For Review"
         headerStyle = 'background-color: #ffc107; color: #212529;';
         // Add the review status to the display text
-        displayStatus += ' (For Review)'; 
+        displayStatus += ' (For Review)';
     } else if (status === 'DISQUALIFIED') {
         // RED style for "Disqualified"
         headerStyle = 'background-color: #dc3545; color: white;';
@@ -1414,43 +1431,67 @@ async function viewComments(name, itemNumber, status, comment) {
         // GREEN style for "Long Listed"
         headerStyle = 'background-color: #28a745; color: white;';
     }
-    
+
+    // --- Generate document links HTML ---
+    let documentButtonsHTML = '';
+    if (candidateData) {
+        const documentLinks = [
+            { label: 'Letter of Intent', url: candidateData[7] || '' },
+            { label: 'Personal Data Sheet', url: candidateData[8] || '' },
+            { label: 'Work Experience', url: candidateData[9] || '' },
+            { label: 'Proof of Eligibility', url: candidateData[10] || '' },
+            { label: 'Certificates', url: candidateData[11] || '' },
+            { label: 'IPCR', url: candidateData[12] || '' },
+            { label: 'Certificate of Employment', url: candidateData[13] || '' },
+            { label: 'Diploma', url: candidateData[14] || '' },
+            { label: 'Transcript of Records', url: candidateData[15] || '' },
+        ];
+
+        documentButtonsHTML = `
+            <div style="margin-bottom: 20px;">
+                <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Documents</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                    ${documentLinks.map(link => {
+                        if (link.url && link.url !== 'undefined') {
+                            return `<button style="padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
+                        }
+                        return `<button style="padding: 8px 12px; background-color: #ccc; color: #666; border: none; border-radius: 4px; cursor: not-allowed;" disabled>NONE (${link.label})</button>`;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
     // --- Generate the improved modal content with inline styles ---
     const modalContent = `
     <div style="font-family: Arial, sans-serif; padding: 0; margin: 0;">
-        
         <div style="${headerStyle} padding: 15px 20px; border-radius: 8px 8px 0 0; text-align: center;">
             <h2 style="margin: 0; font-size: 24px;">${name}</h2>
             <p style="margin: 5px 0 0; font-size: 16px; font-weight: bold; text-transform: uppercase;">${displayStatus}</p>
         </div>
-
         <div style="padding: 25px;">
-            
+            ${documentButtonsHTML}
             <div style="margin-bottom: 20px;">
                 <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Education</h3>
                 <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${education || 'No comment provided.'}</p>
             </div>
-            
             <div style="margin-bottom: 20px;">
                 <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Training</h3>
                 <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${training || 'No comment provided.'}</p>
             </div>
-            
             <div style="margin-bottom: 20px;">
                 <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Experience</h3>
                 <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${experience || 'No comment provided.'}</p>
             </div>
-            
             <div>
                 <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Eligibility</h3>
                 <p style="font-size: 17px; color: #222; line-height: 1.6; margin: 0;">${eligibility || 'No comment provided.'}</p>
             </div>
-
         </div>
     </div>
     `;
-    
-    showModal('View Candidate Comments', modalContent, null, null, false);
+
+    showCommentModal(`View Candidate Comments`, modalContent, name, null, null, false, {}, candidateData);
 }
 
 function filterTableByStatus(status, itemNumber) {
@@ -1488,7 +1529,7 @@ async function editComments(name, itemNumber, status, comment) {
     activeCommentModalOperations.add(operationId);
 
     try {
-        // --- 1. Fetch current 'forReview' status ---
+        // --- 1. Fetch current 'forReview' status and candidateData ---
         const sheetNameToFetch = status === 'CANDIDATES' ? 'CANDIDATES!A:S' : 'DISQUALIFIED!A:F';
         const response = await gapi.client.sheets.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -1497,8 +1538,9 @@ async function editComments(name, itemNumber, status, comment) {
         const values = response.result.values || [];
         const normalizedName = name.trim().toUpperCase().replace(/\s+/g, ' ');
         const normalizedItemNumber = itemNumber.trim();
-        
+
         let existingForReview = false;
+        let sex = '';
         const rowIndex = values.slice(1).findIndex(row => {
             const rowName = row[0]?.trim().toUpperCase().replace(/\s+/g, ' ');
             const rowItem = row[1]?.trim();
@@ -1509,24 +1551,64 @@ async function editComments(name, itemNumber, status, comment) {
         if (rowIndex !== -1) {
             const reviewStatusCol = status === 'CANDIDATES' ? 18 : 5;
             existingForReview = values[rowIndex + 1][reviewStatusCol] === 'TRUE';
+            const sexCol = status === 'CANDIDATES' ? 2 : 2;
+            sex = values[rowIndex + 1][sexCol] || '';
+        }
+
+        // --- Fetch candidateData for document links ---
+        let candidateData = null;
+        try {
+            const response = await gapi.client.sheets.spreadsheets.values.get({
+                spreadsheetId: SHEET_ID,
+                range: 'GENERAL_LIST!A:P',
+            });
+            const candidatesData = response.result.values || [];
+            candidateData = candidatesData.find(row => row[0]?.trim() === name && row[1]?.trim() === itemNumber) || null;
+        } catch (error) {
+            console.error('Error fetching candidate data for document links:', error);
+            showToast('error', 'Error', 'Failed to fetch candidate documents');
         }
 
         // --- 2. Prepare Modal Content with the Checkbox ---
         const [education, training, experience, eligibility] = comment ? comment.split(',') : ['', '', '', ''];
+        const initialValues = { education, training, experience, eligibility, candidateName: name };
         const modalContent = `
             <div class="modal-body">
+                ${candidateData ? `
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="font-size: 15px; color: #555; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Documents</h3>
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                            ${[
+                                { label: 'Letter of Intent', url: candidateData[7] || '' },
+                                { label: 'Personal Data Sheet', url: candidateData[8] || '' },
+                                { label: 'Work Experience', url: candidateData[9] || '' },
+                                { label: 'Proof of Eligibility', url: candidateData[10] || '' },
+                                { label: 'Certificates', url: candidateData[11] || '' },
+                                { label: 'IPCR', url: candidateData[12] || '' },
+                                { label: 'Certificate of Employment', url: candidateData[13] || '' },
+                                { label: 'Diploma', url: candidateData[14] || '' },
+                                { label: 'Transcript of Records', url: candidateData[15] || '' },
+                            ].map(link => {
+                                if (link.url && link.url !== 'undefined') {
+                                    return `<button style="padding: 8px 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
+                                }
+                                return `<button style="padding: 8px 12px; background-color: #ccc; color: #666; border: none; border-radius: 4px; cursor: not-allowed;" disabled>NONE (${link.label})</button>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : ''}
                 <p>Edit comments for ${name} (${status}):</p>
                 <label for="educationComment">Education:</label>
                 <input type="text" id="educationComment" class="modal-input" value="${education || ''}">
                 <label for="trainingComment">Training:</label>
                 <input type="text" id="trainingComment" class="modal-input" value="${training || ''}">
                 <label for="experienceComment">Experience:</label>
-                <input type="text" id="experienceComment" class="modal-input" value="${experience || ''}">
+                <input type="text" id="experienceComment" class="modal-input" value="${education || ''}">
                 <label for="eligibilityComment">Eligibility:</label>
                 <input type="text" id="eligibilityComment" class="modal-input" value="${eligibility || ''}">
                 <div class="modal-checkbox" style="margin-top: 15px;">
-                  <input type="checkbox" id="forReviewCheckbox" ${existingForReview ? 'checked' : ''}>
-                  <label for="forReviewCheckbox">For Review of the Board</label>
+                    <input type="checkbox" id="forReviewCheckbox" ${existingForReview ? 'checked' : ''}>
+                    <label for="forReviewCheckbox">For Review of the Board</label>
                 </div>
             </div>
         `;
@@ -1546,10 +1628,11 @@ async function editComments(name, itemNumber, status, comment) {
         }];
 
         // --- 3. Show Modal and Await User Input ---
-        const commentResult = await showModalWithInputs(
+        const commentResult = await showCommentModal(
             `Edit Comments (${status})`,
             modalContent,
-            () => {
+            name,
+            (data) => {
                 const education = document.getElementById('educationComment').value.trim();
                 const training = document.getElementById('trainingComment').value.trim();
                 const experience = document.getElementById('experienceComment').value.trim();
@@ -1557,7 +1640,12 @@ async function editComments(name, itemNumber, status, comment) {
                 const forReview = document.getElementById('forReviewCheckbox').checked;
                 return { education, training, experience, eligibility, forReview };
             },
-            additionalActions
+            () => {
+                console.log('Edit cancelled');
+            },
+            true,
+            initialValues,
+            candidateData
         );
 
         if (!commentResult) {
@@ -1568,13 +1656,6 @@ async function editComments(name, itemNumber, status, comment) {
         // --- Handle Change Action ---
         if (commentResult.action === 'changeAction') {
             console.log('DEBUG: Change Action button clicked, transferring to handlePostComment');
-            
-            // Find the sex value from the original data
-            let sex = '';
-            if (rowIndex !== -1) {
-                const sexCol = status === 'CANDIDATES' ? 2 : 2; // Assuming sex is in column C (index 2)
-                sex = values[rowIndex + 1][sexCol] || '';
-            }
 
             // Create a mock button with the necessary data attributes
             const mockButton = {
@@ -1585,14 +1666,14 @@ async function editComments(name, itemNumber, status, comment) {
                 }
             };
 
-            // Transfer the comment data to a global variable or use another method
+            // Transfer the comment data to a global variable
             window.transferredCommentData = commentResult.data;
-            
+
             // Call handlePostComment with the mock button
             await handlePostComment(mockButton);
             return;
         }
-        
+
         const newComment = `${commentResult.education},${commentResult.training},${commentResult.experience},${commentResult.eligibility}`;
 
         // --- 4. Update Google Sheet ---
@@ -1605,10 +1686,9 @@ async function editComments(name, itemNumber, status, comment) {
                 valuesToUpdate = [[newComment, commentResult.forReview]];
             } else { // DISQUALIFIED
                 rangeToUpdate = `DISQUALIFIED!D${sheetRowIndex}:F${sheetRowIndex}`;
-                // Note the empty value for column E (Secretariat Member ID) which we are not changing
                 valuesToUpdate = [[newComment, , commentResult.forReview]];
             }
-            
+
             await gapi.client.sheets.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
                 range: rangeToUpdate,
