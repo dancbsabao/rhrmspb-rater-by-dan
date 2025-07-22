@@ -2969,30 +2969,28 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
 
     const modalId = `modal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Generate document buttons HTML if candidateData is provided
+    // ✅ FIXED: Safe URL mapping (avoid 'undefined')
     let documentButtonsHTML = '';
     if (candidateData) {
         const documentLinks = [
-            { label: 'Letter of Intent', url: candidateData[7] },
-            { label: 'Personal Data Sheet', url: candidateData[8] },
-            { label: 'Work Experience', url: candidateData[9] },
-            { label: 'Proof of Eligibility', url: candidateData[10] },
-            { label: 'Certificates', url: candidateData[11] },
-            { label: 'IPCR', url: candidateData[12] },
-            { label: 'Certificate of Employment', url: candidateData[13] },
-            { label: 'Diploma', url: candidateData[14] },
-            { label: 'Transcript of Records', url: candidateData[15] },
+            { label: 'Letter of Intent', url: candidateData?.[7] || '' },
+            { label: 'Personal Data Sheet', url: candidateData?.[8] || '' },
+            { label: 'Work Experience', url: candidateData?.[9] || '' },
+            { label: 'Proof of Eligibility', url: candidateData?.[10] || '' },
+            { label: 'Certificates', url: candidateData?.[11] || '' },
+            { label: 'IPCR', url: candidateData?.[12] || '' },
+            { label: 'Certificate of Employment', url: candidateData?.[13] || '' },
+            { label: 'Diploma', url: candidateData?.[14] || '' },
+            { label: 'Transcript of Records', url: candidateData?.[15] || '' },
         ];
-        
-        const linksHtml = documentLinks
-            .map(link => {
-                if (link.url) {
-                    return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
-                }
-                return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
-            })
-            .join('');
-            
+
+        const linksHtml = documentLinks.map(link => {
+            if (link.url) {
+                return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
+            }
+            return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
+        }).join('');
+
         documentButtonsHTML = `
             <div class="document-section">
                 <h4>Documents:</h4>
@@ -3001,7 +2999,7 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         `;
     }
 
-    // Use provided contentHTML or generate with initialValues if provided
+    // ✅ FIXED: Document buttons go ABOVE the inputs
     let renderedContentHTML = contentHTML;
     if (initialValues && Object.keys(initialValues).length > 0 && !contentHTML) {
         const isEdit = title.toLowerCase().includes('edit');
@@ -3011,8 +3009,8 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
             : `Please enter comments for ${title.toLowerCase().includes('disqualified') ? 'disqualifying' : 'long-listing'} ${candidateName}`;
         renderedContentHTML = `
             <div class="modal-body">
-                <p>${actionText}</p>
                 ${documentButtonsHTML}
+                <p>${actionText}</p>
                 <label for="educationComment">Education:</label>
                 <input type="text" id="educationComment" class="modal-input" value="${initialValues.education || ''}">
                 <label for="trainingComment">Training:</label>
@@ -3024,7 +3022,6 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
             </div>
         `;
     } else if (contentHTML && candidateData) {
-        // If contentHTML is provided but we also have candidateData, inject the document buttons
         renderedContentHTML = contentHTML.replace('<div class="modal-body">', `<div class="modal-body">${documentButtonsHTML}`);
     }
 
@@ -3048,7 +3045,6 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
     let isConfirming = false;
     let isMinimizing = false;
 
-    // Capture the resolve and reject functions for the promise
     let _resolve;
     let _reject;
 
@@ -3063,18 +3059,14 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         const modalContent = modalOverlay.querySelector('.modal');
 
         const closeHandler = (result) => {
-            if (isRestoring) {
-                console.log('closeHandler skipped due to isRestoring=true');
-                return;
-            }
+            if (isRestoring) return;
             console.log('closeHandler called with result:', result);
             modalOverlay.classList.remove('active');
-            // Only delete from minimizedModals if it's currently there and we're truly closing
             if (minimizedModals.has(modalId)) {
                 minimizedModals.delete(modalId);
             }
             ballPositions = ballPositions.filter(pos => pos.modalId !== modalId);
-            _resolve(result); // Use the captured resolve
+            _resolve(result);
         };
 
         confirmBtn.onclick = (event) => {
@@ -3086,23 +3078,15 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
             const [education, training, experience, eligibility] = inputValues;
 
             if (!education || !training || !experience || !eligibility) {
-                console.log('Validation failed: All comment fields are required');
                 showToast('error', 'Error', 'All comment fields are required');
                 isConfirming = false;
                 return;
             }
 
             const commentData = { education, training, experience, eligibility };
-            console.log('Confirming with values:', commentData);
             try {
-                let result = commentData;
-                if (onConfirm) {
-                    result = onConfirm(commentData);
-                    console.log('onConfirm executed with result:', result);
-                } else {
-                    console.log('No onConfirm callback provided, using commentData');
-                }
-                closeHandler(result || commentData); // Resolve the promise
+                const result = onConfirm ? onConfirm(commentData) : commentData;
+                closeHandler(result);
             } catch (error) {
                 console.error('Error in onConfirm callback:', error);
                 showToast('error', 'Error', `Failed to process confirmation: ${error.message}`);
@@ -3114,15 +3098,13 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
         if (cancelBtn) {
             cancelBtn.onclick = (event) => {
                 event.stopPropagation();
-                console.log('Cancel button clicked');
                 if (onCancel) onCancel();
-                closeHandler(false); // Resolve the promise as canceled
+                closeHandler(false);
             };
         }
 
         closeBtn.onclick = (event) => {
             event.stopPropagation();
-            console.log('Close button clicked');
             isMinimizing = true;
             minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
             setTimeout(() => { isMinimizing = false; }, 100);
@@ -3130,7 +3112,6 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
 
         minimizeBtn.onclick = (event) => {
             event.stopPropagation();
-            console.log('Minimize button clicked');
             isMinimizing = true;
             minimizeModal(modalId, candidateName, title, renderedContentHTML, onConfirm, onCancel, _resolve, _reject);
             setTimeout(() => { isMinimizing = false; }, 100);
@@ -3144,11 +3125,11 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
     return {
         promise,
         setRestoring: (value) => {
-            console.log('Setting isRestoring to:', value);
             isRestoring = value;
         }
     };
 }
+
 
 
 /**
