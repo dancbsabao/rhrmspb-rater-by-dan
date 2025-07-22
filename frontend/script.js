@@ -3113,7 +3113,6 @@ function showCommentModal(title = 'Comment Modal', contentHTML, candidateName, o
             <div class="modal-actions">
                 ${showCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
                 <button id="modalConfirm" class="modal-confirm">Confirm</button>
-                <button class="modal-minimize" data-modal-id="${modalId}">Minimize</button>
             </div>
         </div>
     `;
@@ -3365,7 +3364,6 @@ function restoreMinimizedModal(modalId) {
             <div class="modal-actions">
                 ${state.onCancel ? '<button class="modal-cancel">Cancel</button>' : ''}
                 <button id="modalConfirm" class="modal-confirm">Confirm</button>
-                <button class="modal-minimize" data-modal-id="${modalId}">Minimize</button>
             </div>
         </div>
     `;
