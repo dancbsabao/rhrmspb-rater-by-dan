@@ -941,6 +941,7 @@ container.appendChild(vacancyDiv);
       const sex = row[2];
       const tr = document.createElement('tr');
       const documentLinks = [
+        { label: 'Professional License', url: row[6] },
         { label: 'Letter of Intent', url: row[7] },
         { label: 'Personal Data Sheet', url: row[8] },
         { label: 'Work Experience', url: row[9] },
@@ -4246,3 +4247,4 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
