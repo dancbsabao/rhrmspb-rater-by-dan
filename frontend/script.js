@@ -1704,34 +1704,42 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
 function createEvaluatorSelector() {
   if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) return;
   if (document.getElementById('evaluatorSelect')) return;
-
+  
   const formGroup = document.createElement('div');
   formGroup.className = 'form-group';
-
+  
   const label = document.createElement('label');
   label.htmlFor = 'evaluatorSelect';
   label.textContent = 'Evaluator:';
-
+  
   const select = document.createElement('select');
   select.id = 'evaluatorSelect';
   select.required = true;
-
+  
   const defaultOption = document.createElement('option');
   defaultOption.value = '';
   defaultOption.textContent = 'Select Evaluator';
   select.appendChild(defaultOption);
-
+  
   Object.keys(EVALUATOR_PASSWORDS).forEach((evaluator) => {
     const option = document.createElement('option');
-    option.value = evaluator;
-    option.textContent = evaluator;
+    option.value = evaluator; // Keep original value for logic
+    
+    // Change display text only for "In-charge, Administrative Division"
+    if (evaluator === "In-charge, Administrative Division") {
+      option.textContent = "Chief, Administrative Division";
+    } else {
+      option.textContent = evaluator;
+    }
+    
     select.appendChild(option);
   });
-
+  
   select.addEventListener('change', handleEvaluatorSelection);
+  
   formGroup.appendChild(label);
   formGroup.appendChild(select);
-
+  
   const ratingForm = document.querySelector('.rating-form');
   if (ratingForm) ratingForm.insertBefore(formGroup, ratingForm.firstChild);
 }
@@ -4247,4 +4255,5 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
