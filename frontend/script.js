@@ -1747,7 +1747,6 @@ function createEvaluatorSelector() {
 async function handleEvaluatorSelection(event) {
   const selectElement = event.target;
   const newSelection = selectElement.value;
-
   if (!newSelection) {
     currentEvaluator = null;
     saveAuthState(gapi.client.getToken(), null);
@@ -1755,22 +1754,20 @@ async function handleEvaluatorSelection(event) {
     resetDropdowns(vacancies);
     return;
   }
-
+  const displayName = newSelection === "In-charge, Administrative Division" ? "Chief, Administrative Division" : newSelection;
   const modalContent = `
-    <p>Please enter the password for ${newSelection}:</p>
+    <p>Please enter the password for ${displayName}:</p>
     <input type="password" id="evaluatorPassword" class="modal-input">
   `;
-
   showModal('Evaluator Authentication', modalContent, () => {
     const passwordInput = document.getElementById('evaluatorPassword');
     const password = passwordInput.value.trim();
-
     if (password === EVALUATOR_PASSWORDS[newSelection]) {
       currentEvaluator = newSelection;
       selectElement.value = newSelection;
       saveAuthState(gapi.client.getToken(), currentEvaluator);
       saveDropdownState();
-      showToast('success', 'Success', `Logged in as ${newSelection}`);
+      showToast('success', 'Success', `Logged in as ${displayName}`);
       resetDropdowns(vacancies);
       fetchSubmittedRatings();
     } else {
@@ -2705,7 +2702,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     <div class="candidate-name">${elements.nameDropdown.value || 'N/A'}</div>
     <div class="grid-container">
       <div class="dropdown-info">
-        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${currentEvaluator || 'N/A'}</span></div>
+        <div class="data-row"><span class="data-label">EVALUATOR:</span> <span class="data-value">${(currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator) || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">ASSIGNMENT:</span> <span class="data-value">${elements.assignmentDropdown.value || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">POSITION:</span> <span class="data-value">${elements.positionDropdown.value || 'N/A'}</span></div>
         <div class="data-row"><span class="data-label">ITEM:</span> <span class="data-value">${elements.itemDropdown.value || 'N/A'}</span></div>
@@ -4255,5 +4252,6 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
 
