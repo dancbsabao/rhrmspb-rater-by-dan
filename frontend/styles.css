@@ -82,7 +82,7 @@ body {
 }
 
 .results-area .candidate-name {
-  font-size: 18px;
+  font-size: 24px;
   font-weight: bold;
   color: #333;
   text-align: center;
@@ -1302,3 +1302,4 @@ html, body {
   white-space: normal;
   overflow-wrap: break-word;
 }
+
