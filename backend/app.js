@@ -165,6 +165,11 @@ app.post('/refresh-token', async (req, res) => {
   }
 });
 
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
+
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
@@ -174,3 +179,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
