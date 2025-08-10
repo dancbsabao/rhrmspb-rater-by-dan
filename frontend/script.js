@@ -2241,7 +2241,7 @@ async function submitRatings() {
     let modalContent = `
       <div class="modal-body">
         <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
-        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator}</span></div>
+        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator}</span></div>
         <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
         <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
         <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
@@ -2395,7 +2395,7 @@ function revertToExistingRatings(existingRatings) {
 async function verifyEvaluatorPassword(existingRatings) {
   return new Promise((resolve) => {
     const modalContent = `
-      <p>Please verify password for ${currentEvaluator} to update ratings:</p>
+      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
       <input type="password" id="verificationPassword" class="modal-input">
     `;
     showModal('Password Verification', modalContent, () => {
@@ -4252,6 +4252,7 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
 
 
