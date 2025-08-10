@@ -1642,12 +1642,10 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
       spreadsheetId: SHEET_ID,
       range: 'GENERAL_LIST!A:O',
     });
-
     const candidateRow = response.result.values?.find(row => row[0] === name && row[1] === itemNumber);
     if (candidateRow) {
       const tilesContainer = document.createElement('div');
       tilesContainer.classList.add('tiles-container');
-
       const headers = [
         'SEX', 'DATE OF BIRTH', 'AGE', 'ELIGIBILITY/PROFESSION', 'PROFESSIONAL LICENSE',
         'LETTER OF INTENT (PDF FILE)', 'PERSONAL DATA SHEET (SPREADSHEET FILE)',
@@ -1656,19 +1654,15 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
         'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)', 
         'TRANSCRIPT OF RECORDS (PDF FILE)'
       ];
-
       const columnsCtoP = candidateRow.slice(2, 16);
       columnsCtoP.forEach((value, index) => {
         const tile = document.createElement('div');
         tile.classList.add('tile');
-
         const header = document.createElement('h4');
         header.textContent = headers[index];
         tile.appendChild(header);
-
         const content = document.createElement('div');
         content.classList.add('tile-content');
-
         if (index < 4) {
           const textContent = document.createElement('p');
           textContent.textContent = value || 'No Data';
@@ -1677,9 +1671,12 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
         } else {
           const button = document.createElement('button');
           button.classList.add('open-link-button');
+          button.type = 'button'; // Add this line - prevents form submission
           button.textContent = value ? 'View Document' : 'NONE';
           if (value) {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', (event) => {
+              event.preventDefault(); // Prevent default behavior
+              event.stopPropagation(); // Stop event bubbling
               window.open(value, '_blank');
             });
           } else {
@@ -1690,7 +1687,6 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
         tile.appendChild(content);
         tilesContainer.appendChild(tile);
       });
-
       container.appendChild(tilesContainer);
     } else {
       container.innerHTML = '<p>No matching data found.</p>';
@@ -4252,6 +4248,7 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
 
 
