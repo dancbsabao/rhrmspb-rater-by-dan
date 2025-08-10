@@ -827,8 +827,6 @@ function displaySecretariatCandidatesTable(candidates, itemNumber) {
   const container = document.getElementById('secretariat-candidates-table');
   container.innerHTML = '';
 
-
-
   // ADD THIS: Create vacancy details container
 const vacancyDiv = document.createElement('div');
 vacancyDiv.className = 'vacancy-details';
@@ -1636,33 +1634,43 @@ async function editComments(name, itemNumber, status, comment) {
 async function displaySecretariatCandidateDetails(name, itemNumber) {
   const container = document.getElementById('secretariat-candidate-details');
   container.innerHTML = '';
+
   try {
     if (!await isTokenValid()) await refreshAccessToken();
+
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: 'GENERAL_LIST!A:O',
     });
+
     const candidateRow = response.result.values?.find(row => row[0] === name && row[1] === itemNumber);
+
     if (candidateRow) {
       const tilesContainer = document.createElement('div');
       tilesContainer.classList.add('tiles-container');
+
       const headers = [
         'SEX', 'DATE OF BIRTH', 'AGE', 'ELIGIBILITY/PROFESSION', 'PROFESSIONAL LICENSE',
         'LETTER OF INTENT (PDF FILE)', 'PERSONAL DATA SHEET (SPREADSHEET FILE)',
-        'WORK EXPERIENCE SHEET (WORD FILE)', 'PROOF OF ELIGIBILITY (PDF FILE)', 
+        'WORK EXPERIENCE SHEET (WORD FILE)', 'PROOF OF ELIGIBILITY (PDF FILE)',
         'CERTIFICATES (PDF FILE)', 'INDIVIDUAL PERFORMANCE COMMITMENT REVIEW (PDF FILE)',
-        'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)', 
+        'CERTIFICATE OF EMPLOYMENT (PDF FILE)', 'DIPLOMA (PDF FILE)',
         'TRANSCRIPT OF RECORDS (PDF FILE)'
       ];
+
       const columnsCtoP = candidateRow.slice(2, 16);
+
       columnsCtoP.forEach((value, index) => {
         const tile = document.createElement('div');
         tile.classList.add('tile');
+
         const header = document.createElement('h4');
         header.textContent = headers[index];
         tile.appendChild(header);
+
         const content = document.createElement('div');
         content.classList.add('tile-content');
+
         if (index < 4) {
           const textContent = document.createElement('p');
           textContent.textContent = value || 'No Data';
@@ -1671,31 +1679,43 @@ async function displaySecretariatCandidateDetails(name, itemNumber) {
         } else {
           const button = document.createElement('button');
           button.classList.add('open-link-button');
-          button.type = 'button'; // Add this line - prevents form submission
-          button.textContent = value ? 'View Document' : 'NONE';
+          button.setAttribute('type', 'button'); // ensure never submit
+
           if (value) {
-            button.addEventListener('click', (event) => {
-              event.preventDefault(); // Prevent default behavior
-              event.stopPropagation(); // Stop event bubbling
-              window.open(value, '_blank');
-            });
+            button.textContent = 'View Document';
           } else {
+            button.textContent = 'NONE';
             button.disabled = true;
           }
+
+          // Always attach a click listener to stop bubbling/submission
+          button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (value) {
+              window.open(value, '_blank');
+            }
+          });
+
           content.appendChild(button);
         }
+
         tile.appendChild(content);
         tilesContainer.appendChild(tile);
       });
+
       container.appendChild(tilesContainer);
+
     } else {
       container.innerHTML = '<p>No matching data found.</p>';
     }
+
   } catch (error) {
     console.error('Error fetching candidate details:', error);
     container.innerHTML = '<p>Error loading candidate details.</p>';
   }
 }
+
 
 function createEvaluatorSelector() {
   if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) return;
@@ -4248,6 +4268,7 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
 
 
