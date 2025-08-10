@@ -326,7 +326,7 @@ async function initializeSecretariatDropdowns() {
   const member = SECRETARIAT_MEMBERS.find(m => m.id === secretariatMemberId);
   if (!member) {
     console.warn('No secretariat member found for ID:', secretariatMemberId);
-    showToast('error', 'Error', 'No secretariat member found');
+    // showToast('error', 'Error', 'No secretariat member found');
     return;
   }
 
@@ -4252,6 +4252,7 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
 
 
