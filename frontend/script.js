@@ -950,14 +950,15 @@ container.appendChild(vacancyDiv);
         { label: 'Diploma', url: row[14] },
         { label: 'Transcript of Records', url: row[15] },
       ];
-      const linksHtml = documentLinks
-        .map(link => {
-          if (link.url) {
-            return `<button class="open-link-button" onclick="window.open('${link.url}', '_blank')">${link.label}</button>`;
-          }
-          return `<button class="open-link-button" disabled>NONE (${link.label})</button>`;
-        })
-        .join('');
+    const linksHtml = documentLinks
+      .map(link => {
+        if (link.url) {
+          return `<button type="button" class="open-link-button" onclick="event.preventDefault(); event.stopPropagation(); window.open('${link.url}', '_blank')">${link.label}</button>`;
+        }
+        return `<button type="button" class="open-link-button" disabled>${link.label}</button>`;
+      })
+      .join('');
+
       
       let submittedStatus = '';
       if (candidate.submitted) {
@@ -4268,6 +4269,7 @@ elements.submitRatings.addEventListener('click', submitRatings);
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
 });
+
 
 
 
