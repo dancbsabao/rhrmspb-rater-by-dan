@@ -4265,10 +4265,36 @@ elements.signInBtn.addEventListener('click', handleAuthClick);
 elements.signOutBtn.addEventListener('click', handleSignOutClick);
 elements.submitRatings.addEventListener('click', submitRatings);
 
-// Fix: Properly close DOMContentLoaded wrapper
+// Patch buttons that exist now
+function patchOpenLinkButtons(root = document) {
+  root.querySelectorAll('button.open-link-button').forEach(b => {
+    if (!b.hasAttribute('type')) {
+      b.setAttribute('type', 'button');
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   console.log('DOM fully loaded');
+  patchOpenLinkButtons();
+
+  // Watch for new buttons being added dynamically
+  const observer = new MutationObserver(mutations => {
+    for (const m of mutations) {
+      m.addedNodes.forEach(node => {
+        if (node.nodeType === 1) {
+          if (node.matches?.('button.open-link-button')) {
+            patchOpenLinkButtons(node.parentNode || node);
+          } else if (node.querySelectorAll) {
+            patchOpenLinkButtons(node);
+          }
+        }
+      });
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 });
+
 
 
 
