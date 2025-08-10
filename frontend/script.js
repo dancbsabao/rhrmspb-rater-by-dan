@@ -2703,7 +2703,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
       <h3>MINIMUM COMPETENCIES</h3>
       <div class="competency-grid"></div>
     </div>
-    <button id="reset-ratings" class="btn-reset">RESET RATINGS</button>
+    <button type="button" id="reset-ratings" class="btn-reset">RESET RATINGS</button>
   `;
 
   let resultsArea = document.querySelector('.results-area');
@@ -4294,6 +4294,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 });
+
 
 
 
