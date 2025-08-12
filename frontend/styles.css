@@ -1363,4 +1363,66 @@ td {
 }
 
 
+.creator-link {
+  cursor: pointer;
+  color: #007bff;
+  text-decoration: underline;
+}
+
+.creator-link:hover {
+  color: #0056b3;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+}
+
+.modal {
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  width: 350px;
+  max-width: 90%;
+  animation: fadeIn 0.3s ease;
+  position: relative;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-close {
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.creator-photo {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: block;
+  margin: 10px auto;
+  object-fit: cover;
+}
+
+.modal-actions {
+  text-align: right;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 
