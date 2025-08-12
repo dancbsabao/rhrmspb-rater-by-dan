@@ -4321,13 +4321,14 @@ document.addEventListener("DOMContentLoaded", () => {
     creatorModal.style.display = "none";
   });
 
-  // Close when clicking outside the modal
   creatorModal.addEventListener("click", (e) => {
     if (e.target === creatorModal) {
       creatorModal.style.display = "none";
     }
   });
 });
+
+
 
 
 
