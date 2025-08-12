@@ -978,18 +978,18 @@ container.appendChild(vacancyDiv);
       <td>${submittedStatus}</td>
       <td>
         ${comment ? `
-          <button class="btn btn-sm btn-info me-1" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
-            <i class="fas fa-eye"></i> View
+          <button class="btn btn-view" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
+            View
           </button>
-          <button class="btn btn-sm btn-warning" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
-            <i class="fas fa-edit"></i> Edit
+          <button class="btn btn-edit" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
+            Edit
           </button>
-        ` : '<span class="text-muted">No comments yet</span>'}
+        ` : '<span class="no-comments">No comments yet</span>'}
       </td>
       <td>
-        <button class="btn btn-sm btn-primary" onclick="handlePostComment(this)" 
+        <button class="btn btn-post" onclick="handlePostComment(this)"
           data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">
-          <i class="fas fa-comment-alt"></i> Post Comment
+          Post Comment
         </button>
       </td>
     `;
@@ -4301,6 +4301,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 });
+
 
 
 
