@@ -972,20 +972,27 @@ container.appendChild(vacancyDiv);
       const escapedComment = comment.replace(/'/g, "\\'").replace(/`/g, "\\`").replace(/"/g, "\\\"");
       
       tr.innerHTML = `
-        <td>${index + 1}</td>
-        <td>${name}</td>
-        <td class="document-links">${linksHtml}</td>
-        <td>${submittedStatus}</td>
-        <td>
-          ${comment ? `
-            <button class="view-comment-button" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">View</button>
-            <button class="edit-comment-button" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">Edit</button>
-          ` : 'No comments yet'}
-        </td>
-        <td>
-          <button class="post-comment-button" onclick="handlePostComment(this)" data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">Post a Comment</button>
-        </td>
-      `;
+      <td>${index + 1}</td>
+      <td>${name}</td>
+      <td class="document-links">${linksHtml}</td>
+      <td>${submittedStatus}</td>
+      <td>
+        ${comment ? `
+          <button class="btn btn-sm btn-info me-1" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
+            <i class="fas fa-eye"></i> View
+          </button>
+          <button class="btn btn-sm btn-warning" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
+            <i class="fas fa-edit"></i> Edit
+          </button>
+        ` : '<span class="text-muted">No comments yet</span>'}
+      </td>
+      <td>
+        <button class="btn btn-sm btn-primary" onclick="handlePostComment(this)" 
+          data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">
+          <i class="fas fa-comment-alt"></i> Post Comment
+        </button>
+      </td>
+    `;
       tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'not-submitted';
       tr.dataset.forReview = candidate.submitted ? candidate.submitted.forReview : 'false';
       tbody.appendChild(tr);
@@ -4294,6 +4301,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 });
+
 
 
 
