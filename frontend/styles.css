@@ -1421,12 +1421,48 @@ td {
   margin: 10px auto 15px;
   object-fit: cover;
 }
+
 .creator-modal-content {
   text-align: center;
+  font-family: Arial, sans-serif;
 }
+
 .creator-modal-content h2 {
   margin-top: 5px;
   margin-bottom: 10px;
+}
+
+.creator-role {
+  font-size: 1rem;
+  color: #555;
+  margin-bottom: 10px;
+}
+
+.creator-email a {
+  color: #007bff;
+  text-decoration: none;
+}
+.creator-email a:hover {
+  text-decoration: underline;
+}
+
+/* Donate Box */
+.creator-donate {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 15px 0;
+}
+.creator-donate h4 {
+  margin-top: 0;
+  color: #444;
+}
+
+.creator-about {
+  font-size: 0.95rem;
+  color: #333;
+  margin-top: 10px;
+  line-height: 1.5;
 }
 
 /* Actions */
@@ -1435,11 +1471,14 @@ td {
   margin-top: 15px;
 }
 
+
+
 /* Animation */
 @keyframes creatorFadeIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
 
 
 
