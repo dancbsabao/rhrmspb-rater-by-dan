@@ -1474,12 +1474,20 @@ td {
 }
 
 
+/* center button groups inside the td */
+.button-group-center {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  align-items: center;
+}
 
 /* Animation */
 @keyframes creatorFadeIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
 
 
 
