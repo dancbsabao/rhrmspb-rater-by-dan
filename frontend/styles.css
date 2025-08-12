@@ -1304,3 +1304,55 @@ html, body {
 }
 
 
+/* Base button style */
+.btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: Arial, sans-serif;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  color: #fff;
+  display: inline-block;
+}
+
+/* Hover and active effect */
+.btn:hover {
+  transform: translateY(-1px);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+
+/* View Button */
+.btn-view {
+  background-color: #17a2b8; /* Teal */
+}
+.btn-view:hover {
+  background-color: #138496;
+}
+
+/* Edit Button */
+.btn-edit {
+  background-color: #ffc107; /* Amber */
+  color: #000;
+}
+.btn-edit:hover {
+  background-color: #e0a800;
+}
+
+/* Post Comment Button */
+.btn-post {
+  background-color: #007bff; /* Blue */
+}
+.btn-post:hover {
+  background-color: #0069d9;
+}
+
+/* No comments text */
+.no-comments {
+  color: #6c757d;
+  font-style: italic;
+}
+
