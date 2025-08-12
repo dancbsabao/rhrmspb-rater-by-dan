@@ -4303,6 +4303,32 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
+document.addEventListener("DOMContentLoaded", () => {
+  const creatorLink = document.getElementById("creatorLink");
+  const creatorModal = document.getElementById("creatorModal");
+  const closeCreatorModal = document.getElementById("closeCreatorModal");
+  const closeCreatorBtn = document.getElementById("closeCreatorBtn");
+
+  creatorLink.addEventListener("click", () => {
+    creatorModal.style.display = "flex";
+  });
+
+  closeCreatorModal.addEventListener("click", () => {
+    creatorModal.style.display = "none";
+  });
+
+  closeCreatorBtn.addEventListener("click", () => {
+    creatorModal.style.display = "none";
+  });
+
+  // Close when clicking outside the modal
+  creatorModal.addEventListener("click", (e) => {
+    if (e.target === creatorModal) {
+      creatorModal.style.display = "none";
+    }
+  });
+});
+
 
 
 
