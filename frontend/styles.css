@@ -1405,8 +1405,10 @@ td {
   align-items: center;
 }
 .creator-modal-title {
-  margin: 0;
+  text-align: center;
+  margin: 0 auto;
 }
+
 .creator-modal-close {
   font-size: 1.8rem;
   cursor: pointer;
@@ -1478,6 +1480,7 @@ td {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
 
 
 
