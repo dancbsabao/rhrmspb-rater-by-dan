@@ -326,7 +326,7 @@ select:disabled {
 }
 
 .secretariat-table tr:hover {
-  background-color: #f9f9f9;
+  background-color: #e3f2fd;
 }
 
 .secretariat-table tr.selected {
@@ -1302,4 +1302,5 @@ html, body {
   white-space: normal;
   overflow-wrap: break-word;
 }
+
 
