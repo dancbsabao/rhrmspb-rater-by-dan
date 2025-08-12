@@ -971,28 +971,34 @@ container.appendChild(vacancyDiv);
       const comment = candidate.submitted?.comment || '';
       const escapedComment = comment.replace(/'/g, "\\'").replace(/`/g, "\\`").replace(/"/g, "\\\"");
       
+      // <-- CORRECTED innerHTML (no nested <td> )
       tr.innerHTML = `
-      <td>${index + 1}</td>
-      <td>${name}</td>
-      <td class="document-links">${linksHtml}</td>
-      <td>${submittedStatus}</td>
-      <td>
-        ${comment ? `
-          <button class="btn btn-view" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
-            View
-          </button>
-          <button class="btn btn-edit" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
-            Edit
-          </button>
-        ` : '<span class="no-comments">No comments yet</span>'}
-      </td>
-      <td>
-        <button class="btn btn-post" onclick="handlePostComment(this)"
-          data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">
-          Post Comment
-        </button>
-      </td>
-    `;
+        <td>${index + 1}</td>
+        <td>${name}</td>
+        <td class="document-links">${linksHtml}</td>
+        <td>${submittedStatus}</td>
+        <td>
+          ${comment ? `
+            <div class="button-group-center">
+              <button class="btn btn-view" onclick="viewComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
+                View
+              </button>
+              <button class="btn btn-edit" onclick="editComments('${name}', '${itemNumber}', '${candidate.submitted.status}', '${escapedComment}')">
+                Edit
+              </button>
+            </div>
+          ` : '<span class="no-comments">No comments yet</span>'}
+        </td>
+        <td>
+          <div class="button-group-center">
+            <button class="btn btn-post" onclick="handlePostComment(this)"
+              data-name="${name}" data-sex="${sex}" data-item="${itemNumber}">
+              Post Comment
+            </button>
+          </div>
+        </td>
+      `;
+
       tr.dataset.status = candidate.submitted ? candidate.submitted.status : 'not-submitted';
       tr.dataset.forReview = candidate.submitted ? candidate.submitted.forReview : 'false';
       tbody.appendChild(tr);
@@ -4327,6 +4333,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 
 
