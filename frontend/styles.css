@@ -1368,12 +1368,12 @@ td {
   color: #007bff;
   text-decoration: underline;
 }
-
 .creator-link:hover {
   color: #0056b3;
 }
 
-.modal-overlay {
+/* Overlay */
+.creator-modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -1383,46 +1383,64 @@ td {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 999;
+  z-index: 2000;
 }
 
-.modal {
+/* Modal Box */
+.creator-modal {
   background: #fff;
-  padding: 20px;
-  border-radius: 12px;
-  width: 350px;
-  max-width: 90%;
-  animation: fadeIn 0.3s ease;
+  padding: 25px;
+  border-radius: 14px;
+  width: 600px; /* Bigger modal */
+  max-width: 95%;
+  animation: creatorFadeIn 0.3s ease;
   position: relative;
+  box-shadow: 0 5px 25px rgba(0,0,0,0.3);
 }
 
-.modal-header {
+/* Header */
+.creator-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
-.modal-close {
-  font-size: 1.5rem;
+.creator-modal-title {
+  margin: 0;
+}
+.creator-modal-close {
+  font-size: 1.8rem;
   cursor: pointer;
 }
 
+/* Content */
 .creator-photo {
-  width: 120px;
-  height: 120px;
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   display: block;
-  margin: 10px auto;
+  margin: 10px auto 15px;
   object-fit: cover;
 }
-
-.modal-actions {
-  text-align: right;
+.creator-modal-content {
+  text-align: center;
+}
+.creator-modal-content h2 {
+  margin-top: 5px;
+  margin-bottom: 10px;
 }
 
-@keyframes fadeIn {
+/* Actions */
+.creator-modal-actions {
+  text-align: center;
+  margin-top: 15px;
+}
+
+/* Animation */
+@keyframes creatorFadeIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+
 
 
