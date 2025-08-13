@@ -28,7 +28,14 @@
         <h1>DENR CALABARZON<br />COMPETENCY RATING SYSTEM</h1>
         <p id="authStatus">Initializing...</p>
         <button id="signInBtn" style="display: none">Sign in with Google</button>
-        <button id="signOutBtn" style="display: none">Sign Out</button>
+        
+        <!-- Updated sign out buttons section -->
+        <div class="signout-buttons" id="signoutButtons" style="display: none;">
+          <button id="signOutBtn" class="primary-signout-btn">Sign Out</button>
+          <button id="signOutAllBtn" class="admin-signout-btn" title="Admin only - Sign out all users">
+            🔴 Sign Out All Sessions
+          </button>
+        </div>
       </div>
 
       <div class="tabs" id="tabsContainer" hidden>
@@ -155,6 +162,7 @@
     
 </body>
 </html>
+
 
 
 
