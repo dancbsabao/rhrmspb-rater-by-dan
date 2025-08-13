@@ -61,6 +61,11 @@ const elements = {
   logoutAllPassword: document.getElementById('logoutAllPassword'),
   confirmLogoutAllBtn: document.getElementById('confirmLogoutAllBtn'),
   closeLogoutAllModal: document.querySelectorAll('.modal-close'),
+  tabsContainer: document.getElementById('tabsContainer'),
+  raterTab: document.getElementById('raterTab'),
+  secretariatTab: document.getElementById('secretariatTab'),
+  raterContent: document.getElementById('raterContent'),
+  secretariatContent: document.getElementById('secretariatContent')
 };
 
 let vacancies = [];
@@ -2108,7 +2113,7 @@ async function handleLogoutAll() {
   );
 }
 
-// Update updateUI function in script.js
+// Update updateUI to manage tabs visibility and logout buttons
 function updateUI(isSignedIn) {
   if (isSignedIn) {
     elements.signInBtn.style.display = 'none';
@@ -2116,17 +2121,46 @@ function updateUI(isSignedIn) {
     elements.logoutAllBtn.style.display = 'block';
     elements.authStatus.textContent = currentEvaluator ? `Signed in as ${currentEvaluator}` : 'Signed in';
     elements.ratingForm.style.display = currentTab === 'rater' ? 'block' : 'none';
+    elements.tabsContainer.removeAttribute('hidden'); // Show tabs when signed in
+    elements.raterContent.style.display = currentTab === 'rater' ? 'block' : 'none';
+    elements.secretariatContent.style.display = currentTab === 'secretariat' ? 'block' : 'none';
   } else {
     elements.signInBtn.style.display = 'block';
     elements.signOutBtn.style.display = 'none';
     elements.logoutAllBtn.style.display = 'none';
     elements.authStatus.textContent = 'Not signed in';
     elements.ratingForm.style.display = 'none';
+    elements.tabsContainer.setAttribute('hidden', ''); // Hide tabs when signed out
+    elements.raterContent.style.display = 'none';
+    elements.secretariatContent.style.display = 'none';
   }
 }
 
-// Add event listener for logout all button in script.js
+// Add event listener for logout all button
 elements.logoutAllBtn.addEventListener('click', handleLogoutAll);
+
+function initializeTabs() {
+  elements.raterTab.addEventListener('click', () => {
+    currentTab = 'rater';
+    elements.raterTab.classList.add('active');
+    elements.secretariatTab.classList.remove('active');
+    elements.raterContent.style.display = 'block';
+    elements.secretariatContent.style.display = 'none';
+    elements.ratingForm.style.display = 'block';
+    updateUI(true);
+  });
+
+  elements.secretariatTab.addEventListener('click', () => {
+    currentTab = 'secretariat';
+    elements.secretariatTab.classList.add('active');
+    elements.raterTab.classList.remove('active');
+    elements.raterContent.style.display = 'none';
+    elements.secretariatContent.style.display = 'block';
+    elements.ratingForm.style.display = 'none';
+    updateUI(true);
+  });
+}
+
 
 async function loadSheetData(maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -4596,6 +4630,16 @@ document.addEventListener("DOMContentLoaded", function () {
   initializeApp();
 });
 
+// Call initializeTabs on DOM load
+document.addEventListener('DOMContentLoaded', () => {
+  initializeTabs();
+  // Ensure tabs are shown if signed in
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (authState && authState.access_token) {
+    elements.tabsContainer.removeAttribute('hidden');
+  }
+});
+
 // Window load handler
 window.addEventListener("load", function () {
   console.log('Window fully loaded');
@@ -4614,4 +4658,5 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
