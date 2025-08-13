@@ -17,6 +17,11 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
+let loadingState = {
+  gapi: false,
+  dom: false,
+  data: false
+};
 
 
 let CLIENT_ID;
@@ -449,33 +454,58 @@ fetch(`${API_BASE_URL}/config`)
 
 
 
+function checkAndHideSpinner() {
+  // Only hide spinner when all components are loaded
+  if (loadingState.gapi && loadingState.dom && loadingState.data) {
+    const spinner = document.getElementById('loadingSpinner');
+    const pageWrapper = document.querySelector('.page-wrapper');
+    
+    if (spinner) {
+      spinner.style.transition = 'opacity 0.4s ease';
+      spinner.style.opacity = '0';
+      setTimeout(() => {
+        spinner.style.display = 'none';
+        if (pageWrapper) {
+          pageWrapper.style.opacity = '1';
+        }
+      }, 400);
+    }
+  }
+}
+
 function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-
-  // Show spinner, hide content
+  
+  // Show spinner, prepare content (but keep it visible with opacity)
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
   }
   if (pageWrapper) {
-    pageWrapper.style.display = 'none';
+    pageWrapper.style.opacity = '0.3'; // Keep it visible but dimmed during loading
   }
-
+  
   gapi.load('client', async () => {
     try {
       await initializeGapiClient();
       gapiInitialized = true;
       console.log('GAPI client initialized');
-
+      loadingState.gapi = true;
+      
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
-      await fetchSecretariatMembers();
-      await fetchVacanciesData();
+      
+      // Load all data
+      await Promise.all([
+        fetchSecretariatMembers(),
+        fetchVacanciesData()
+      ]);
+      
       loadSignatories();
       restoreState();
-
+      
       // Event listeners
       elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
       elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
@@ -485,19 +515,17 @@ function initializeApp() {
         })
       );
       elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-
+      
+      loadingState.data = true;
+      console.log('App fully initialized');
+      
     } catch (error) {
       console.error('Error initializing app:', error);
+      // Even on error, we should hide the spinner
+      loadingState.gapi = true;
+      loadingState.data = true;
     } finally {
-      // Fade out spinner and show content
-      if (spinner) {
-        spinner.style.transition = 'opacity 0.4s ease';
-        spinner.style.opacity = '0';
-        setTimeout(() => spinner.remove(), 400);
-      }
-      if (pageWrapper) {
-        pageWrapper.style.display = 'block';
-      }
+      checkAndHideSpinner();
     }
   });
 }
@@ -4356,17 +4384,33 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
+// DOM content loaded handler
 document.addEventListener("DOMContentLoaded", function () {
-  const spinner = document.getElementById("loadingSpinner");
-  if (spinner) {
-    window.addEventListener("load", function () {
-      spinner.style.opacity = "0";
-      setTimeout(() => {
-        spinner.style.display = "none";
-      }, 400); // matches your CSS transition time
-    });
-  }
+  console.log('DOM content loaded');
+  loadingState.dom = true;
+  
+  // Initialize the app
+  initializeApp();
 });
+
+// Window load handler (for images, stylesheets, etc.)
+window.addEventListener("load", function () {
+  console.log('Window fully loaded');
+  // Additional check in case DOM was ready but other resources weren't
+  setTimeout(() => {
+    checkAndHideSpinner();
+  }, 100); // Small delay to ensure everything is rendered
+});
+
+// Fallback: Hide spinner after maximum wait time (prevent infinite loading)
+setTimeout(() => {
+  console.log('Fallback: Force hiding spinner after 10 seconds');
+  loadingState.gapi = true;
+  loadingState.dom = true;
+  loadingState.data = true;
+  checkAndHideSpinner();
+}, 10000); // 10 second fallback
+
 
 
 
