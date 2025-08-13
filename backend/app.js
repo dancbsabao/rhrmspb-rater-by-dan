@@ -278,6 +278,40 @@ app.get('/session-info', (req, res) => {
   });
 });
 
+// ADD THIS ENDPOINT TO YOUR server.js FILE
+// Place it with your other endpoints, before the 404 handler
+
+// Handle OPTIONS preflight for admin password verification
+app.options('/verify-admin-password', cors());
+
+// Admin password verification endpoint
+app.post('/verify-admin-password', (req, res) => {
+  const { password } = req.body;
+  
+  if (!password) {
+    return res.status(400).json({ valid: false, error: 'Password required' });
+  }
+  
+  // Check against your admin password from environment variables
+  // You can use the same SECRETARIAT_PASSWORD or create a new ADMIN_PASSWORD
+  const adminPassword = process.env.SECRETARIAT_PASSWORD || process.env.ADMIN_PASSWORD;
+  
+  if (!adminPassword) {
+    console.error('Admin password not configured in environment variables');
+    return res.status(500).json({ valid: false, error: 'Admin password not configured' });
+  }
+  
+  const isValid = password === adminPassword;
+  
+  if (isValid) {
+    console.log('Admin password verification successful');
+  } else {
+    console.log('Admin password verification failed');
+  }
+  
+  res.json({ valid: isValid });
+});
+
 
 
 // 404 handler
@@ -289,5 +323,6 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
