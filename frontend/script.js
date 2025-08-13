@@ -4517,23 +4517,29 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log('DOM content loaded');
   loadingState.dom = true;
   
-  // Only initialize GAPI, don't automatically sign in
-  initializeGAPIOnly();
+  // Initialize the app
+  initializeApp();
 });
 
 // Window load handler
 window.addEventListener("load", function () {
   console.log('Window fully loaded');
-  // Don't automatically proceed - wait for authentication
+  setTimeout(() => {
+    if (!loadingState.uiReady) {
+      checkAndHideSpinner();
+    }
+  }, 100);
 });
 
 // Ultimate fallback: Hide spinner after maximum wait time
 setTimeout(() => {
-  console.log('Ultimate fallback: Force hiding spinner after 20 seconds');
-  Object.keys(loadingState).forEach(key => loadingState[key] = true);
-  updateLoadingMessage('Loading timeout reached. Some features may be limited.');
+  console.log('Ultimate fallback: Force hiding spinner after 15 seconds');
+  loadingState.gapi = true;
+  loadingState.dom = true;
+  loadingState.uiReady = true;
   checkAndHideSpinner();
-}, 20000);
+}, 15000);
+
 
 
 
