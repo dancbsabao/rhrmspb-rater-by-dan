@@ -477,77 +477,11 @@ function checkAndHideSpinner() {
   }
 }
 
-function startUIMonitoring() {
-  console.log('Starting UI monitoring...');
-  
-  // Monitor specific elements for changes
-  const elementsToWatch = [
-    'assignmentDropdown',
-    'secretariatAssignmentDropdown',
-    'candidates-table',
-    'secretariat-candidates-table'
-  ];
-  
-  function checkUIContent() {
-    const assignmentDropdown = document.getElementById('assignmentDropdown');
-    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-    
-    // Check if any dropdown has data
-    const hasRaterData = assignmentDropdown && assignmentDropdown.options.length > 1;
-    const hasSecretariatData = secretariatAssignmentDropdown && secretariatAssignmentDropdown.options.length > 0;
-    
-    if (hasRaterData || hasSecretariatData) {
-      console.log('UI data detected - marking as ready');
-      loadingState.uiReady = true;
-      checkAndHideSpinner();
-      return true;
-    }
-    return false;
-  }
-  
-  // Initial check
-  if (checkUIContent()) return;
-  
-  // Set up MutationObserver to watch for DOM changes
-  uiObserver = new MutationObserver(() => {
-    checkUIContent();
-  });
-  
-  // Observe each element for changes
-  elementsToWatch.forEach(elementId => {
-    const element = document.getElementById(elementId);
-    if (element) {
-      uiObserver.observe(element, {
-        childList: true,
-        subtree: true,
-        attributes: true
-      });
-    }
-  });
-  
-  // Fallback: Check periodically
-  const periodicCheck = () => {
-    if (!loadingState.uiReady && !checkUIContent()) {
-      uiCheckTimeout = setTimeout(periodicCheck, 500);
-    }
-  };
-  periodicCheck();
-  
-  // Ultimate fallback: Mark as ready after 10 seconds
-  setTimeout(() => {
-    if (!loadingState.uiReady) {
-      console.log('UI monitoring timeout - marking as ready');
-      loadingState.uiReady = true;
-      checkAndHideSpinner();
-    }
-  }, 10000);
-}
-
-function initializeApp() {
+async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-  
-  // Show spinner, prepare content
+
+  // Show spinner and dim UI
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -555,51 +489,102 @@ function initializeApp() {
   if (pageWrapper) {
     pageWrapper.style.opacity = '0.3';
   }
-  
+
   gapi.load('client', async () => {
     try {
+      // 1️⃣ Initialize GAPI
       await initializeGapiClient();
       gapiInitialized = true;
       console.log('GAPI client initialized');
       loadingState.gapi = true;
-      
+
+      // Basic UI setup
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
-      
-      // Start monitoring UI for data population
-      startUIMonitoring();
-      
-      // Load all data (your existing functions)
+
+      // 2️⃣ Fetch ALL required data in parallel
       await Promise.all([
         fetchSecretariatMembers(),
-        fetchVacanciesData()
+        fetchVacanciesData(),
+        loadSignatories() // ensure this returns a Promise
       ]);
-      
-      loadSignatories();
+
+      // 3️⃣ Wait until DOM elements are populated with the fetched data
+      await waitForUIReady();
+
+      // 4️⃣ Restore any saved state
       restoreState();
-      
-      // Event listeners
-      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-      elements.closeSignatoriesModalBtns.forEach(button =>
-        button.addEventListener('click', () => {
-          elements.signatoriesModal.classList.remove('active');
-        })
-      );
-      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-      
-      console.log('App initialization complete');
-      
+
+      // 5️⃣ Attach event listeners
+      attachEventListeners();
+
+      console.log('✅ App initialization complete');
+
+      // 6️⃣ Hide spinner and show full UI
+      hideSpinnerFully();
+
     } catch (error) {
       console.error('Error initializing app:', error);
-      // Even on error, we should hide the spinner
-      loadingState.gapi = true;
-      loadingState.uiReady = true;
-      checkAndHideSpinner();
+      hideSpinnerFully(); // Still hide spinner to avoid a stuck UI
     }
   });
 }
+
+function waitForUIReady() {
+  return new Promise((resolve) => {
+    console.log('Waiting for UI to be populated with data...');
+
+    const assignmentDropdown = document.getElementById('assignmentDropdown');
+    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+
+    function check() {
+      const hasRaterData = assignmentDropdown?.options.length > 1;
+      const hasSecretariatData = secretariatAssignmentDropdown?.options.length > 0;
+      if (hasRaterData || hasSecretariatData) {
+        console.log('UI elements populated with data');
+        resolve();
+        return true;
+      }
+      return false;
+    }
+
+    // Immediate check
+    if (check()) return;
+
+    // Observe changes to dropdowns until ready
+    const observer = new MutationObserver(() => {
+      if (check()) {
+        observer.disconnect();
+      }
+    });
+
+    [assignmentDropdown, secretariatAssignmentDropdown].forEach(el => {
+      if (el) {
+        observer.observe(el, { childList: true });
+      }
+    });
+  });
+}
+
+function hideSpinnerFully() {
+  const spinner = document.getElementById('loadingSpinner');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  if (spinner) spinner.style.display = 'none';
+  if (pageWrapper) pageWrapper.style.opacity = '1';
+}
+
+function attachEventListeners() {
+  elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+  elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+  elements.closeSignatoriesModalBtns.forEach(button =>
+    button.addEventListener('click', () => {
+      elements.signatoriesModal.classList.remove('active');
+    })
+  );
+  elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+}
+
 
 
 async function initializeGapiClient() {
@@ -4480,6 +4465,7 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
 
