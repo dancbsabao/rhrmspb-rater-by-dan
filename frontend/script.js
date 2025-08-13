@@ -1958,6 +1958,7 @@ function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
+// Update handleSignOutClick to make it robust
 async function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
   const result = await showModal('Confirm Sign Out', modalContent, async () => {
@@ -2031,23 +2032,34 @@ async function handleSignOutClick() {
   });
 }
 
-// Add handleLogoutAll for logout all functionality
+// Update handleLogoutAll to ensure correct password handling
 async function handleLogoutAll() {
   const contentHTML = `
     <p>Enter the admin password to log out all sessions:</p>
-    <input type="password" id="logoutAllPassword" placeholder="Enter password">
+    <input type="password" id="logoutAllPasswordInput" placeholder="Enter password">
   `;
   const result = await showModal(
     'Confirm Logout All Sessions',
     contentHTML,
     async () => {
-      const password = document.getElementById('logoutAllPassword').value;
+      const passwordInput = document.getElementById('logoutAllPasswordInput');
+      if (!passwordInput) {
+        console.error('Password input not found');
+        showToast('error', 'Error', 'Password input not found. Please try again.');
+        return;
+      }
+      const password = passwordInput.value.trim();
       if (password !== 'admindan') {
+        console.warn('Invalid password entered:', password);
         showToast('error', 'Error', 'Invalid password');
         return;
       }
       try {
         const accessToken = gapi.client.getToken()?.access_token;
+        if (!accessToken) {
+          showToast('error', 'Error', 'No valid session found');
+          return;
+        }
         const response = await fetch(`${API_BASE_URL}/logout-all`, {
           method: 'POST',
           headers: {
@@ -2100,6 +2112,8 @@ async function handleLogoutAll() {
           authSection.classList.add('signed-out');
           showToast('success', 'Success', 'All sessions logged out');
         } else {
+          const errorData = await response.json();
+          console.error('Logout all failed:', errorData);
           showToast('error', 'Error', 'Failed to log out all sessions');
         }
       } catch (error) {
@@ -2108,7 +2122,11 @@ async function handleLogoutAll() {
       }
     },
     () => {
-      document.getElementById('logoutAllPassword').value = '';
+      const passwordInput = document.getElementById('logoutAllPasswordInput');
+      if (passwordInput) {
+        passwordInput.value = '';
+      }
+      console.log('Logout all canceled');
     }
   );
 }
@@ -2121,7 +2139,7 @@ function updateUI(isSignedIn) {
     elements.logoutAllBtn.style.display = 'block';
     elements.authStatus.textContent = currentEvaluator ? `Signed in as ${currentEvaluator}` : 'Signed in';
     elements.ratingForm.style.display = currentTab === 'rater' ? 'block' : 'none';
-    elements.tabsContainer.removeAttribute('hidden'); // Show tabs when signed in
+    elements.tabsContainer.removeAttribute('hidden');
     elements.raterContent.style.display = currentTab === 'rater' ? 'block' : 'none';
     elements.secretariatContent.style.display = currentTab === 'secretariat' ? 'block' : 'none';
   } else {
@@ -2130,7 +2148,7 @@ function updateUI(isSignedIn) {
     elements.logoutAllBtn.style.display = 'none';
     elements.authStatus.textContent = 'Not signed in';
     elements.ratingForm.style.display = 'none';
-    elements.tabsContainer.setAttribute('hidden', ''); // Hide tabs when signed out
+    elements.tabsContainer.setAttribute('hidden', '');
     elements.raterContent.style.display = 'none';
     elements.secretariatContent.style.display = 'none';
   }
@@ -2139,6 +2157,7 @@ function updateUI(isSignedIn) {
 // Add event listener for logout all button
 elements.logoutAllBtn.addEventListener('click', handleLogoutAll);
 
+// Update tab switching logic to ensure tabs work correctly
 function initializeTabs() {
   elements.raterTab.addEventListener('click', () => {
     currentTab = 'rater';
@@ -4633,7 +4652,6 @@ document.addEventListener("DOMContentLoaded", function () {
 // Call initializeTabs on DOM load
 document.addEventListener('DOMContentLoaded', () => {
   initializeTabs();
-  // Ensure tabs are shown if signed in
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (authState && authState.access_token) {
     elements.tabsContainer.removeAttribute('hidden');
@@ -4658,5 +4676,6 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
