@@ -17,26 +17,14 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-// Global loading state tracker with data verification
 let loadingState = {
   gapi: false,
   dom: false,
-  dataFetched: false,
-  dataVerified: false,
   uiReady: false
 };
 
 let uiObserver;
 let uiCheckTimeout;
-let dataRetryCount = 0;
-const maxDataRetries = 3;
-
-// Expected data structure to verify
-const expectedData = {
-  secretariatMembers: false,
-  vacanciesData: false,
-  signatories: false
-};
 
 
 let CLIENT_ID;
@@ -118,6 +106,11 @@ function saveDropdownState() {
     localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
     console.log('Dropdown state saved:', dropdownState);
   }, 100);
+}
+function loadDropdownState() {
+  const dropdownState = JSON.parse(localStorage.getItem('dropdownState')) || {};
+  console.log('Loaded dropdown state:', dropdownState);
+  return dropdownState;
 }
 
 function loadAuthState() {
@@ -321,6 +314,7 @@ async function restoreState() {
   }
 }
 
+
 // Ensure initializeSecretariatDropdowns is called with proper vacancy data
 async function initializeSecretariatDropdowns() {
   console.log('Initializing Secretariat dropdowns with vacancies:', vacancies);
@@ -416,35 +410,6 @@ async function initializeSecretariatDropdowns() {
 // Flag to indicate restoration is in progress
 let dropdownStateRestoring = false;
 
-// RESTORED MISSING INITIALIZE APP FUNCTION
-async function initializeApp() {
-  console.log('Starting app initialization...');
-  
-  // Set DOM as ready
-  loadingState.dom = true;
-  
-  // Prevent multiple initialization
-  if (gapiInitialized) {
-    console.log('GAPI already initialized, skipping...');
-    return;
-  }
-  
-  // Check if we have DOM ready and config loaded
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      console.log('DOM content loaded');
-      if (!gapiInitialized) {
-        initializeGAPIOnly();
-      }
-    });
-  } else {
-    console.log('DOM already ready, initializing GAPI');
-    if (!gapiInitialized) {
-      initializeGAPIOnly();
-    }
-  }
-}
-
 // Config fetch logic (around line 331)
 fetch(`${API_BASE_URL}/config`)
   .then((response) => {
@@ -485,11 +450,7 @@ fetch(`${API_BASE_URL}/config`)
   });
 
 function checkAndHideSpinner() {
-  const allReady = loadingState.gapi && loadingState.dom && 
-                   loadingState.dataFetched && loadingState.dataVerified && 
-                   loadingState.uiReady;
-                   
-  if (allReady) {
+  if (loadingState.gapi && loadingState.dom && loadingState.uiReady) {
     const spinner = document.getElementById('loadingSpinner');
     const pageWrapper = document.querySelector('.page-wrapper');
     
@@ -513,120 +474,13 @@ function checkAndHideSpinner() {
     if (uiCheckTimeout) {
       clearTimeout(uiCheckTimeout);
     }
-  } else {
-    console.log('Loading state:', loadingState);
-  }
-}
-
-function updateLoadingMessage(message) {
-  const loadingStatus = document.getElementById('loadingStatus');
-  if (loadingStatus) {
-    loadingStatus.textContent = message;
-  }
-}
-
-async function verifyDataIntegrity() {
-  console.log('Verifying data integrity...');
-  updateLoadingMessage('Verifying data integrity...');
-  
-  let allDataValid = true;
-  const issues = [];
-  
-  try {
-    // Check secretariat members
-    const assignmentDropdown = document.getElementById('assignmentDropdown');
-    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-    
-    if (!assignmentDropdown || assignmentDropdown.options.length <= 1) {
-      issues.push('Rater assignment dropdown not populated');
-      allDataValid = false;
-    } else {
-      expectedData.secretariatMembers = true;
-    }
-    
-    if (!secretariatAssignmentDropdown || secretariatAssignmentDropdown.options.length === 0) {
-      issues.push('Secretariat assignment dropdown not populated');
-      allDataValid = false;
-    } else {
-      expectedData.vacanciesData = true;
-    }
-    
-    // Check if signatories loaded
-    try {
-      const signatories = JSON.parse(localStorage.getItem('signatories') || '[]');
-      expectedData.signatories = true; // Signatories can be empty initially
-    } catch (e) {
-      issues.push('Signatories data corrupted');
-      allDataValid = false;
-    }
-    
-    if (allDataValid) {
-      console.log('Data verification passed');
-      loadingState.dataVerified = true;
-      updateLoadingMessage('Data loaded successfully!');
-      return true;
-    } else {
-      console.warn('Data verification failed:', issues);
-      return false;
-    }
-    
-  } catch (error) {
-    console.error('Error during data verification:', error);
-    return false;
-  }
-}
-
-async function retryDataFetch() {
-  dataRetryCount++;
-  console.log(`Retrying data fetch (attempt ${dataRetryCount}/${maxDataRetries})`);
-  updateLoadingMessage(`Retrying data load... (${dataRetryCount}/${maxDataRetries})`);
-  
-  try {
-    // Reset data flags
-    Object.keys(expectedData).forEach(key => expectedData[key] = false);
-    
-    // Retry data fetching
-    await Promise.all([
-      fetchSecretariatMembers(),
-      fetchVacanciesData()
-    ]);
-    
-    loadSignatories();
-    restoreState();
-    
-    // Verify the retry was successful
-    setTimeout(async () => {
-      const isValid = await verifyDataIntegrity();
-      if (isValid) {
-        loadingState.dataFetched = true;
-        checkAndHideSpinner();
-      } else if (dataRetryCount < maxDataRetries) {
-        setTimeout(() => retryDataFetch(), 2000);
-      } else {
-        console.error('Max retry attempts reached. Data may be incomplete.');
-        updateLoadingMessage('Some data may be incomplete. Please refresh if needed.');
-        loadingState.dataFetched = true;
-        loadingState.dataVerified = true;
-        checkAndHideSpinner();
-      }
-    }, 1000);
-    
-  } catch (error) {
-    console.error('Retry failed:', error);
-    if (dataRetryCount < maxDataRetries) {
-      setTimeout(() => retryDataFetch(), 2000);
-    } else {
-      loadingState.dataFetched = true;
-      loadingState.dataVerified = true;
-      updateLoadingMessage('Connection issues detected. Some features may be limited.');
-      checkAndHideSpinner();
-    }
   }
 }
 
 function startUIMonitoring() {
   console.log('Starting UI monitoring...');
   
+  // Monitor specific elements for changes
   const elementsToWatch = [
     'assignmentDropdown',
     'secretariatAssignmentDropdown',
@@ -635,17 +489,15 @@ function startUIMonitoring() {
   ];
   
   function checkUIContent() {
-    // Only check UI if data has been verified
-    if (!loadingState.dataVerified) return false;
-    
     const assignmentDropdown = document.getElementById('assignmentDropdown');
     const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
     
+    // Check if any dropdown has data
     const hasRaterData = assignmentDropdown && assignmentDropdown.options.length > 1;
     const hasSecretariatData = secretariatAssignmentDropdown && secretariatAssignmentDropdown.options.length > 0;
     
     if (hasRaterData || hasSecretariatData) {
-      console.log('UI data confirmed - marking as ready');
+      console.log('UI data detected - marking as ready');
       loadingState.uiReady = true;
       checkAndHideSpinner();
       return true;
@@ -656,11 +508,12 @@ function startUIMonitoring() {
   // Initial check
   if (checkUIContent()) return;
   
-  // Set up MutationObserver
+  // Set up MutationObserver to watch for DOM changes
   uiObserver = new MutationObserver(() => {
     checkUIContent();
   });
   
+  // Observe each element for changes
   elementsToWatch.forEach(elementId => {
     const element = document.getElementById(elementId);
     if (element) {
@@ -672,7 +525,7 @@ function startUIMonitoring() {
     }
   });
   
-  // Periodic check
+  // Fallback: Check periodically
   const periodicCheck = () => {
     if (!loadingState.uiReady && !checkUIContent()) {
       uiCheckTimeout = setTimeout(periodicCheck, 500);
@@ -680,139 +533,21 @@ function startUIMonitoring() {
   };
   periodicCheck();
   
-  // UI timeout
+  // Ultimate fallback: Mark as ready after 10 seconds
   setTimeout(() => {
-    if (!loadingState.uiReady && loadingState.dataVerified) {
+    if (!loadingState.uiReady) {
       console.log('UI monitoring timeout - marking as ready');
       loadingState.uiReady = true;
       checkAndHideSpinner();
     }
-  }, 8000);
+  }, 10000);
 }
 
-function initializeGAPIOnly() {
-  // Prevent multiple initialization
-  if (gapiInitialized) {
-    console.log('GAPI already initialized, skipping duplicate call');
-    return;
-  }
-  
-  updateLoadingMessage('Initializing authentication...');
-  
-  gapi.load('client', async () => {
-    try {
-      // Prevent multiple client initialization
-      if (gapiInitialized) {
-        console.log('GAPI client already initialized, skipping');
-        return;
-      }
-      
-      await initializeGapiClient();
-      gapiInitialized = true;
-      console.log('GAPI client initialized successfully');
-      loadingState.gapi = true;
-      
-      // Check if there's a valid auth state in localStorage
-      const authState = loadAuthState();
-      
-      if (authState && authState.access_token) {
-        // User has valid authentication, proceed with full app initialization
-        console.log('Valid authentication found, initializing app...');
-        onUserSignIn();
-      } else {
-        // No valid authentication, show sign-in interface
-        console.log('No valid authentication, showing sign-in interface');
-        updateUI(false);
-        hideSpinnerShowAuth();
-      }
-      
-    } catch (error) {
-      console.error('Error initializing GAPI:', error);
-      updateLoadingMessage('Authentication failed. Please refresh the page.');
-      updateUI(false);
-      hideSpinnerShowAuth();
-    }
-  });
-}
-
-function initializeAppContent() {
-  updateLoadingMessage('Setting up application...');
-  
-  createEvaluatorSelector();
-  setupTabNavigation();
-  
-  // Start UI monitoring
-  startUIMonitoring();
-  
-  updateLoadingMessage('Loading data from server...');
-  
-  // Load all data with error handling
-  Promise.all([
-    fetchSecretariatMembers(),
-    fetchVacanciesData()
-  ]).then(() => {
-    loadSignatories();
-    restoreState();
-    
-    console.log('Initial data fetch complete');
-    
-    // Verify data integrity after a short delay to allow UI updates
-    setTimeout(async () => {
-      const isValid = await verifyDataIntegrity();
-      if (isValid) {
-        loadingState.dataFetched = true;
-      } else {
-        console.warn('Data verification failed, initiating retry...');
-        await retryDataFetch();
-      }
-    }, 1000);
-    
-  }).catch(async (error) => {
-    console.error('Data fetch error:', error);
-    updateLoadingMessage('Data fetch failed, retrying...');
-    await retryDataFetch();
-  });
-  
-  // Event listeners (only add if elements exist)
-  if (elements.generatePdfBtn) elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
-  if (elements.manageSignatoriesBtn) elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
-  elements.closeSignatoriesModalBtns.forEach(button =>
-    button.addEventListener('click', () => {
-      elements.signatoriesModal.classList.remove('active');
-    })
-  );
-  if (elements.addSignatoryBtn) elements.addSignatoryBtn.addEventListener('click', addSignatory);
-  
-  console.log('App content initialization complete');
-}
-
-function hideSpinnerShowAuth() {
+function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
   
-  console.log('Hiding spinner, showing auth interface');
-  
-  if (spinner) {
-    spinner.style.transition = 'opacity 0.4s ease';
-    spinner.style.opacity = '0';
-    setTimeout(() => {
-      spinner.style.display = 'none';
-    }, 400);
-  }
-  
-  if (pageWrapper) {
-    pageWrapper.style.opacity = '1';
-  }
-}
-
-// Function to call when user successfully signs in (integrate with your auth flow)
-function onUserSignIn() {
-  console.log('User signed in, initializing full app...');
-  
-  const spinner = document.getElementById('loadingSpinner');
-  const pageWrapper = document.querySelector('.page-wrapper');
-  
-  // Show spinner again for data loading
+  // Show spinner, prepare content
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -821,62 +556,64 @@ function onUserSignIn() {
     pageWrapper.style.opacity = '0.3';
   }
   
-  // Reset loading states for app content
-  loadingState.dataFetched = false;
-  loadingState.dataVerified = false;
-  loadingState.uiReady = false;
-  
-  // Update your existing UI
-  updateUI(true);
-  
-  // Initialize app content
-  initializeAppContent();
+  gapi.load('client', async () => {
+    try {
+      await initializeGapiClient();
+      gapiInitialized = true;
+      console.log('GAPI client initialized');
+      loadingState.gapi = true;
+      
+      maybeEnableButtons();
+      createEvaluatorSelector();
+      setupTabNavigation();
+      
+      // Start monitoring UI for data population
+      startUIMonitoring();
+      
+      // Load all data (your existing functions)
+      await Promise.all([
+        fetchSecretariatMembers(),
+        fetchVacanciesData()
+      ]);
+      
+      loadSignatories();
+      restoreState();
+      
+      // Event listeners
+      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+      elements.closeSignatoriesModalBtns.forEach(button =>
+        button.addEventListener('click', () => {
+          elements.signatoriesModal.classList.remove('active');
+        })
+      );
+      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+      
+      console.log('App initialization complete');
+      
+    } catch (error) {
+      console.error('Error initializing app:', error);
+      // Even on error, we should hide the spinner
+      loadingState.gapi = true;
+      loadingState.uiReady = true;
+      checkAndHideSpinner();
+    }
+  });
 }
 
-// Function to call when user signs out (integrate with your existing sign out)
-function onUserSignOut() {
-  console.log('User signed out, resetting app state');
-  
-  // Reset all loading states
-  loadingState.dataFetched = false;
-  loadingState.dataVerified = false;
-  loadingState.uiReady = false;
-  
-  // Stop any ongoing monitoring
-  if (uiObserver) {
-    uiObserver.disconnect();
-  }
-  if (uiCheckTimeout) {
-    clearTimeout(uiCheckTimeout);
-  }
-  
-  // Your existing UI update
-  updateUI(false);
-  
-  // Show auth interface
-  hideSpinnerShowAuth();
-}
 
 async function initializeGapiClient() {
   try {
-    // Prevent multiple initialization
-    if (gapi.client && gapi.client.sheets) {
-      console.log('GAPI client already initialized, skipping');
-      return;
-    }
-    
     await gapi.client.init({
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
-    
     const token = gapi.client.getToken();
     if (token && !await isTokenValid()) await refreshAccessToken();
-    
-    console.log('GAPI client setup complete');
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
-    throw error;
   }
 }
 
@@ -1004,8 +741,6 @@ function handleTokenCallback(tokenResponse) {
         loadSheetData();
         showToast('success', 'Welcome!', 'Successfully signed in.');
         localStorage.setItem('hasWelcomed', 'true');
-        // Trigger full app initialization
-        onUserSignIn();
       });
   }
 }
@@ -4799,5 +4534,6 @@ setTimeout(() => {
   updateLoadingMessage('Loading timeout reached. Some features may be limited.');
   checkAndHideSpinner();
 }, 20000);
+
 
 
