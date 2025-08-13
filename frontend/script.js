@@ -4348,10 +4348,6 @@ document.addEventListener("DOMContentLoaded", () => {
     creatorModal.style.display = "none";
   });
 
-  closeCreatorBtn.addEventListener("click", () => {
-    creatorModal.style.display = "none";
-  });
-
   creatorModal.addEventListener("click", (e) => {
     if (e.target === creatorModal) {
       creatorModal.style.display = "none";
@@ -4371,6 +4367,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 });
+
 
 
 
