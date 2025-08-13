@@ -1542,6 +1542,62 @@ td {
 }
 
 
+/* ADD THESE STYLES TO YOUR styles.css */
+
+.signout-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.primary-signout-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  font-size: 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  min-width: 150px;
+}
+
+.primary-signout-btn:hover {
+  background: #c82333;
+}
+
+.admin-signout-btn {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  min-width: 180px;
+  opacity: 0.8;
+}
+
+.admin-signout-btn:hover {
+  background: #dc3545;
+  opacity: 1;
+  transform: scale(1.02);
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+  .signout-buttons {
+    flex-direction: column;
+  }
+  
+  .primary-signout-btn,
+  .admin-signout-btn {
+    width: 100%;
+    max-width: 200px;
+  }
+}
 
 
 
