@@ -306,6 +306,17 @@ app.post('/verify-admin-password', (req, res) => {
   res.json({ valid: isValid });
 });
 
+// Check if user is signed in
+app.get('/check-session', (req, res) => {
+  const refreshToken = req.cookies.refresh_token;
+  const isSignedIn = !!refreshToken && Array.from(sessionStore.values()).includes(refreshToken);
+
+  console.log('Check session:', { refreshToken, isSignedIn });
+
+  res.json({
+    signedIn: isSignedIn
+  });
+});
 
 
 // 404 handler
@@ -317,6 +328,7 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
 
