@@ -2137,7 +2137,9 @@ function updateUI(isSignedIn) {
     elements.signInBtn.style.display = 'none';
     elements.signOutBtn.style.display = 'block';
     elements.logoutAllBtn.style.display = 'block';
-    elements.authStatus.textContent = currentEvaluator ? `Signed in as ${currentEvaluator}` : 'Signed in';
+    elements.authStatus.textContent = currentEvaluator
+      ? `Signed in as ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator}`
+      : 'Signed in';
     elements.ratingForm.style.display = currentTab === 'rater' ? 'block' : 'none';
     elements.tabsContainer.removeAttribute('hidden');
     elements.raterContent.style.display = currentTab === 'rater' ? 'block' : 'none';
@@ -4676,6 +4678,7 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
 
