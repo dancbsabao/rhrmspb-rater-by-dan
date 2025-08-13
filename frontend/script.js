@@ -543,62 +543,89 @@ function startUIMonitoring() {
   }, 10000);
 }
 
-// Initialize App
-function initializeApp() {
+async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
 
-  // Show spinner and dim content
-  if (spinner) spinner.style.display = 'flex';
-  if (pageWrapper) pageWrapper.style.opacity = '0.3';
+  // Show spinner immediately
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+  }
+  if (pageWrapper) {
+    pageWrapper.style.opacity = '0.3';
+  }
 
-  gapi.load('client', async () => {
-    try {
-      await initializeGapiClient();
-      gapiInitialized = true;
-      console.log('GAPI client initialized');
-      loadingState.gapi = true;
+  try {
+    // Load GAPI client
+    await new Promise((resolve, reject) => {
+      gapi.load('client', resolve);
+    });
+    await initializeGapiClient();
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
+    loadingState.gapi = true;
 
-      // Existing UI setup functions
-      maybeEnableButtons();
-      createEvaluatorSelector();
-      setupTabNavigation();
-      startUIMonitoring();
+    // Set DOM phase done
+    loadingState.dom = true;
 
-      // Load all necessary data
-      await Promise.all([
-        fetchSecretariatMembers(),
-        fetchVacanciesData()
-      ]);
+    // Enable buttons, setup evaluator selector, tabs
+    maybeEnableButtons();
+    createEvaluatorSelector();
+    setupTabNavigation();
 
-      loadSignatories();  // Old working flow
-      restoreState();
+    // Start UI monitoring (if needed)
+    startUIMonitoring();
 
-      // Event listeners
-      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-      elements.closeSignatoriesModalBtns.forEach(button =>
-        button.addEventListener('click', () => elements.signatoriesModal.classList.remove('active'))
-      );
-      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+    // Load data in parallel
+    await Promise.all([
+      fetchSecretariatMembers(),
+      fetchVacanciesData()
+    ]);
 
-      // Show UI
-      if (spinner) spinner.style.display = 'none';
-      if (pageWrapper) pageWrapper.style.opacity = '1';
-      loadingState.uiReady = true;
-      updateUI(true); // Show tabs and rater content
-
-      console.log('App initialization complete ✅');
-    } catch (error) {
-      console.error('Error initializing app:', error);
-      // Ensure spinner is hidden even on error
-      if (spinner) spinner.style.display = 'none';
-      if (pageWrapper) pageWrapper.style.opacity = '1';
-      loadingState.gapi = true;
-      loadingState.uiReady = true;
-      checkAndHideSpinner();
+    // Load signatories safely
+    if (loadSignatories) {
+      try {
+        await loadSignatories();
+      } catch (err) {
+        console.error('Error loading signatories:', err);
+      }
     }
-  });
+
+    // Restore previous state if any
+    restoreState();
+
+    // Event listeners for PDF / signatories
+    elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+    elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+    elements.closeSignatoriesModalBtns.forEach(btn =>
+      btn.addEventListener('click', () => elements.signatoriesModal.classList.remove('active'))
+    );
+    elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+
+    // ✅ Mark UI as ready
+    loadingState.uiReady = true;
+    checkAndHideSpinner();
+
+    // ✅ Show tabs & sign-out buttons
+    updateUI(true);
+
+    // ✅ Populate competency container
+    if (elements.competencyContainer) {
+      elements.competencyContainer.style.display = 'block';
+      renderCompetencyContainer(); // Your function that fills it
+    }
+
+    console.log('App initialization complete');
+
+  } catch (error) {
+    console.error('Error initializing app:', error);
+    // Ensure spinner doesn’t get stuck
+    loadingState.gapi = true;
+    loadingState.dom = true;
+    loadingState.uiReady = true;
+    checkAndHideSpinner();
+  }
 }
 
 
@@ -4622,31 +4649,26 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
-// DOMContentLoaded handler
-document.addEventListener("DOMContentLoaded", () => {
+// DOM content loaded handler
+document.addEventListener("DOMContentLoaded", function () {
   console.log('DOM content loaded');
   loadingState.dom = true;
-
+  
   // Initialize the app
   initializeApp();
-
-  // Sign out buttons
-  const signOutAllBtn = document.getElementById('signOutAllBtn');
-  signOutAllBtn?.addEventListener('click', handleSignOutAllClick);
-
-  const signOutBtn = document.getElementById('signOutBtn');
-  signOutBtn?.addEventListener('click', handleSignOutClick);
 });
 
-// Window load handler for spinner
-window.addEventListener("load", () => {
+// Window load handler
+window.addEventListener("load", function () {
   console.log('Window fully loaded');
   setTimeout(() => {
-    if (!loadingState.uiReady) checkAndHideSpinner();
+    if (!loadingState.uiReady) {
+      checkAndHideSpinner();
+    }
   }, 100);
 });
 
-// Ultimate fallback: force hide spinner after 15 seconds
+// Ultimate fallback: Hide spinner after maximum wait time
 setTimeout(() => {
   console.log('Ultimate fallback: Force hiding spinner after 15 seconds');
   loadingState.gapi = true;
@@ -4654,6 +4676,7 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
 
