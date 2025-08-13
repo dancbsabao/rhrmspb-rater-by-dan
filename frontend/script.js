@@ -1949,6 +1949,36 @@ function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
+async function initializeAfterLogin() {
+  updateUI(true); // Show tabs and sign-out buttons
+
+  try {
+    // Fetch all required data
+    const [vacanciesRes, candidatesRes, compeCodesRes, competenciesRes] = await Promise.all([
+      fetch(`${API_BASE_URL}/vacancies`, { credentials: 'include' }),
+      fetch(`${API_BASE_URL}/candidates`, { credentials: 'include' }),
+      fetch(`${API_BASE_URL}/compe-codes`, { credentials: 'include' }),
+      fetch(`${API_BASE_URL}/competencies`, { credentials: 'include' })
+    ]);
+
+    vacancies = await vacanciesRes.json();
+    candidates = await candidatesRes.json();
+    compeCodes = await compeCodesRes.json();
+    competencies = await competenciesRes.json();
+
+    // Populate dropdowns and UI
+    resetDropdowns(vacancies);
+    renderCompetencyContainer(competencies);
+    clearRatings();
+
+    console.log('UI successfully initialized after login');
+  } catch (err) {
+    console.error('Failed to initialize data after login:', err);
+    showToast('error', 'Initialization Failed', 'Failed to load initial data.');
+  }
+}
+
+
 // MODIFIED handleSignOutAllClick function with password protection
 function handleSignOutAllClick() {
   // First modal: Password input
@@ -4670,6 +4700,22 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/check-session`, { credentials: 'include' });
+    const data = await res.json();
+
+    if (res.ok && data.signedIn) {
+      await initializeAfterLogin();
+    } else {
+      updateUI(false);
+    }
+  } catch (err) {
+    console.error('Error checking session:', err);
+    updateUI(false);
+  }
+});
 
 
 
