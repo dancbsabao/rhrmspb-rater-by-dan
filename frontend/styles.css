@@ -1540,3 +1540,30 @@ td {
 .fade-in {
   animation: fadeIn 0.4s ease-in-out;
 }
+
+/* Add to styles.css for logout all modal and button */
+#logoutAllBtn {
+  padding: 12px 24px;
+  border: 2px solid #333;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  background-color: white;
+  color: black;
+  margin: 5px 0;
+}
+
+#logoutAllBtn:hover {
+  background-color: #333;
+  color: white;
+}
+
+#confirmLogoutAllBtn {
+  background-color: #333;
+  color: white;
+}
+
+#confirmLogoutAllBtn:hover {
+  background-color: #000;
+}
