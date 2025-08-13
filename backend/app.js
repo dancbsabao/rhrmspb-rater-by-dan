@@ -10,6 +10,7 @@ app.set('trust proxy', true);
 
 // Middleware
 app.use(cookieParser());
+
 app.use(cors({
   origin: function (origin, callback) {
     const allowedOrigins = [
@@ -28,8 +29,9 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 app.use(express.json());
 
 // Handle OPTIONS preflight for /refresh-token
@@ -169,6 +171,53 @@ app.get('/ping', (req, res) => {
   res.send('pong');
 });
 
+// Add clear-session endpoint to app.js
+app.post('/clear-session', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1];
+  const { sessionId } = req.body;
+  if (!token || !sessionId) {
+    return res.status(401).json({ error: 'No access token or session ID provided' });
+  }
+  try {
+    // Remove the session from sessionStore
+    sessionStore.delete(sessionId);
+    res.clearCookie('refresh_token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'None'
+    });
+    res.json({ message: 'Session cleared' });
+  } catch (error) {
+    console.error('Error clearing session:', error);
+    res.status(500).json({ error: 'Failed to clear session' });
+  }
+});
+
+// Add logout-all endpoint to app.js
+app.post('/logout-all', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'No access token provided' });
+  }
+  try {
+    await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + token, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    sessionStore.clear();
+    res.clearCookie('refresh_token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'None'
+    });
+    res.json({ message: 'All sessions logged out' });
+  } catch (error) {
+    console.error('Error logging out all sessions:', error);
+    res.status(500).json({ error: 'Failed to log out all sessions' });
+  }
+});
 
 // 404 handler
 app.use((req, res) => {
@@ -179,4 +228,5 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
