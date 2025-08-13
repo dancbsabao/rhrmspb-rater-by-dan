@@ -802,12 +802,13 @@ function setupTabNavigation() {
         const password = document.getElementById('secretariatPassword').value.trim();
         const member = SECRETARIAT_MEMBERS.find(m => m.id === memberId);
         if (member && password === member.password) {
-          secretariatMemberId = memberId;
-          localStorage.setItem('secretariatAuthenticated', 'true');
-          saveAuthState(gapi.client.getToken(), currentEvaluator);
-          switchTab('secretariat');
-          showToast('success', 'Success', `Logged in as ${member.name}`);
-          setTimeout(() => location.reload(), 1000); // wait 1 second before refreshing
+            secretariatMemberId = memberId;
+            localStorage.setItem('secretariatAuthenticated', 'true');
+            localStorage.setItem('currentTab', 'secretariat'); // Explicitly set the tab
+            saveAuthState(gapi.client.getToken(), currentEvaluator);
+            switchTab('secretariat');
+            showToast('success', 'Success', `Logged in as ${member.name}`);
+            setTimeout(() => location.reload(), 1000); // Keep the reload
         } else {
           showToast('error', 'Error', 'Incorrect credentials');
         }
@@ -4679,6 +4680,16 @@ setTimeout(() => {
   checkAndHideSpinner();
 }, 15000);
 
+document.addEventListener('DOMContentLoaded', () => {
+    const isAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
+    const savedTab = localStorage.getItem('currentTab');
+    
+    if (isAuthenticated && savedTab === 'secretariat') {
+        switchTab('secretariat'); // Restore secretariat tab
+    } else {
+        switchTab('rater'); // Default to rater tab
+    }
+});
 
 
 
