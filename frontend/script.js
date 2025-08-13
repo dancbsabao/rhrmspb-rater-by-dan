@@ -17,10 +17,11 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-let loadingState = {
+const loadingState = {
   gapi: false,
   dom: false,
-  uiReady: false
+  uiReady: false,
+  apiDone: false // ✅ Track API completion
 };
 
 let uiObserver;
@@ -459,12 +460,12 @@ fetch(`${API_BASE_URL}/config`)
   });
 
 function checkAndHideSpinner() {
-  if (loadingState.gapi && loadingState.dom && loadingState.uiReady) {
+  if (loadingState.gapi && loadingState.dom && loadingState.uiReady && loadingState.apiDone) {
     const spinner = document.getElementById('loadingSpinner');
     const pageWrapper = document.querySelector('.page-wrapper');
-    
-    console.log('All loading complete - hiding spinner');
-    
+
+    console.log('✅ All loading complete - hiding spinner');
+
     if (spinner) {
       spinner.style.transition = 'opacity 0.4s ease';
       spinner.style.opacity = '0';
@@ -475,82 +476,58 @@ function checkAndHideSpinner() {
         }
       }, 400);
     }
-    
-    // Clean up observer
-    if (uiObserver) {
-      uiObserver.disconnect();
-    }
-    if (uiCheckTimeout) {
-      clearTimeout(uiCheckTimeout);
-    }
+
+    if (uiObserver) uiObserver.disconnect();
+    if (uiCheckTimeout) clearTimeout(uiCheckTimeout);
   }
 }
 
+
 function startUIMonitoring() {
   console.log('Starting UI monitoring...');
-  
-  // Monitor specific elements for changes
-  const elementsToWatch = [
-    'assignmentDropdown',
-    'secretariatAssignmentDropdown',
-    'candidates-table',
-    'secretariat-candidates-table'
-  ];
-  
+
   function checkUIContent() {
     const assignmentDropdown = document.getElementById('assignmentDropdown');
     const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-    
-    // Guard .options access to avoid "Cannot read properties of undefined (reading 'length')"
+
     const hasRaterData = !!(assignmentDropdown && assignmentDropdown.options && assignmentDropdown.options.length > 1);
     const hasSecretariatData = !!(secretariatAssignmentDropdown && secretariatAssignmentDropdown.options && secretariatAssignmentDropdown.options.length > 0);
-    
-    if (hasRaterData || hasSecretariatData) {
-      console.log('UI data detected - marking as ready');
+
+    if (hasRaterData && hasSecretariatData) {
+      console.log('✅ UI data ready');
       loadingState.uiReady = true;
       checkAndHideSpinner();
       return true;
     }
     return false;
   }
-  
-  // Initial check
+
+  // First check right away
   if (checkUIContent()) return;
-  
-  // Set up MutationObserver to watch for DOM changes
+
   uiObserver = new MutationObserver(() => {
     checkUIContent();
   });
-  
-  // Observe each element for changes
-  elementsToWatch.forEach(elementId => {
-    const element = document.getElementById(elementId);
-    if (element) {
-      uiObserver.observe(element, {
-        childList: true,
-        subtree: true,
-        attributes: true
-      });
-    }
-  });
-  
-  // Fallback: Check periodically
+
+  // Observe the document for changes — catches late-rendered elements
+  uiObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
+
   const periodicCheck = () => {
     if (!loadingState.uiReady && !checkUIContent()) {
       uiCheckTimeout = setTimeout(periodicCheck, 500);
     }
   };
   periodicCheck();
-  
-  // Ultimate fallback: Mark as ready after 10 seconds (optional)
+
   setTimeout(() => {
     if (!loadingState.uiReady) {
-      console.log('UI monitoring timeout - marking as ready');
+      console.warn('⚠ UI monitoring timeout - marking as ready (fallback)');
       loadingState.uiReady = true;
       checkAndHideSpinner();
     }
-  }, 10000);
+  }, 20000); // 20s fallback
 }
+
 
 
 
@@ -622,8 +599,7 @@ async function safeStaggeredFetch(fetchArray) {
 function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-  
-  // Show spinner, prepare content
+
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -631,36 +607,37 @@ function initializeApp() {
   if (pageWrapper) {
     pageWrapper.style.opacity = '0.3';
   }
-  
+
   gapi.load('client', async () => {
     try {
       await initializeGapiClient();
       gapiInitialized = true;
-      console.log('GAPI client initialized');
+      console.log('✅ GAPI client initialized');
       loadingState.gapi = true;
-      
+
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
-      
-      // Start monitoring UI for data population
-      startUIMonitoring();
-      
+
       // ==== SAFE API CALLS WITH QUEUE + STAGGER ====
       await safeStaggeredFetch([
         { key: 'secretariatMembers', fn: fetchSecretariatMembers },
         { key: 'vacanciesData', fn: fetchVacanciesData }
       ]);
 
-      // Load signatories with safe throttling
       const maybePromise = loadSignatories && safeThrottledFetch('signatories', loadSignatories);
       if (maybePromise && typeof maybePromise.then === 'function') {
         await maybePromise;
       }
 
+      // ✅ Mark API calls as done BEFORE UI monitoring
+      loadingState.apiDone = true;
+
+      // ✅ Now start UI monitoring since data is available
+      startUIMonitoring();
+
       restoreState();
-      
-      // Event listeners
+
       elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
       elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
       elements.closeSignatoriesModalBtns.forEach(button =>
@@ -670,20 +647,17 @@ function initializeApp() {
       );
       elements.addSignatoryBtn?.addEventListener('click', addSignatory);
 
-      // Mark DOM/data-binding phase as done
       loadingState.dom = true;
+      checkAndHideSpinner(); // Won’t hide unless UI is also ready
 
-      // In case uiReady was already set by the monitor, this will now hide the spinner
-      checkAndHideSpinner();
-      
-      console.log('App initialization complete');
-      
+      console.log('✅ App initialization complete');
+
     } catch (error) {
-      console.error('Error initializing app:', error);
-      // Ensure spinner won’t get stuck
+      console.error('❌ Error initializing app:', error);
       loadingState.gapi = true;
       loadingState.uiReady = true;
       loadingState.dom = true;
+      loadingState.apiDone = true;
       checkAndHideSpinner();
     }
   });
@@ -4797,6 +4771,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
