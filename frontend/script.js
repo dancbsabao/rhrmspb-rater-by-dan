@@ -75,17 +75,33 @@ let competencies = [];
 
 const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 
+// Helper function to clear auth state
+function clearAuthState() {
+  localStorage.removeItem('authState');
+  console.log('Auth state cleared due to invalid token');
+}
+
+// Updated saveAuthState function with better error handling
 function saveAuthState(tokenResponse, evaluator) {
+  if (!tokenResponse) {
+    console.warn('No token response provided to saveAuthState');
+    return;
+  }
+  
   const authState = {
-    access_token: tokenResponse.access_token,
-    session_id: tokenResponse.session_id || sessionId,
+    access_token: tokenResponse.access_token || null,
+    session_id: tokenResponse.session_id || sessionId || null,
     expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
     secretariatMemberId: typeof secretariatMemberId !== 'undefined' ? secretariatMemberId : null,
   };
+  
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
-  scheduleTokenRefresh();
+  
+  if (typeof scheduleTokenRefresh === 'function') {
+    scheduleTokenRefresh();
+  }
 }
 
 let debounceTimeout = null;
@@ -849,38 +865,59 @@ function setupTabNavigation() {
 function switchTab(tab) {
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
-
+  
   if (tab === 'rater') {
     localStorage.removeItem('secretariatAuthenticated');
     secretariatMemberId = null;
-    saveAuthState(gapi.client.getToken(), currentEvaluator);
+    
+    // Check if gapi.client exists and is initialized before getting token
+    let token = null;
+    try {
+      if (gapi && gapi.client && typeof gapi.client.getToken === 'function') {
+        token = gapi.client.getToken();
+        if (token) {
+          saveAuthState(token, currentEvaluator);
+        } else {
+          console.warn('No valid token available');
+          // Save auth state without token or clear it
+          clearAuthState();
+        }
+      } else {
+        console.warn('Google API client not initialized');
+        clearAuthState();
+      }
+    } catch (error) {
+      console.error('Error getting token:', error);
+      clearAuthState();
+    }
+    
     console.log('Secretariat authentication cleared');
   }
-
+  
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
-
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
   document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
-
+  
   const resultsArea = document.querySelector('.results-area');
   if (resultsArea) {
     resultsArea.style.display = tab === 'rater' ? 'block' : 'none';
     resultsArea.classList.toggle('active', tab === 'rater');
   }
-
+  
   setDropdownState(elements.assignmentDropdown, tab === 'rater');
   setDropdownState(elements.positionDropdown, tab === 'rater');
   setDropdownState(elements.itemDropdown, tab === 'rater');
   setDropdownState(elements.nameDropdown, tab === 'rater');
-
+  
   const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
   const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
   const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+  
   setDropdownState(secretariatAssignmentDropdown, tab === 'secretariat');
   setDropdownState(secretariatPositionDropdown, tab === 'secretariat');
   setDropdownState(secretariatItemDropdown, tab === 'secretariat');
-
+  
   if (tab === 'rater') {
     initializeDropdowns(vacancies);
     if (elements.nameDropdown.value && elements.itemDropdown.value) {
@@ -898,7 +935,7 @@ function switchTab(tab) {
     }
     updateUI(true);
   }
-
+  
   const container = document.querySelector('.container');
   if (resultsArea && tab === 'rater') {
     const resultsHeight = resultsArea.offsetHeight + 20;
@@ -4722,6 +4759,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
