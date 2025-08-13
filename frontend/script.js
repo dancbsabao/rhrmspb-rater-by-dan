@@ -450,13 +450,21 @@ fetch(`${API_BASE_URL}/config`)
 
 
 function initializeApp() {
-  const spinner = document.getElementById('loadingSpinner');
-  if (spinner) spinner.style.display = 'flex'; // Show immediately
+  const spinner = document.getElementById('loading-spinner');
+  const pageWrapper = document.querySelector('.page-wrapper');
+
+  // Show spinner, hide content
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+  }
+  if (pageWrapper) pageWrapper.style.visibility = 'hidden';
 
   gapi.load('client', async () => {
     await initializeGapiClient();
     gapiInitialized = true;
     console.log('GAPI client initialized');
+
     maybeEnableButtons();
     createEvaluatorSelector();
     setupTabNavigation();
@@ -465,29 +473,21 @@ function initializeApp() {
     loadSignatories();
     restoreState();
 
-    // Event listeners
-    if (elements.generatePdfBtn) {
-      elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
-    }
-    if (elements.manageSignatoriesBtn) {
-      elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
-    }
-    elements.closeSignatoriesModalBtns.forEach(button => {
-      button.addEventListener('click', () => {
-        elements.signatoriesModal.classList.remove('active');
-      });
-    });
-    if (elements.addSignatoryBtn) {
-      elements.addSignatoryBtn.addEventListener('click', addSignatory);
-    }
+    if (elements.generatePdfBtn) elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
+    if (elements.manageSignatoriesBtn) elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
+    elements.closeSignatoriesModalBtns.forEach(btn => btn.addEventListener('click', () => elements.signatoriesModal.classList.remove('active')));
+    if (elements.addSignatoryBtn) elements.addSignatoryBtn.addEventListener('click', addSignatory);
 
-    // Fade out spinner when done
+    // Fade out spinner, show page
     if (spinner) {
+      spinner.style.transition = 'opacity 0.4s ease';
       spinner.style.opacity = '0';
-      setTimeout(() => spinner.remove(), 400); // wait for fade
+      setTimeout(() => spinner.remove(), 400);
     }
+    if (pageWrapper) pageWrapper.style.visibility = 'visible';
   });
 }
+
 
 async function initializeGapiClient() {
   try {
@@ -4342,6 +4342,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 
 
