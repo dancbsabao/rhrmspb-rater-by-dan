@@ -498,35 +498,33 @@ async function initializeApp() {
       console.log('GAPI client initialized');
       loadingState.gapi = true;
 
-      // Basic UI setup
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
 
-      // 2️⃣ Fetch ALL required data in parallel
+      // 2️⃣ Start monitoring UI for population *before* data fetch starts
+      const uiReadyPromise = waitForUIReady();
+
+      // 3️⃣ Fetch data in parallel
       await Promise.all([
         fetchSecretariatMembers(),
         fetchVacanciesData(),
-        loadSignatories() // ensure this returns a Promise
+        loadSignatories() // make async if not already
       ]);
 
-      // 3️⃣ Wait until DOM elements are populated with the fetched data
-      await waitForUIReady();
+      // 4️⃣ Wait until UI elements are actually populated
+      await uiReadyPromise;
 
-      // 4️⃣ Restore any saved state
+      // 5️⃣ Restore state and attach listeners
       restoreState();
-
-      // 5️⃣ Attach event listeners
       attachEventListeners();
 
       console.log('✅ App initialization complete');
-
-      // 6️⃣ Hide spinner and show full UI
       hideSpinnerFully();
 
     } catch (error) {
       console.error('Error initializing app:', error);
-      hideSpinnerFully(); // Still hide spinner to avoid a stuck UI
+      hideSpinnerFully();
     }
   });
 }
@@ -549,10 +547,8 @@ function waitForUIReady() {
       return false;
     }
 
-    // Immediate check
     if (check()) return;
 
-    // Observe changes to dropdowns until ready
     const observer = new MutationObserver(() => {
       if (check()) {
         observer.disconnect();
@@ -560,10 +556,14 @@ function waitForUIReady() {
     });
 
     [assignmentDropdown, secretariatAssignmentDropdown].forEach(el => {
-      if (el) {
-        observer.observe(el, { childList: true });
-      }
+      if (el) observer.observe(el, { childList: true, subtree: true });
     });
+
+    // Safety timeout
+    setTimeout(() => {
+      console.warn('UI readiness check timed out — proceeding anyway');
+      resolve();
+    }, 10000);
   });
 }
 
@@ -584,6 +584,7 @@ function attachEventListeners() {
   );
   elements.addSignatoryBtn?.addEventListener('click', addSignatory);
 }
+
 
 
 
@@ -4465,6 +4466,7 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
 
