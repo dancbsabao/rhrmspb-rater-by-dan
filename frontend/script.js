@@ -552,6 +552,73 @@ function startUIMonitoring() {
   }, 10000);
 }
 
+
+
+// ===================
+// SAFE API CALL QUEUE
+// ===================
+
+// Minimum time between the same API call (per key) in milliseconds
+const API_COOLDOWN_MS = 60 * 1000; // 1 minute
+// Delay between staggered calls in milliseconds
+const API_STAGGER_DELAY_MS = 500; // 0.5 second
+
+// Cache for storing API results and timestamps
+const apiCache = {};
+// Queue to store pending requests per key
+const apiQueue = {};
+
+// Wait helper
+const wait = (ms) => new Promise(res => setTimeout(res, ms));
+
+// Safe throttled fetch — waits until cooldown is over instead of skipping
+async function safeThrottledFetch(key, fetchFn) {
+  const now = Date.now();
+  const cache = apiCache[key];
+  
+  if (cache) {
+    const timeSinceLastCall = now - cache.timestamp;
+    if (timeSinceLastCall < API_COOLDOWN_MS) {
+      const waitTime = API_COOLDOWN_MS - timeSinceLastCall;
+      console.log(`Waiting ${waitTime}ms before fetching fresh data for ${key}`);
+      
+      // If there's already a queue for this key, wait in line
+      if (!apiQueue[key]) {
+        apiQueue[key] = Promise.resolve();
+      }
+      apiQueue[key] = apiQueue[key].then(() => wait(waitTime));
+      await apiQueue[key];
+    }
+  }
+
+  console.log(`Fetching fresh data for ${key}`);
+  const data = await fetchFn();
+  apiCache[key] = { data, timestamp: Date.now() };
+  return data;
+}
+
+// Runs an array of fetch calls with a delay between each
+async function safeStaggeredFetch(fetchArray) {
+  const results = [];
+  for (let i = 0; i < fetchArray.length; i++) {
+    const { key, fn } = fetchArray[i];
+    const result = await safeThrottledFetch(key, fn);
+    results.push(result);
+
+    if (i < fetchArray.length - 1) {
+      await wait(API_STAGGER_DELAY_MS);
+    }
+  }
+  return results;
+}
+
+
+
+
+
+
+
+
 function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
@@ -579,14 +646,14 @@ function initializeApp() {
       // Start monitoring UI for data population
       startUIMonitoring();
       
-      // Load all data (your existing functions)
-      await Promise.all([
-        fetchSecretariatMembers(),
-        fetchVacanciesData()
+      // ==== SAFE API CALLS WITH QUEUE + STAGGER ====
+      await safeStaggeredFetch([
+        { key: 'secretariatMembers', fn: fetchSecretariatMembers },
+        { key: 'vacanciesData', fn: fetchVacanciesData }
       ]);
-      
-      // If loadSignatories is async, await it; if not, this is fine.
-      const maybePromise = loadSignatories && loadSignatories();
+
+      // Load signatories with safe throttling
+      const maybePromise = loadSignatories && safeThrottledFetch('signatories', loadSignatories);
       if (maybePromise && typeof maybePromise.then === 'function') {
         await maybePromise;
       }
@@ -621,6 +688,7 @@ function initializeApp() {
     }
   });
 }
+
 
 
 
@@ -4729,6 +4797,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
