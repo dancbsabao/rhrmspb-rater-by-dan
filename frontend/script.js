@@ -1930,26 +1930,6 @@ async function handleEvaluatorSelection(event) {
 }
 
 function handleAuthClick() {
-  // Show loading spinner during auth redirect
-  const spinner = document.getElementById('loadingSpinner');
-  if (spinner) {
-    spinner.style.display = 'flex';
-    spinner.style.opacity = '1';
-    updateLoadingMessage('Redirecting to Google authentication...');
-  }
-  
-  window.location.href = `${API_BASE_URL}/auth/google`;
-}
-
-function handleAuthClick() {
-  // Show loading spinner during auth redirect
-  const spinner = document.getElementById('loadingSpinner');
-  if (spinner) {
-    spinner.style.display = 'flex';
-    spinner.style.opacity = '1';
-    updateLoadingMessage('Redirecting to Google authentication...');
-  }
-  
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
@@ -1995,49 +1975,10 @@ function handleSignOutClick() {
     container.style.marginTop = '20px';
     const authSection = document.querySelector('.auth-section');
     authSection.classList.add('signed-out');
-    
-    // ADD THIS LINE - Integration with loading system
-    onUserSignOut();
-    
     showToast('success', 'Signed Out', 'You have been successfully signed out.');
   }, () => {
     console.log('Sign out canceled');
   });
-}
-
-// NEW FUNCTION - Call this after successful authentication
-function handleAuthSuccess() {
-  console.log('Authentication successful');
-  
-  // Call the loading system's sign-in handler
-  onUserSignIn();
-}
-
-// NEW FUNCTION - Handle auth callback/redirect (if you need it)
-function checkAuthCallback() {
-  // If you're handling auth callback/redirect, call this:
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get('token') || localStorage.getItem('access_token');
-  
-  if (token) {
-    console.log('Auth token found, user is authenticated');
-    localStorage.setItem('access_token', token);
-    
-    // Set the token for gapi client
-    if (gapiInitialized) {
-      gapi.client.setToken({ access_token: token });
-    }
-    
-    // Call auth success handler
-    handleAuthSuccess();
-    
-    // Clean up URL if needed
-    if (urlParams.get('token')) {
-      const url = new URL(window.location);
-      url.searchParams.delete('token');
-      window.history.replaceState({}, document.title, url);
-    }
-  }
 }
 
 function updateUI(isSignedIn) {
@@ -4539,6 +4480,7 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
 
