@@ -17,7 +17,7 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-let loadingState = {
+const loadingState = {
   gapi: false,
   dom: false,
   uiReady: false
@@ -4633,63 +4633,56 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
-// DOM content loaded handler
-document.addEventListener("DOMContentLoaded", function () {
+// ----- DOMContentLoaded handler -----
+document.addEventListener("DOMContentLoaded", async function () {
   console.log('DOM content loaded');
   loadingState.dom = true;
-  
-  // Initialize the app
-  initializeApp();
 
-    // Add event listener for the new Sign Out All button
+  // Attach sign-out button listeners
   const signOutAllBtn = document.getElementById('signOutAllBtn');
-  if (signOutAllBtn) {
-    signOutAllBtn.addEventListener('click', handleSignOutAllClick);
-  }
-  
-  // Update your existing signOutBtn event listener if needed
+  if (signOutAllBtn) signOutAllBtn.addEventListener('click', handleSignOutAllClick);
+
   const signOutBtn = document.getElementById('signOutBtn');
-  if (signOutBtn) {
-    signOutBtn.addEventListener('click', handleSignOutClick);
-  }
-});
+  if (signOutBtn) signOutBtn.addEventListener('click', handleSignOutClick);
 
-// Window load handler
-window.addEventListener("load", function () {
-  console.log('Window fully loaded');
-  setTimeout(() => {
-    if (!loadingState.uiReady) {
-      checkAndHideSpinner();
-    }
-  }, 100);
-});
-
-// Ultimate fallback: Hide spinner after maximum wait time
-setTimeout(() => {
-  console.log('Ultimate fallback: Force hiding spinner after 15 seconds');
-  loadingState.gapi = true;
-  loadingState.dom = true;
-  loadingState.uiReady = true;
-  checkAndHideSpinner();
-}, 15000);
-
-window.addEventListener('DOMContentLoaded', () => {
+  // Check for OAuth access token in URL
   const params = new URLSearchParams(window.location.search);
   const accessToken = params.get('access_token');
-
   if (accessToken) {
     console.log('OAuth login detected, storing access token...');
-    localStorage.setItem('access_token', accessToken); // optional, for future API calls
+    localStorage.setItem('access_token', accessToken);
     updateUI(true); // Show tabs & sign-out buttons
-    // Remove the token from URL to clean it
     window.history.replaceState({}, document.title, window.location.pathname);
   } else {
     updateUI(false);
   }
 
-  // Always initialize the GAPI-based app
-  initializeApp();
+  // Initialize the app once
+  await initializeApp();
+
+  // Fallback: If UI is not ready after 100ms, try hiding spinner
+  setTimeout(() => {
+    if (!loadingState.uiReady) {
+      console.warn('UI not ready after 100ms, hiding spinner anyway');
+      checkAndHideSpinner();
+    }
+  }, 100);
 });
+
+// ----- Window load fallback -----
+window.addEventListener("load", function () {
+  console.log('Window fully loaded');
+  setTimeout(() => {
+    if (!loadingState.uiReady) {
+      console.warn('Ultimate fallback: Force hiding spinner after load');
+      loadingState.gapi = true;
+      loadingState.dom = true;
+      loadingState.uiReady = true;
+      checkAndHideSpinner();
+    }
+  }, 100);
+});
+
 
 
 
