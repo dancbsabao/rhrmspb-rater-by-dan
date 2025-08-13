@@ -17,14 +17,26 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
+// Global loading state tracker with data verification
 let loadingState = {
   gapi: false,
   dom: false,
+  dataFetched: false,
+  dataVerified: false,
   uiReady: false
 };
 
 let uiObserver;
 let uiCheckTimeout;
+let dataRetryCount = 0;
+const maxDataRetries = 3;
+
+// Expected data structure to verify
+const expectedData = {
+  secretariatMembers: false,
+  vacanciesData: false,
+  signatories: false
+};
 
 
 let CLIENT_ID;
@@ -458,7 +470,11 @@ fetch(`${API_BASE_URL}/config`)
 
 
 function checkAndHideSpinner() {
-  if (loadingState.gapi && loadingState.dom && loadingState.uiReady) {
+  const allReady = loadingState.gapi && loadingState.dom && 
+                   loadingState.dataFetched && loadingState.dataVerified && 
+                   loadingState.uiReady;
+                   
+  if (allReady) {
     const spinner = document.getElementById('loadingSpinner');
     const pageWrapper = document.querySelector('.page-wrapper');
     
@@ -482,13 +498,120 @@ function checkAndHideSpinner() {
     if (uiCheckTimeout) {
       clearTimeout(uiCheckTimeout);
     }
+  } else {
+    console.log('Loading state:', loadingState);
+  }
+}
+
+function updateLoadingMessage(message) {
+  const loadingStatus = document.getElementById('loadingStatus');
+  if (loadingStatus) {
+    loadingStatus.textContent = message;
+  }
+}
+
+async function verifyDataIntegrity() {
+  console.log('Verifying data integrity...');
+  updateLoadingMessage('Verifying data integrity...');
+  
+  let allDataValid = true;
+  const issues = [];
+  
+  try {
+    // Check secretariat members
+    const assignmentDropdown = document.getElementById('assignmentDropdown');
+    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+    
+    if (!assignmentDropdown || assignmentDropdown.options.length <= 1) {
+      issues.push('Rater assignment dropdown not populated');
+      allDataValid = false;
+    } else {
+      expectedData.secretariatMembers = true;
+    }
+    
+    if (!secretariatAssignmentDropdown || secretariatAssignmentDropdown.options.length === 0) {
+      issues.push('Secretariat assignment dropdown not populated');
+      allDataValid = false;
+    } else {
+      expectedData.vacanciesData = true;
+    }
+    
+    // Check if signatories loaded
+    try {
+      const signatories = JSON.parse(localStorage.getItem('signatories') || '[]');
+      expectedData.signatories = true; // Signatories can be empty initially
+    } catch (e) {
+      issues.push('Signatories data corrupted');
+      allDataValid = false;
+    }
+    
+    if (allDataValid) {
+      console.log('Data verification passed');
+      loadingState.dataVerified = true;
+      updateLoadingMessage('Data loaded successfully!');
+      return true;
+    } else {
+      console.warn('Data verification failed:', issues);
+      return false;
+    }
+    
+  } catch (error) {
+    console.error('Error during data verification:', error);
+    return false;
+  }
+}
+
+async function retryDataFetch() {
+  dataRetryCount++;
+  console.log(`Retrying data fetch (attempt ${dataRetryCount}/${maxDataRetries})`);
+  updateLoadingMessage(`Retrying data load... (${dataRetryCount}/${maxDataRetries})`);
+  
+  try {
+    // Reset data flags
+    Object.keys(expectedData).forEach(key => expectedData[key] = false);
+    
+    // Retry data fetching
+    await Promise.all([
+      fetchSecretariatMembers(),
+      fetchVacanciesData()
+    ]);
+    
+    loadSignatories();
+    restoreState();
+    
+    // Verify the retry was successful
+    setTimeout(async () => {
+      const isValid = await verifyDataIntegrity();
+      if (isValid) {
+        loadingState.dataFetched = true;
+        checkAndHideSpinner();
+      } else if (dataRetryCount < maxDataRetries) {
+        setTimeout(() => retryDataFetch(), 2000);
+      } else {
+        console.error('Max retry attempts reached. Data may be incomplete.');
+        updateLoadingMessage('Some data may be incomplete. Please refresh if needed.');
+        loadingState.dataFetched = true;
+        loadingState.dataVerified = true;
+        checkAndHideSpinner();
+      }
+    }, 1000);
+    
+  } catch (error) {
+    console.error('Retry failed:', error);
+    if (dataRetryCount < maxDataRetries) {
+      setTimeout(() => retryDataFetch(), 2000);
+    } else {
+      loadingState.dataFetched = true;
+      loadingState.dataVerified = true;
+      updateLoadingMessage('Connection issues detected. Some features may be limited.');
+      checkAndHideSpinner();
+    }
   }
 }
 
 function startUIMonitoring() {
   console.log('Starting UI monitoring...');
   
-  // Monitor specific elements for changes
   const elementsToWatch = [
     'assignmentDropdown',
     'secretariatAssignmentDropdown',
@@ -497,15 +620,17 @@ function startUIMonitoring() {
   ];
   
   function checkUIContent() {
+    // Only check UI if data has been verified
+    if (!loadingState.dataVerified) return false;
+    
     const assignmentDropdown = document.getElementById('assignmentDropdown');
     const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
     
-    // Check if any dropdown has data
     const hasRaterData = assignmentDropdown && assignmentDropdown.options.length > 1;
     const hasSecretariatData = secretariatAssignmentDropdown && secretariatAssignmentDropdown.options.length > 0;
     
     if (hasRaterData || hasSecretariatData) {
-      console.log('UI data detected - marking as ready');
+      console.log('UI data confirmed - marking as ready');
       loadingState.uiReady = true;
       checkAndHideSpinner();
       return true;
@@ -516,12 +641,11 @@ function startUIMonitoring() {
   // Initial check
   if (checkUIContent()) return;
   
-  // Set up MutationObserver to watch for DOM changes
+  // Set up MutationObserver
   uiObserver = new MutationObserver(() => {
     checkUIContent();
   });
   
-  // Observe each element for changes
   elementsToWatch.forEach(elementId => {
     const element = document.getElementById(elementId);
     if (element) {
@@ -533,7 +657,7 @@ function startUIMonitoring() {
     }
   });
   
-  // Fallback: Check periodically
+  // Periodic check
   const periodicCheck = () => {
     if (!loadingState.uiReady && !checkUIContent()) {
       uiCheckTimeout = setTimeout(periodicCheck, 500);
@@ -541,28 +665,18 @@ function startUIMonitoring() {
   };
   periodicCheck();
   
-  // Ultimate fallback: Mark as ready after 10 seconds
+  // UI timeout
   setTimeout(() => {
-    if (!loadingState.uiReady) {
+    if (!loadingState.uiReady && loadingState.dataVerified) {
       console.log('UI monitoring timeout - marking as ready');
       loadingState.uiReady = true;
       checkAndHideSpinner();
     }
-  }, 10000);
+  }, 8000);
 }
 
-function initializeApp() {
-  const spinner = document.getElementById('loadingSpinner');
-  const pageWrapper = document.querySelector('.page-wrapper');
-  
-  // Show spinner, prepare content
-  if (spinner) {
-    spinner.style.display = 'flex';
-    spinner.style.opacity = '1';
-  }
-  if (pageWrapper) {
-    pageWrapper.style.opacity = '0.3';
-  }
+function initializeGAPIOnly() {
+  updateLoadingMessage('Initializing authentication...');
   
   gapi.load('client', async () => {
     try {
@@ -571,42 +685,151 @@ function initializeApp() {
       console.log('GAPI client initialized');
       loadingState.gapi = true;
       
-      maybeEnableButtons();
-      createEvaluatorSelector();
-      setupTabNavigation();
+      // Check if there's a valid token in localStorage
+      const token = localStorage.getItem('access_token');
+      console.log('Token exists:', !!token);
       
-      // Start monitoring UI for data population
-      startUIMonitoring();
-      
-      // Load all data (your existing functions)
-      await Promise.all([
-        fetchSecretariatMembers(),
-        fetchVacanciesData()
-      ]);
-      
-      loadSignatories();
-      restoreState();
-      
-      // Event listeners
-      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-      elements.closeSignatoriesModalBtns.forEach(button =>
-        button.addEventListener('click', () => {
-          elements.signatoriesModal.classList.remove('active');
-        })
-      );
-      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-      
-      console.log('App initialization complete');
+      if (token) {
+        // User has valid authentication, proceed with full app initialization
+        console.log('Valid authentication found, initializing app...');
+        updateUI(true); // Update your existing UI
+        initializeAppContent();
+      } else {
+        // No valid authentication, show sign-in interface
+        console.log('No valid authentication, showing sign-in interface');
+        updateUI(false); // Update your existing UI
+        hideSpinnerShowAuth();
+      }
       
     } catch (error) {
-      console.error('Error initializing app:', error);
-      // Even on error, we should hide the spinner
-      loadingState.gapi = true;
-      loadingState.uiReady = true;
-      checkAndHideSpinner();
+      console.error('Error initializing GAPI:', error);
+      updateLoadingMessage('Authentication failed. Please refresh the page.');
+      updateUI(false);
+      hideSpinnerShowAuth();
     }
   });
+}
+
+function initializeAppContent() {
+  updateLoadingMessage('Setting up application...');
+  
+  createEvaluatorSelector();
+  setupTabNavigation();
+  
+  // Start UI monitoring
+  startUIMonitoring();
+  
+  updateLoadingMessage('Loading data from server...');
+  
+  // Load all data with error handling
+  Promise.all([
+    fetchSecretariatMembers(),
+    fetchVacanciesData()
+  ]).then(() => {
+    loadSignatories();
+    restoreState();
+    
+    console.log('Initial data fetch complete');
+    
+    // Verify data integrity after a short delay to allow UI updates
+    setTimeout(async () => {
+      const isValid = await verifyDataIntegrity();
+      if (isValid) {
+        loadingState.dataFetched = true;
+      } else {
+        console.warn('Data verification failed, initiating retry...');
+        await retryDataFetch();
+      }
+    }, 1000);
+    
+  }).catch(async (error) => {
+    console.error('Data fetch error:', error);
+    updateLoadingMessage('Data fetch failed, retrying...');
+    await retryDataFetch();
+  });
+  
+  // Event listeners (only add if elements exist)
+  if (elements.generatePdfBtn) elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
+  if (elements.manageSignatoriesBtn) elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
+  elements.closeSignatoriesModalBtns.forEach(button =>
+    button.addEventListener('click', () => {
+      elements.signatoriesModal.classList.remove('active');
+    })
+  );
+  if (elements.addSignatoryBtn) elements.addSignatoryBtn.addEventListener('click', addSignatory);
+  
+  console.log('App content initialization complete');
+}
+
+function hideSpinnerShowAuth() {
+  const spinner = document.getElementById('loadingSpinner');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  
+  console.log('Hiding spinner, showing auth interface');
+  
+  if (spinner) {
+    spinner.style.transition = 'opacity 0.4s ease';
+    spinner.style.opacity = '0';
+    setTimeout(() => {
+      spinner.style.display = 'none';
+    }, 400);
+  }
+  
+  if (pageWrapper) {
+    pageWrapper.style.opacity = '1';
+  }
+}
+
+// Function to call when user successfully signs in (integrate with your auth flow)
+function onUserSignIn() {
+  console.log('User signed in, initializing full app...');
+  
+  const spinner = document.getElementById('loadingSpinner');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  
+  // Show spinner again for data loading
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+  }
+  if (pageWrapper) {
+    pageWrapper.style.opacity = '0.3';
+  }
+  
+  // Reset loading states for app content
+  loadingState.dataFetched = false;
+  loadingState.dataVerified = false;
+  loadingState.uiReady = false;
+  
+  // Update your existing UI
+  updateUI(true);
+  
+  // Initialize app content
+  initializeAppContent();
+}
+
+// Function to call when user signs out (integrate with your existing sign out)
+function onUserSignOut() {
+  console.log('User signed out, resetting app state');
+  
+  // Reset all loading states
+  loadingState.dataFetched = false;
+  loadingState.dataVerified = false;
+  loadingState.uiReady = false;
+  
+  // Stop any ongoing monitoring
+  if (uiObserver) {
+    uiObserver.disconnect();
+  }
+  if (uiCheckTimeout) {
+    clearTimeout(uiCheckTimeout);
+  }
+  
+  // Your existing UI update
+  updateUI(false);
+  
+  // Show auth interface
+  hideSpinnerShowAuth();
 }
 
 
@@ -1940,6 +2163,26 @@ async function handleEvaluatorSelection(event) {
 }
 
 function handleAuthClick() {
+  // Show loading spinner during auth redirect
+  const spinner = document.getElementById('loadingSpinner');
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+    updateLoadingMessage('Redirecting to Google authentication...');
+  }
+  
+  window.location.href = `${API_BASE_URL}/auth/google`;
+}
+
+function handleAuthClick() {
+  // Show loading spinner during auth redirect
+  const spinner = document.getElementById('loadingSpinner');
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+    updateLoadingMessage('Redirecting to Google authentication...');
+  }
+  
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
@@ -1985,10 +2228,49 @@ function handleSignOutClick() {
     container.style.marginTop = '20px';
     const authSection = document.querySelector('.auth-section');
     authSection.classList.add('signed-out');
+    
+    // ADD THIS LINE - Integration with loading system
+    onUserSignOut();
+    
     showToast('success', 'Signed Out', 'You have been successfully signed out.');
   }, () => {
     console.log('Sign out canceled');
   });
+}
+
+// NEW FUNCTION - Call this after successful authentication
+function handleAuthSuccess() {
+  console.log('Authentication successful');
+  
+  // Call the loading system's sign-in handler
+  onUserSignIn();
+}
+
+// NEW FUNCTION - Handle auth callback/redirect (if you need it)
+function checkAuthCallback() {
+  // If you're handling auth callback/redirect, call this:
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token') || localStorage.getItem('access_token');
+  
+  if (token) {
+    console.log('Auth token found, user is authenticated');
+    localStorage.setItem('access_token', token);
+    
+    // Set the token for gapi client
+    if (gapiInitialized) {
+      gapi.client.setToken({ access_token: token });
+    }
+    
+    // Call auth success handler
+    handleAuthSuccess();
+    
+    // Clean up URL if needed
+    if (urlParams.get('token')) {
+      const url = new URL(window.location);
+      url.searchParams.delete('token');
+      window.history.replaceState({}, document.title, url);
+    }
+  }
 }
 
 function updateUI(isSignedIn) {
@@ -4468,47 +4750,20 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log('DOM content loaded');
   loadingState.dom = true;
   
-  // Initialize the app
-  initializeApp();
+  // Only initialize GAPI, don't automatically sign in
+  initializeGAPIOnly();
 });
 
 // Window load handler
 window.addEventListener("load", function () {
   console.log('Window fully loaded');
-  setTimeout(() => {
-    if (!loadingState.uiReady) {
-      checkAndHideSpinner();
-    }
-  }, 100);
+  // Don't automatically proceed - wait for authentication
 });
 
 // Ultimate fallback: Hide spinner after maximum wait time
 setTimeout(() => {
-  console.log('Ultimate fallback: Force hiding spinner after 15 seconds');
-  loadingState.gapi = true;
-  loadingState.dom = true;
-  loadingState.uiReady = true;
+  console.log('Ultimate fallback: Force hiding spinner after 20 seconds');
+  Object.keys(loadingState).forEach(key => loadingState[key] = true);
+  updateLoadingMessage('Loading timeout reached. Some features may be limited.');
   checkAndHideSpinner();
-}, 15000);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+}, 20000);
