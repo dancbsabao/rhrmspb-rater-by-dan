@@ -450,6 +450,9 @@ fetch(`${API_BASE_URL}/config`)
 
 
 function initializeApp() {
+  const spinner = document.getElementById('loadingSpinner');
+  if (spinner) spinner.style.display = 'flex'; // Show immediately
+
   gapi.load('client', async () => {
     await initializeGapiClient();
     gapiInitialized = true;
@@ -457,12 +460,12 @@ function initializeApp() {
     maybeEnableButtons();
     createEvaluatorSelector();
     setupTabNavigation();
-    fetchSecretariatMembers(); // Fetch members on app init
+    await fetchSecretariatMembers();
     await fetchVacanciesData();
-    loadSignatories(); // Load signatories on app initialization
+    loadSignatories();
     restoreState();
 
-    // Add event listeners for new buttons
+    // Event listeners
     if (elements.generatePdfBtn) {
       elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
     }
@@ -471,12 +474,17 @@ function initializeApp() {
     }
     elements.closeSignatoriesModalBtns.forEach(button => {
       button.addEventListener('click', () => {
-        // elements.signatoriesModal.style.display = 'none'; // REMOVE THIS LINE
-        elements.signatoriesModal.classList.remove('active'); // ADD THIS LINE
+        elements.signatoriesModal.classList.remove('active');
       });
     });
     if (elements.addSignatoryBtn) {
-        elements.addSignatoryBtn.addEventListener('click', addSignatory);
+      elements.addSignatoryBtn.addEventListener('click', addSignatory);
+    }
+
+    // Fade out spinner when done
+    if (spinner) {
+      spinner.style.opacity = '0';
+      setTimeout(() => spinner.remove(), 400); // wait for fade
     }
   });
 }
@@ -4334,6 +4342,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 
 
