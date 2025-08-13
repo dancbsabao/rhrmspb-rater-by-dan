@@ -24,6 +24,7 @@
   <div class="page-wrapper">
     <div class="container">
       <div class="auth-section">
+        <img src="/rhrmspb-rater-by-dan/denr-logo.png" alt="DENR Logo" width="100" height="100" />
         <h1>DENR CALABARZON<br>COMPETENCY RATING SYSTEM</h1>
         <div id="authStatus">Initializing...</div>
         <button id="signInBtn" class="btn">Sign in with Google</button>
@@ -31,7 +32,7 @@
         <button id="logoutAllBtn" class="btn" style="display: none;">Logout All Sessions</button>
       </div>
       
-      <!-- Add the logout all modal after the signatories modal -->
+      <!-- Logout All Modal -->
       <div id="logoutAllModal" class="modal-overlay" style="display: none;">
         <div class="modal">
           <h2>Confirm Logout All Sessions</h2>
@@ -48,8 +49,8 @@
       </div>
 
       <div class="tabs" id="tabsContainer" hidden>
-      <div id="raterTab" class="tab active">RHRMPSB RATER</div>
-      <div id="secretariatTab" class="tab">SECRETARIAT</div>
+        <div id="raterTab" class="tab active">RHRMPSB RATER</div>
+        <div id="secretariatTab" class="tab">SECRETARIAT</div>
       </div>
 
       <div id="raterContent">
@@ -87,88 +88,84 @@
       </div>
 
       <div id="secretariatContent" style="display: none;">
-      <div class="form-group">
-        <label for="secretariatAssignmentDropdown">Assignment:</label>
-        <select id="secretariatAssignmentDropdown" data-placeholder="Select Assignment"></select>
-      </div>
-      <div class="form-group">
-        <label for="secretariatPositionDropdown">Position:</label>
-        <select id="secretariatPositionDropdown" data-placeholder="Select Position"></select>
-      </div>
-      <div class="form-group">
-        <label for="secretariatItemDropdown">Item:</label>
-        <select id="secretariatItemDropdown" data-placeholder="Select Item"></select>
-      </div>
-      <div id="secretariat-candidates-table"></div>
+        <div class="form-group">
+          <label for="secretariatAssignmentDropdown">Assignment:</label>
+          <select id="secretariatAssignmentDropdown" data-placeholder="Select Assignment"></select>
+        </div>
+        <div class="form-group">
+          <label for="secretariatPositionDropdown">Position:</label>
+          <select id="secretariatPositionDropdown" data-placeholder="Select Position"></select>
+        </div>
+        <div class="form-group">
+          <label for="secretariatItemDropdown">Item:</label>
+          <select id="secretariatItemDropdown" data-placeholder="Select Item"></select>
+        </div>
+        <div id="secretariat-candidates-table"></div>
 
-      <div class="secretariat-actions">
-        <button type="button" id="generatePdfBtn">GENERATE PDF SUMMARY</button>
-        <button type="button" id="manageSignatoriesBtn">MANAGE SIGNATORIES</button>
-      </div>
+        <div class="secretariat-actions">
+          <button type="button" id="generatePdfBtn">GENERATE PDF SUMMARY</button>
+          <button type="button" id="manageSignatoriesBtn">MANAGE SIGNATORIES</button>
+        </div>
 
-      <div id="signatoriesModal" class="modal-overlay">
-        <div class="modal">
-          <div class="modal-header">
-            <h3 class="modal-title">Manage Signatories</h3>
-            <span class="modal-close-signatories">×</span>
-          </div>
-          <div class="modal-content">
-            <div id="currentSignatoriesList">
-              <h4>Current Signatories:</h4>
-              <ul id="signatoriesUl"></ul>
+        <div id="signatoriesModal" class="modal-overlay">
+          <div class="modal">
+            <div class="modal-header">
+              <h3 class="modal-title">Manage Signatories</h3>
+              <span class="modal-close-signatories">×</span>
             </div>
-          <div class="add-signatory-section">
-            <h4>Add New Signatory:</h4>
-            <input type="text" id="newSignatoryName" placeholder="Name" class="modal-input">
-            <input type="text" id="newSignatoryPosition" placeholder="Position" class="modal-input">
-            <input type="text" id="newSignatoryAssignment" placeholder="Assignment in Board" class="modal-input"> <button id="addSignatoryBtn" class="modal-btn">Add Signatory</button>
-          </div>
-          </div>
-          <div class="modal-actions">
-            <button class="modal-close-signatories">Close</button>
+            <div class="modal-content">
+              <div id="currentSignatoriesList">
+                <h4>Current Signatories:</h4>
+                <ul id="signatoriesUl"></ul>
+              </div>
+              <div class="add-signatory-section">
+                <h4>Add New Signatory:</h4>
+                <input type="text" id="newSignatoryName" placeholder="Name" class="modal-input">
+                <input type="text" id="newSignatoryPosition" placeholder="Position" class="modal-input">
+                <input type="text" id="newSignatoryAssignment" placeholder="Assignment in Board" class="modal-input">
+                <button id="addSignatoryBtn" class="modal-btn">Add Signatory</button>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="modal-close-signatories">Close</button>
+            </div>
           </div>
         </div>
+        <div id="secretariat-candidate-details"></div>
       </div>
-      <div id="secretariat-candidate-details"></div>
+
+      <footer class="site-footer">
+        © 2025 <span id="creatorLink" class="creator-link">Dan Christian B. Sabao</span> - Administrative Officer @ DENR IV-A. All rights reserved.
+      </footer>
     </div>
 
-    <footer class="site-footer">
-      © 2025 <span id="creatorLink" class="creator-link">Dan Christian B. Sabao</span> - Administrative Officer @ DENR IV-A. All rights reserved.
-    </footer>
-  </div>
-
-  <!-- Creator Profile Modal -->
-  <div id="creatorModal" class="creator-modal-overlay" style="display: none;">
-    <div class="creator-modal">
-      <div class="creator-modal-header">
-        <h3 class="creator-modal-title">"Serving Through Innovation"</h3>
-        <span class="creator-modal-close" id="closeCreatorModal">×</span>
-      </div>
-      <div class="creator-modal-content">
-        <img src="/rhrmspb-rater-by-dan/profile.jpg" alt="Creator Photo" class="creator-photo">
-        
-        <h2>DAN CHRISTIAN BONACUA SABAO, LPT, CHRM</h2>
-        <p class="creator-role">Administrative Officer I | DENR IV-A</p>
-        
-        <p class="creator-email">
-          📧 <a href="mailto:dan.c.b.sabao.adm@gmail.com">dan.c.b.sabao.adm@gmail.com</a>
-        </p>
-      
-        <div class="creator-donate">
-          <h4>☕ Support My Work</h4>
-          <p><strong>PayMaya:</strong> @vlax</p>
-          <p><strong>PayPal:</strong> <a href="https://paypal.me/tetralax" target="_blank">paypal.me/tetralax</a></p>
+    <!-- Creator Profile Modal -->
+    <div id="creatorModal" class="creator-modal-overlay" style="display: none;">
+      <div class="creator-modal">
+        <div class="creator-modal-header">
+          <h3 class="creator-modal-title">"Serving Through Innovation"</h3>
+          <span class="creator-modal-close" id="closeCreatorModal">×</span>
         </div>
-      
-        <p class="creator-about">
-          💡 Developer of the <strong>DENR CALABARZON Competency Rating System</strong>, leveraging advanced skills in VBA, JavaScript, and systems integration to deliver efficient, user-friendly, and reliable digital solutions for organizational needs.
-        </p>
+        <div class="creator-modal-content">
+          <img src="/rhrmspb-rater-by-dan/profile.jpg" alt="Creator Photo" class="creator-photo">
+          <h2>DAN CHRISTIAN BONACUA SABAO, LPT, CHRM</h2>
+          <p class="creator-role">Administrative Officer I | DENR IV-A</p>
+          <p class="creator-email">
+            📧 <a href="mailto:dan.c.b.sabao.adm@gmail.com">dan.c.b.sabao.adm@gmail.com</a>
+          </p>
+          <div class="creator-donate">
+            <h4>☕ Support My Work</h4>
+            <p><strong>PayMaya:</strong> @vlax</p>
+            <p><strong>PayPal:</strong> <a href="https://paypal.me/tetralax" target="_blank">paypal.me/tetralax</a></p>
+          </div>
+          <p class="creator-about">
+            💡 Developer of the <strong>DENR CALABARZON Competency Rating System</strong>, leveraging advanced skills in VBA, JavaScript, and systems integration to deliver efficient, user-friendly, and reliable digital solutions for organizational needs.
+          </p>
+        </div>
       </div>
     </div>
-  </div>
 
-  <script src="./frontend/script.js"></script>
+    <script src="./frontend/script.js"></script>
     
 </body>
 </html>
-
