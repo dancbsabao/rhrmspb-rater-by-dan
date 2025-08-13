@@ -17,7 +17,7 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-const loadingState = {
+let loadingState = {
   gapi: false,
   dom: false,
   uiReady: false
@@ -543,11 +543,11 @@ function startUIMonitoring() {
   }, 10000);
 }
 
-async function initializeApp() {
+function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-
-  // Show spinner immediately
+  
+  // Show spinner, prepare content
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -555,79 +555,63 @@ async function initializeApp() {
   if (pageWrapper) {
     pageWrapper.style.opacity = '0.3';
   }
-
-  try {
-    // Load GAPI client
-    await new Promise((resolve, reject) => {
-      gapi.load('client', resolve);
-    });
-    await initializeGapiClient();
-    gapiInitialized = true;
-    console.log('GAPI client initialized');
-    loadingState.gapi = true;
-
-    // Set DOM phase done
-    loadingState.dom = true;
-
-    // Enable buttons, setup evaluator selector, tabs
-    maybeEnableButtons();
-    createEvaluatorSelector();
-    setupTabNavigation();
-
-    // Start UI monitoring (if needed)
-    startUIMonitoring();
-
-    // Load data in parallel
-    await Promise.all([
-      fetchSecretariatMembers(),
-      fetchVacanciesData()
-    ]);
-
-    // Load signatories safely
-    if (loadSignatories) {
-      try {
-        await loadSignatories();
-      } catch (err) {
-        console.error('Error loading signatories:', err);
+  
+  gapi.load('client', async () => {
+    try {
+      await initializeGapiClient();
+      gapiInitialized = true;
+      console.log('GAPI client initialized');
+      loadingState.gapi = true;
+      
+      maybeEnableButtons();
+      createEvaluatorSelector();
+      setupTabNavigation();
+      
+      // Start monitoring UI for data population
+      startUIMonitoring();
+      
+      // Load all data (your existing functions)
+      await Promise.all([
+        fetchSecretariatMembers(),
+        fetchVacanciesData()
+      ]);
+      
+      // If loadSignatories is async, await it; if not, this is fine.
+      const maybePromise = loadSignatories && loadSignatories();
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        await maybePromise;
       }
+
+      restoreState();
+      
+      // Event listeners
+      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+      elements.closeSignatoriesModalBtns.forEach(button =>
+        button.addEventListener('click', () => {
+          elements.signatoriesModal.classList.remove('active');
+        })
+      );
+      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+
+      // Mark DOM/data-binding phase as done
+      loadingState.dom = true;
+
+      // In case uiReady was already set by the monitor, this will now hide the spinner
+      checkAndHideSpinner();
+      
+      console.log('App initialization complete');
+      
+    } catch (error) {
+      console.error('Error initializing app:', error);
+      // Ensure spinner won’t get stuck
+      loadingState.gapi = true;
+      loadingState.uiReady = true;
+      loadingState.dom = true;
+      checkAndHideSpinner();
     }
-
-    // Restore previous state if any
-    restoreState();
-
-    // Event listeners for PDF / signatories
-    elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-    elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-    elements.closeSignatoriesModalBtns.forEach(btn =>
-      btn.addEventListener('click', () => elements.signatoriesModal.classList.remove('active'))
-    );
-    elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-
-    // ✅ Mark UI as ready
-    loadingState.uiReady = true;
-    checkAndHideSpinner();
-
-    // ✅ Show tabs & sign-out buttons
-    updateUI(true);
-
-    // ✅ Populate competency container
-    if (elements.competencyContainer) {
-      elements.competencyContainer.style.display = 'block';
-      renderCompetencyContainer(); // Your function that fills it
-    }
-
-    console.log('App initialization complete');
-
-  } catch (error) {
-    console.error('Error initializing app:', error);
-    // Ensure spinner doesn’t get stuck
-    loadingState.gapi = true;
-    loadingState.dom = true;
-    loadingState.uiReady = true;
-    checkAndHideSpinner();
-  }
+  });
 }
-
 
 
 
@@ -1965,166 +1949,9 @@ function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
-
-
-// MODIFIED handleSignOutAllClick function with password protection
-function handleSignOutAllClick() {
-  // First modal: Password input
-  const passwordModalContent = `
-    <div style="text-align: left;">
-      <p><strong>⚠️ ADMIN ACCESS REQUIRED</strong></p>
-      <p>This action will terminate ALL active sessions across all devices for ALL users.</p>
-      <p>Please enter the admin password to continue:</p>
-      <input type="password" id="adminPasswordInput" placeholder="Enter admin password" 
-             style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px;">
-      <p style="font-size: 12px; color: #666;">This action cannot be undone.</p>
-    </div>
-  `;
-  
-  showModal('Admin Authorization Required', passwordModalContent, async () => {
-    const passwordInput = document.getElementById('adminPasswordInput');
-    const enteredPassword = passwordInput?.value;
-    
-    if (!enteredPassword) {
-      showToast('error', 'Password Required', 'Please enter the admin password.');
-      return;
-    }
-    
-    // Check password against server
-    try {
-      const response = await fetch(`${API_BASE_URL}/verify-admin-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ password: enteredPassword }),
-        credentials: 'include'
-      });
-      
-      const result = await response.json();
-      
-      if (!response.ok || !result.valid) {
-        showToast('error', 'Invalid Password', 'Incorrect admin password. Access denied.');
-        return;
-      }
-      
-      // Password is correct, show confirmation modal
-      showSignOutAllConfirmation();
-      
-    } catch (error) {
-      console.error('Error verifying admin password:', error);
-      showToast('error', 'Error', 'Failed to verify password. Please try again.');
-    }
-    
-  }, () => {
-    console.log('Admin sign out all canceled');
-  });
-}
-
-// Separate function for the confirmation modal after password is verified
-function showSignOutAllConfirmation() {
-  const confirmModalContent = `
-    <div style="text-align: left;">
-      <p><strong>🔴 FINAL CONFIRMATION</strong></p>
-      <p>You are about to:</p>
-      <ul style="margin: 10px 0;">
-        <li>Sign out ALL users from ALL devices</li>
-        <li>Invalidate ALL active sessions</li>
-        <li>Force ALL users to re-authenticate</li>
-      </ul>
-      <p><strong>This action will affect ALL users currently using the system.</strong></p>
-      <p style="color: red; font-weight: bold;">Are you absolutely sure you want to continue?</p>
-    </div>
-  `;
-  
-  showModal('⚠️ CRITICAL ACTION CONFIRMATION', confirmModalContent, async () => {
-    try {
-      // Clear ALL server-side sessions
-      const response = await fetch(`${API_BASE_URL}/logout-all`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        console.warn('Server logout-all failed, but continuing with client cleanup');
-        showToast('warning', 'Partial Success', 'Server logout may have failed, but local session cleared.');
-      } else {
-        const result = await response.json();
-        console.log('All server sessions cleared:', result.message);
-        showToast('success', 'All Sessions Terminated', result.message);
-      }
-    } catch (error) {
-      console.warn('Error during server logout-all:', error);
-      showToast('warning', 'Network Error', 'Server request failed, but local session cleared.');
-    }
-    
-    // Same client-side cleanup as regular logout
-    gapi.client.setToken(null);
-    localStorage.clear();
-    console.log('All localStorage cleared');
-    currentEvaluator = null;
-    sessionId = null;
-    vacancies = [];
-    candidates = [];
-    compeCodes = [];
-    competencies = [];
-    submissionQueue = [];
-    console.log('Global variables reset');
-    updateUI(false);
-    resetDropdowns([]);
-    elements.competencyContainer.innerHTML = '';
-    clearRatings();
-    const evaluatorSelect = document.getElementById('evaluatorSelect');
-    if (evaluatorSelect) {
-      evaluatorSelect.value = '';
-      evaluatorSelect.parentElement.remove();
-    }
-    if (elements.submitRatings) {
-      elements.submitRatings.disabled = true;
-    }
-    if (fetchTimeout) {
-      clearTimeout(fetchTimeout);
-      fetchTimeout = null;
-    }
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) {
-      resultsArea.remove();
-    }
-    const container = document.querySelector('.container');
-    container.style.marginTop = '20px';
-    const authSection = document.querySelector('.auth-section');
-    authSection.classList.add('signed-out');
-    
-  }, () => {
-    console.log('Final confirmation for sign out all sessions canceled');
-  });
-}
-
-
 function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
-  showModal('Confirm Sign Out', modalContent, async () => {
-    try {
-      // Clear server-side session first
-      const response = await fetch(`${API_BASE_URL}/logout`, {
-        method: 'POST',
-        credentials: 'include' // Important: includes cookies
-      });
-      
-      if (!response.ok) {
-        console.warn('Server logout failed, but continuing with client cleanup');
-      } else {
-        console.log('Server session cleared successfully');
-      }
-    } catch (error) {
-      console.warn('Error during server logout:', error, 'but continuing with client cleanup');
-    }
-    
-    // Your existing client-side cleanup
+  showModal('Confirm Sign Out', modalContent, () => {
     gapi.client.setToken(null);
     localStorage.clear();
     console.log('All localStorage cleared');
@@ -2170,23 +1997,16 @@ function handleSignOutClick() {
   });
 }
 
-// Update your updateUI function to show/hide the signout buttons container
 function updateUI(isSignedIn) {
-  const signInBtn = document.getElementById('signInBtn');
-  const signoutButtons = document.getElementById('signoutButtons');
-  const authStatus = document.getElementById('authStatus');
-  const tabsContainer = document.getElementById('tabsContainer');
-  
-  if (isSignedIn) {
-    if (signInBtn) signInBtn.style.display = 'none';
-    if (signoutButtons) signoutButtons.style.display = 'flex'; // Changed from 'block' to 'flex'
-    if (authStatus) authStatus.textContent = 'Signed in successfully';
-    if (tabsContainer) tabsContainer.hidden = false;
-  } else {
-    if (signInBtn) signInBtn.style.display = 'block';
-    if (signoutButtons) signoutButtons.style.display = 'none';
-    if (authStatus) authStatus.textContent = 'Not signed in';
-    if (tabsContainer) tabsContainer.hidden = true;
+  elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
+  elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
+  elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
+  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
+  document.getElementById('tabsContainer').hidden = !isSignedIn; // Show/hide tabs
+  if (!isSignedIn) {
+    elements.competencyContainer.innerHTML = '';
+    const resultsArea = document.querySelector('.results-area');
+    if (resultsArea) resultsArea.classList.remove('active');
   }
 }
 
@@ -4676,21 +4496,3 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
