@@ -4360,6 +4360,19 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
+document.addEventListener("DOMContentLoaded", function () {
+  const spinner = document.getElementById("loadingSpinner");
+  if (spinner) {
+    window.addEventListener("load", function () {
+      spinner.style.opacity = "0";
+      setTimeout(() => {
+        spinner.style.display = "none";
+      }, 400); // matches your CSS transition time
+    });
+  }
+});
+
+
 
 
 
