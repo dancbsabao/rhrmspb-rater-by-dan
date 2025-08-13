@@ -423,15 +423,25 @@ async function initializeApp() {
   // Set DOM as ready
   loadingState.dom = true;
   
+  // Prevent multiple initialization
+  if (gapiInitialized) {
+    console.log('GAPI already initialized, skipping...');
+    return;
+  }
+  
   // Check if we have DOM ready and config loaded
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       console.log('DOM content loaded');
-      initializeGAPIOnly();
+      if (!gapiInitialized) {
+        initializeGAPIOnly();
+      }
     });
   } else {
     console.log('DOM already ready, initializing GAPI');
-    initializeGAPIOnly();
+    if (!gapiInitialized) {
+      initializeGAPIOnly();
+    }
   }
 }
 
@@ -681,13 +691,25 @@ function startUIMonitoring() {
 }
 
 function initializeGAPIOnly() {
+  // Prevent multiple initialization
+  if (gapiInitialized) {
+    console.log('GAPI already initialized, skipping duplicate call');
+    return;
+  }
+  
   updateLoadingMessage('Initializing authentication...');
   
   gapi.load('client', async () => {
     try {
+      // Prevent multiple client initialization
+      if (gapiInitialized) {
+        console.log('GAPI client already initialized, skipping');
+        return;
+      }
+      
       await initializeGapiClient();
       gapiInitialized = true;
-      console.log('GAPI client initialized');
+      console.log('GAPI client initialized successfully');
       loadingState.gapi = true;
       
       // Check if there's a valid auth state in localStorage
@@ -837,16 +859,24 @@ function onUserSignOut() {
 
 async function initializeGapiClient() {
   try {
+    // Prevent multiple initialization
+    if (gapi.client && gapi.client.sheets) {
+      console.log('GAPI client already initialized, skipping');
+      return;
+    }
+    
     await gapi.client.init({
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
+    
     const token = gapi.client.getToken();
     if (token && !await isTokenValid()) await refreshAccessToken();
-    gapiInitialized = true;
-    console.log('GAPI client initialized');
+    
+    console.log('GAPI client setup complete');
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
+    throw error;
   }
 }
 
@@ -4769,4 +4799,5 @@ setTimeout(() => {
   updateLoadingMessage('Loading timeout reached. Some features may be limited.');
   checkAndHideSpinner();
 }, 20000);
+
 
