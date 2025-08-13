@@ -11,6 +11,36 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
+  <!-- Loading Spinner -->
+  <div id="loadingSpinner" style="
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.4s ease;
+  ">
+    <div style="
+      width: 60px;
+      height: 60px;
+      border: 6px solid #ccc;
+      border-top: 6px solid #006400;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    "></div>
+  </div>
+
+  <style>
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+
   <div class="page-wrapper">
     <div class="container">
       <div class="auth-section">
@@ -145,6 +175,7 @@
     
 </body>
 </html>
+
 
 
 
