@@ -454,7 +454,7 @@ function checkAndHideSpinner() {
     const spinner = document.getElementById('loadingSpinner');
     const pageWrapper = document.querySelector('.page-wrapper');
     
-    console.log('All loading complete - hiding spinner');
+    console.log('✅ All loading complete - hiding spinner');
     
     if (spinner) {
       spinner.style.transition = 'opacity 0.4s ease';
@@ -467,21 +467,79 @@ function checkAndHideSpinner() {
       }, 400);
     }
     
-    // Clean up observer
-    if (uiObserver) {
-      uiObserver.disconnect();
-    }
-    if (uiCheckTimeout) {
-      clearTimeout(uiCheckTimeout);
-    }
+    if (uiObserver) uiObserver.disconnect();
+    if (uiCheckTimeout) clearTimeout(uiCheckTimeout);
   }
 }
 
-async function initializeApp() {
+function startUIMonitoring() {
+  console.log('🔍 Starting UI monitoring...');
+  
+  const elementsToWatch = [
+    'assignmentDropdown',
+    'secretariatAssignmentDropdown',
+    'candidates-table',
+    'secretariat-candidates-table'
+  ];
+  
+  function checkUIContent() {
+    const assignmentDropdown = document.getElementById('assignmentDropdown');
+    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+    const candidatesTable = document.getElementById('candidates-table');
+    const secretariatCandidatesTable = document.getElementById('secretariat-candidates-table');
+
+    const hasRaterData = assignmentDropdown?.options.length > 1;
+    const hasSecretariatData = secretariatAssignmentDropdown?.options.length > 0;
+    const hasCandidates = candidatesTable && candidatesTable.rows.length > 1;
+    const hasSecretariatCandidates = secretariatCandidatesTable && secretariatCandidatesTable.rows.length > 0;
+    
+    if (hasRaterData && hasSecretariatData && hasCandidates && hasSecretariatCandidates) {
+      console.log('📊 All UI data detected - marking as ready');
+      loadingState.uiReady = true;
+      checkAndHideSpinner();
+      return true;
+    }
+    return false;
+  }
+  
+  if (checkUIContent()) return;
+  
+  uiObserver = new MutationObserver(() => {
+    checkUIContent();
+  });
+  
+  elementsToWatch.forEach(elementId => {
+    const element = document.getElementById(elementId);
+    if (element) {
+      uiObserver.observe(element, {
+        childList: true,
+        subtree: true,
+        attributes: true
+      });
+    }
+  });
+  
+  const periodicCheck = () => {
+    if (!loadingState.uiReady && !checkUIContent()) {
+      uiCheckTimeout = setTimeout(periodicCheck, 500);
+    }
+  };
+  periodicCheck();
+
+  // Optional: keep timeout if you want to force UI visible eventually
+  setTimeout(() => {
+    if (!loadingState.uiReady) {
+      console.warn('⚠ UI monitoring timeout - forcing ready state');
+      loadingState.uiReady = true;
+      checkAndHideSpinner();
+    }
+  }, 10000);
+}
+
+function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-
-  // Show spinner and dim UI
+  
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -489,101 +547,56 @@ async function initializeApp() {
   if (pageWrapper) {
     pageWrapper.style.opacity = '0.3';
   }
-
+  
   gapi.load('client', async () => {
     try {
-      // 1️⃣ Initialize GAPI
       await initializeGapiClient();
       gapiInitialized = true;
-      console.log('GAPI client initialized');
+      console.log('🔌 GAPI client initialized');
       loadingState.gapi = true;
-
+      
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
-
-      // 2️⃣ Start monitoring UI for population *before* data fetch starts
-      const uiReadyPromise = waitForUIReady();
-
-      // 3️⃣ Fetch data in parallel
+      
+      // Watch UI for data
+      startUIMonitoring();
+      
+      // Fetch all data
       await Promise.all([
         fetchSecretariatMembers(),
-        fetchVacanciesData(),
-        loadSignatories() // make async if not already
+        fetchVacanciesData()
       ]);
-
-      // 4️⃣ Wait until UI elements are actually populated
-      await uiReadyPromise;
-
-      // 5️⃣ Restore state and attach listeners
+      
+      loadSignatories();
       restoreState();
-      attachEventListeners();
 
-      console.log('✅ App initialization complete');
-      hideSpinnerFully();
+      // DOM is fully ready now
+      loadingState.dom = true;
 
+      // Event listeners
+      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+      elements.closeSignatoriesModalBtns.forEach(button =>
+        button.addEventListener('click', () => {
+          elements.signatoriesModal.classList.remove('active');
+        })
+      );
+      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+      
+      console.log('🏁 App initialization complete');
+      checkAndHideSpinner();
+      
     } catch (error) {
-      console.error('Error initializing app:', error);
-      hideSpinnerFully();
+      console.error('❌ Error initializing app:', error);
+      loadingState.gapi = true;
+      loadingState.uiReady = true;
+      loadingState.dom = true;
+      checkAndHideSpinner();
     }
   });
 }
 
-function waitForUIReady() {
-  return new Promise((resolve) => {
-    console.log('Waiting for UI to be populated with data...');
-
-    const assignmentDropdown = document.getElementById('assignmentDropdown');
-    const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-
-    function check() {
-      const hasRaterData = assignmentDropdown?.options.length > 1;
-      const hasSecretariatData = secretariatAssignmentDropdown?.options.length > 0;
-      if (hasRaterData || hasSecretariatData) {
-        console.log('UI elements populated with data');
-        resolve();
-        return true;
-      }
-      return false;
-    }
-
-    if (check()) return;
-
-    const observer = new MutationObserver(() => {
-      if (check()) {
-        observer.disconnect();
-      }
-    });
-
-    [assignmentDropdown, secretariatAssignmentDropdown].forEach(el => {
-      if (el) observer.observe(el, { childList: true, subtree: true });
-    });
-
-    // Safety timeout
-    setTimeout(() => {
-      console.warn('UI readiness check timed out — proceeding anyway');
-      resolve();
-    }, 10000);
-  });
-}
-
-function hideSpinnerFully() {
-  const spinner = document.getElementById('loadingSpinner');
-  const pageWrapper = document.querySelector('.page-wrapper');
-  if (spinner) spinner.style.display = 'none';
-  if (pageWrapper) pageWrapper.style.opacity = '1';
-}
-
-function attachEventListeners() {
-  elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-  elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-  elements.closeSignatoriesModalBtns.forEach(button =>
-    button.addEventListener('click', () => {
-      elements.signatoriesModal.classList.remove('active');
-    })
-  );
-  elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-}
 
 
 
@@ -4466,6 +4479,7 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
 
 
 
