@@ -853,9 +853,16 @@ function switchTab(tab) {
   if (tab === 'rater') {
     localStorage.removeItem('secretariatAuthenticated');
     secretariatMemberId = null;
-    saveAuthState(gapi.client.getToken(), currentEvaluator);
+  
+    if (gapi?.client?.getToken) {
+      saveAuthState(gapi.client.getToken(), currentEvaluator);
+    } else {
+      console.warn('GAPI not ready — skipping saveAuthState in switchTab');
+    }
+  
     console.log('Secretariat authentication cleared');
   }
+
 
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
@@ -4722,6 +4729,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
