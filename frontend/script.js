@@ -804,11 +804,12 @@ function setupTabNavigation() {
         if (member && password === member.password) {
             secretariatMemberId = memberId;
             localStorage.setItem('secretariatAuthenticated', 'true');
-            localStorage.setItem('currentTab', 'secretariat'); // Explicitly set the tab
+            localStorage.setItem('currentTab', 'secretariat');
+            localStorage.setItem('secretariatMemberName', member.name); // Ensure member.name is stored
             saveAuthState(gapi.client.getToken(), currentEvaluator);
             switchTab('secretariat');
             showToast('success', 'Success', `Logged in as ${member.name}`);
-            setTimeout(() => location.reload(), 1000); // Keep the reload
+            setTimeout(() => location.reload(), 1000);
         } else {
           showToast('error', 'Error', 'Incorrect credentials');
         }
@@ -4721,6 +4722,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
