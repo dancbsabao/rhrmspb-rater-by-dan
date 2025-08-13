@@ -91,9 +91,6 @@ function saveAuthState(tokenResponse, evaluator) {
   scheduleTokenRefresh();
 }
 
-
-
-
 let debounceTimeout = null;
 function saveDropdownState() {
   // Clear any existing debounce timeout
@@ -121,11 +118,6 @@ function saveDropdownState() {
     localStorage.setItem('dropdownState', JSON.stringify(dropdownState));
     console.log('Dropdown state saved:', dropdownState);
   }, 100);
-}
-function loadDropdownState() {
-  const dropdownState = JSON.parse(localStorage.getItem('dropdownState')) || {};
-  console.log('Loaded dropdown state:', dropdownState);
-  return dropdownState;
 }
 
 function loadAuthState() {
@@ -329,7 +321,6 @@ async function restoreState() {
   }
 }
 
-
 // Ensure initializeSecretariatDropdowns is called with proper vacancy data
 async function initializeSecretariatDropdowns() {
   console.log('Initializing Secretariat dropdowns with vacancies:', vacancies);
@@ -425,7 +416,24 @@ async function initializeSecretariatDropdowns() {
 // Flag to indicate restoration is in progress
 let dropdownStateRestoring = false;
 
-
+// RESTORED MISSING INITIALIZE APP FUNCTION
+async function initializeApp() {
+  console.log('Starting app initialization...');
+  
+  // Set DOM as ready
+  loadingState.dom = true;
+  
+  // Check if we have DOM ready and config loaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('DOM content loaded');
+      initializeGAPIOnly();
+    });
+  } else {
+    console.log('DOM already ready, initializing GAPI');
+    initializeGAPIOnly();
+  }
+}
 
 // Config fetch logic (around line 331)
 fetch(`${API_BASE_URL}/config`)
@@ -465,9 +473,6 @@ fetch(`${API_BASE_URL}/config`)
     console.error('Error fetching config:', error);
     elements.authStatus.textContent = 'Error loading configuration';
   });
-
-
-
 
 function checkAndHideSpinner() {
   const allReady = loadingState.gapi && loadingState.dom && 
@@ -685,19 +690,17 @@ function initializeGAPIOnly() {
       console.log('GAPI client initialized');
       loadingState.gapi = true;
       
-      // Check if there's a valid token in localStorage
-      const token = localStorage.getItem('access_token');
-      console.log('Token exists:', !!token);
+      // Check if there's a valid auth state in localStorage
+      const authState = loadAuthState();
       
-      if (token) {
+      if (authState && authState.access_token) {
         // User has valid authentication, proceed with full app initialization
         console.log('Valid authentication found, initializing app...');
-        updateUI(true); // Update your existing UI
-        initializeAppContent();
+        onUserSignIn();
       } else {
         // No valid authentication, show sign-in interface
         console.log('No valid authentication, showing sign-in interface');
-        updateUI(false); // Update your existing UI
+        updateUI(false);
         hideSpinnerShowAuth();
       }
       
@@ -831,9 +834,6 @@ function onUserSignOut() {
   // Show auth interface
   hideSpinnerShowAuth();
 }
-
-
-
 
 async function initializeGapiClient() {
   try {
@@ -974,6 +974,8 @@ function handleTokenCallback(tokenResponse) {
         loadSheetData();
         showToast('success', 'Welcome!', 'Successfully signed in.');
         localStorage.setItem('hasWelcomed', 'true');
+        // Trigger full app initialization
+        onUserSignIn();
       });
   }
 }
@@ -4767,3 +4769,4 @@ setTimeout(() => {
   updateLoadingMessage('Loading timeout reached. Some features may be limited.');
   checkAndHideSpinner();
 }, 20000);
+
