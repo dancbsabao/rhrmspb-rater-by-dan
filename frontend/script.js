@@ -450,43 +450,47 @@ fetch(`${API_BASE_URL}/config`)
 
 
 function initializeApp() {
-  const spinner = document.getElementById('loading-spinner');
-  const pageWrapper = document.querySelector('.page-wrapper');
+  const spinner = document.getElementById('loadingSpinner');
+  if (spinner) spinner.style.display = 'flex';
 
-  // Show spinner, hide content
-  if (spinner) {
-    spinner.style.display = 'flex';
-    spinner.style.opacity = '1';
-  }
-  if (pageWrapper) pageWrapper.style.visibility = 'hidden';
-
-  gapi.load('client', async () => {
-    await initializeGapiClient();
-    gapiInitialized = true;
-    console.log('GAPI client initialized');
-
-    maybeEnableButtons();
-    createEvaluatorSelector();
-    setupTabNavigation();
-    await fetchSecretariatMembers();
-    await fetchVacanciesData();
-    loadSignatories();
-    restoreState();
-
-    if (elements.generatePdfBtn) elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
-    if (elements.manageSignatoriesBtn) elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
-    elements.closeSignatoriesModalBtns.forEach(btn => btn.addEventListener('click', () => elements.signatoriesModal.classList.remove('active')));
-    if (elements.addSignatoryBtn) elements.addSignatoryBtn.addEventListener('click', addSignatory);
-
-    // Fade out spinner, show page
+  // Hide spinner when DOM is ready
+  window.addEventListener('load', () => {
     if (spinner) {
-      spinner.style.transition = 'opacity 0.4s ease';
       spinner.style.opacity = '0';
       setTimeout(() => spinner.remove(), 400);
     }
-    if (pageWrapper) pageWrapper.style.visibility = 'visible';
+  });
+
+  gapi.load('client', async () => {
+    try {
+      await initializeGapiClient();
+      gapiInitialized = true;
+      console.log('GAPI client initialized');
+      maybeEnableButtons();
+      createEvaluatorSelector();
+      setupTabNavigation();
+      await fetchSecretariatMembers();
+      await fetchVacanciesData();
+      loadSignatories();
+      restoreState();
+
+      // Event listeners
+      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+      elements.closeSignatoriesModalBtns.forEach(button =>
+        button.addEventListener('click', () => {
+          elements.signatoriesModal.classList.remove('active');
+        })
+      );
+      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+
+    } catch (err) {
+      console.error('Error initializing app:', err);
+      if (spinner) spinner.remove(); // failsafe
+    }
   });
 }
+
 
 
 async function initializeGapiClient() {
@@ -4342,6 +4346,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 
 
