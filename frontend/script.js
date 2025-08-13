@@ -2144,10 +2144,9 @@ function updateUI(isSignedIn) {
 
         // Determine authentication status text
         let authStatusText = '';
-        if (isSecretariatAuthenticated && secretariatMemberId) {
-            // Fetch member name based on secretariatMemberId (adjust based on your data structure)
-            const member = getMemberById(secretariatMemberId); // Implement this function
-            authStatusText = member ? `Signed in as Secretariat: ${member.name}` : 'Signed in as Secretariat';
+        if (isSecretariatAuthenticated) {
+            const memberName = localStorage.getItem('secretariatMemberName');
+            authStatusText = memberName ? `Signed in as Secretariat: ${memberName}` : 'Signed in as Secretariat';
         } else {
             authStatusText = currentEvaluator
                 ? `Signed in as ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator}`
@@ -2159,13 +2158,16 @@ function updateUI(isSignedIn) {
         elements.tabsContainer.removeAttribute('hidden');
         elements.raterContent.style.display = currentTab === 'rater' ? 'block' : 'none';
         elements.secretariatContent.style.display = currentTab === 'secretariat' ? 'block' : 'none';
-        elements.ratingForm.style.display = currentTab === 'rater' ? 'block Tas 'block' : 'none';
+        elements.ratingForm.style.display = currentTab === 'rater' ? 'block' : 'none'; // Fixed syntax error
 
         // Ensure resultsArea is hidden for secretariat tab
         const resultsArea = document.querySelector('.results-area');
         if (resultsArea) {
+            console.log('Results area in updateUI, setting display:', currentTab === 'rater' ? 'block' : 'none');
             resultsArea.style.display = currentTab === 'rater' ? 'block' : 'none';
             resultsArea.classList.toggle('active', currentTab === 'rater');
+        } else {
+            console.error('Results area not found in updateUI!');
         }
     } else {
         elements.signInBtn.style.display = 'block';
@@ -4719,6 +4721,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
