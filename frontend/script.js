@@ -26,11 +26,6 @@ let loadingState = {
 let uiObserver;
 let uiCheckTimeout;
 
-let appInitialized = false;
-let initializationInProgress = false;
-let initializationPromise = null;
-const dataCache = new Map();
-
 
 let CLIENT_ID;
 let API_KEY;
@@ -80,34 +75,18 @@ let competencies = [];
 
 const API_BASE_URL = "https://rhrmspb-rater-by-dan.onrender.com";
 
-
-// Updated saveAuthState function with better error handling
 function saveAuthState(tokenResponse, evaluator) {
-  if (!tokenResponse) {
-    console.warn('No token response provided to saveAuthState');
-    return;
-  }
-  
   const authState = {
-    access_token: tokenResponse.access_token || null,
-    session_id: tokenResponse.session_id || sessionId || null,
+    access_token: tokenResponse.access_token,
+    session_id: tokenResponse.session_id || sessionId,
     expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
     evaluator: evaluator || null,
     secretariatMemberId: typeof secretariatMemberId !== 'undefined' ? secretariatMemberId : null,
   };
-  
   localStorage.setItem('authState', JSON.stringify(authState));
   console.log('Auth state saved:', authState);
-  
-  if (typeof scheduleTokenRefresh === 'function') {
-    scheduleTokenRefresh();
-  }
+  scheduleTokenRefresh();
 }
-
-
-
-
-
 
 let debounceTimeout = null;
 function saveDropdownState() {
@@ -573,194 +552,74 @@ function startUIMonitoring() {
   }, 10000);
 }
 
-
-
-
-
-// Cache with TTL check
-function getCachedData(key, ttl = 300000) { // 5 minutes default
-  const cached = dataCache.get(key);
-  if (!cached) return null;
-  
-  if (Date.now() - cached.timestamp > ttl) {
-    dataCache.delete(key);
-    return null;
-  }
-  
-  return cached.data;
-}
-
-function setCachedData(key, data) {
-  dataCache.set(key, {
-    data: data,
-    timestamp: Date.now()
-  });
-}
-
-// Modified initializeApp function
 function initializeApp() {
-  // Prevent multiple simultaneous initializations
-  if (appInitialized) {
-    console.log('App already initialized, skipping...');
-    return Promise.resolve();
+  const spinner = document.getElementById('loadingSpinner');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  
+  // Show spinner, prepare content
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+  }
+  if (pageWrapper) {
+    pageWrapper.style.opacity = '0.3';
   }
   
-  if (initializationInProgress) {
-    console.log('Initialization in progress, returning existing promise...');
-    return initializationPromise;
-  }
-  
-  // Mark as in progress and create promise
-  initializationInProgress = true;
-  
-  initializationPromise = new Promise((resolve, reject) => {
-    const spinner = document.getElementById('loadingSpinner');
-    const pageWrapper = document.querySelector('.page-wrapper');
-    
-    // Show spinner, prepare content
-    if (spinner) {
-      spinner.style.display = 'flex';
-      spinner.style.opacity = '1';
-    }
-    if (pageWrapper) {
-      pageWrapper.style.opacity = '0.3';
-    }
-    
-    gapi.load('client', async () => {
-      try {
-        await initializeGapiClient();
-        gapiInitialized = true;
-        console.log('GAPI client initialized');
-        loadingState.gapi = true;
-        
-        maybeEnableButtons();
-        createEvaluatorSelector();
-        setupTabNavigation();
-        
-        // Start monitoring UI for data population
-        startUIMonitoring();
-        
-        // Load data with caching to prevent repeated API calls
-        await loadDataWithCaching();
-        
-        // If loadSignatories is async, await it; if not, this is fine.
-        const maybePromise = loadSignatories && loadSignatories();
-        if (maybePromise && typeof maybePromise.then === 'function') {
-          await maybePromise;
-        }
-        restoreState();
-        
-        // Event listeners (only add once)
-        if (!appInitialized) {
-          elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-          elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-          elements.closeSignatoriesModalBtns.forEach(button =>
-            button.addEventListener('click', () => {
-              elements.signatoriesModal.classList.remove('active');
-            })
-          );
-          elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-        }
-        
-        // Mark DOM/data-binding phase as done
-        loadingState.dom = true;
-        checkAndHideSpinner();
-        
-        // Mark as fully initialized
-        appInitialized = true;
-        initializationInProgress = false;
-        
-        console.log('App initialization complete');
-        resolve();
-        
-      } catch (error) {
-        console.error('Error initializing app:', error);
-        
-        // Reset flags on error
-        initializationInProgress = false;
-        
-        // Ensure spinner won't get stuck
-        loadingState.gapi = true;
-        loadingState.uiReady = true;
-        loadingState.dom = true;
-        checkAndHideSpinner();
-        
-        reject(error);
+  gapi.load('client', async () => {
+    try {
+      await initializeGapiClient();
+      gapiInitialized = true;
+      console.log('GAPI client initialized');
+      loadingState.gapi = true;
+      
+      maybeEnableButtons();
+      createEvaluatorSelector();
+      setupTabNavigation();
+      
+      // Start monitoring UI for data population
+      startUIMonitoring();
+      
+      // Load all data (your existing functions)
+      await Promise.all([
+        fetchSecretariatMembers(),
+        fetchVacanciesData()
+      ]);
+      
+      // If loadSignatories is async, await it; if not, this is fine.
+      const maybePromise = loadSignatories && loadSignatories();
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        await maybePromise;
       }
-    });
+
+      restoreState();
+      
+      // Event listeners
+      elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+      elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+      elements.closeSignatoriesModalBtns.forEach(button =>
+        button.addEventListener('click', () => {
+          elements.signatoriesModal.classList.remove('active');
+        })
+      );
+      elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+
+      // Mark DOM/data-binding phase as done
+      loadingState.dom = true;
+
+      // In case uiReady was already set by the monitor, this will now hide the spinner
+      checkAndHideSpinner();
+      
+      console.log('App initialization complete');
+      
+    } catch (error) {
+      console.error('Error initializing app:', error);
+      // Ensure spinner won’t get stuck
+      loadingState.gapi = true;
+      loadingState.uiReady = true;
+      loadingState.dom = true;
+      checkAndHideSpinner();
+    }
   });
-  
-  return initializationPromise;
-}
-
-// New cached data loading function
-async function loadDataWithCaching() {
-  try {
-    // Check if we have cached data first
-    let secretariatData = getCachedData('secretariat-members');
-    let vacanciesData = getCachedData('vacancies-data');
-    
-    const apiCalls = [];
-    
-    // Only make API calls for data we don't have cached
-    if (!secretariatData && typeof fetchSecretariatMembers === 'function') {
-      apiCalls.push(
-        fetchSecretariatMembers().then(data => {
-          setCachedData('secretariat-members', data);
-          return data;
-        })
-      );
-    } else if (secretariatData) {
-      console.log('Using cached secretariat data');
-      // If you need to process the cached data, do it here
-      // processSecretariatData(secretariatData);
-    }
-    
-    if (!vacanciesData && typeof fetchVacanciesData === 'function') {
-      apiCalls.push(
-        fetchVacanciesData().then(data => {
-          setCachedData('vacancies-data', data);
-          return data;
-        })
-      );
-    } else if (vacanciesData) {
-      console.log('Using cached vacancies data');
-      // If you need to process the cached data, do it here
-      // processVacanciesData(vacanciesData);
-    }
-    
-    // Only execute API calls that are needed
-    if (apiCalls.length > 0) {
-      console.log(`Making ${apiCalls.length} API calls (others served from cache)`);
-      await Promise.all(apiCalls);
-    } else {
-      console.log('All data served from cache, no API calls needed');
-    }
-    
-  } catch (error) {
-    console.error('Error loading data:', error);
-    throw error;
-  }
-}
-
-// Function to clear cache when needed (call this when you know data has changed)
-function clearDataCache(specificKey = null) {
-  if (specificKey) {
-    dataCache.delete(specificKey);
-    console.log(`Cleared cache for: ${specificKey}`);
-  } else {
-    dataCache.clear();
-    console.log('Cleared all cached data');
-  }
-}
-
-// Function to reset initialization state (useful for testing or force refresh)
-function resetInitialization() {
-  appInitialized = false;
-  initializationInProgress = false;
-  initializationPromise = null;
-  clearDataCache();
-  console.log('Initialization state reset');
 }
 
 
@@ -990,55 +849,38 @@ function setupTabNavigation() {
 function switchTab(tab) {
   currentTab = tab;
   localStorage.setItem('currentTab', tab);
-  
+
   if (tab === 'rater') {
     localStorage.removeItem('secretariatAuthenticated');
     secretariatMemberId = null;
-    
-    // Check if gapi.client exists and is initialized before getting token
-    let token = null;
-    try {
-      if (gapi && gapi.client && typeof gapi.client.getToken === 'function') {
-        token = gapi.client.getToken();
-        if (token) {
-          saveAuthState(token, currentEvaluator);
-        } else {
-          console.warn('No valid token available');
-        }
-      } else {
-        console.warn('Google API client not initialized');
-      }
-    } catch (error) {
-      console.error('Error getting token:', error);
-    }
-    
+    saveAuthState(gapi.client.getToken(), currentEvaluator);
     console.log('Secretariat authentication cleared');
   }
-  
+
   document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
   document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
+
   document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
   document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
-  
+
   const resultsArea = document.querySelector('.results-area');
   if (resultsArea) {
     resultsArea.style.display = tab === 'rater' ? 'block' : 'none';
     resultsArea.classList.toggle('active', tab === 'rater');
   }
-  
+
   setDropdownState(elements.assignmentDropdown, tab === 'rater');
   setDropdownState(elements.positionDropdown, tab === 'rater');
   setDropdownState(elements.itemDropdown, tab === 'rater');
   setDropdownState(elements.nameDropdown, tab === 'rater');
-  
+
   const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
   const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
   const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
-  
   setDropdownState(secretariatAssignmentDropdown, tab === 'secretariat');
   setDropdownState(secretariatPositionDropdown, tab === 'secretariat');
   setDropdownState(secretariatItemDropdown, tab === 'secretariat');
-  
+
   if (tab === 'rater') {
     initializeDropdowns(vacancies);
     if (elements.nameDropdown.value && elements.itemDropdown.value) {
@@ -1056,7 +898,7 @@ function switchTab(tab) {
     }
     updateUI(true);
   }
-  
+
   const container = document.querySelector('.container');
   if (resultsArea && tab === 'rater') {
     const resultsHeight = resultsArea.offsetHeight + 20;
@@ -4880,8 +4722,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
-
 
 
 
