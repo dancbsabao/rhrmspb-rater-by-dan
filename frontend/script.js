@@ -661,6 +661,7 @@ function setupTabNavigation() {
           saveAuthState(gapi.client.getToken(), currentEvaluator);
           switchTab('secretariat');
           showToast('success', 'Success', `Logged in as ${member.name}`);
+          setTimeout(() => location.reload(), 1000); // wait 1 second before refreshing
         } else {
           showToast('error', 'Error', 'Incorrect credentials');
         }
@@ -4333,6 +4334,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 
 
