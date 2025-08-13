@@ -40,6 +40,7 @@ const elements = {
   authStatus: document.getElementById('authStatus'),
   signInBtn: document.getElementById('signInBtn'),
   signOutBtn: document.getElementById('signOutBtn'),
+  logoutAllBtn: document.getElementById('logoutAllBtn'),
   assignmentDropdown: document.getElementById('assignmentDropdown'),
   positionDropdown: document.getElementById('positionDropdown'),
   itemDropdown: document.getElementById('itemDropdown'),
@@ -47,16 +48,19 @@ const elements = {
   competencyContainer: document.getElementById('competencyContainer'),
   submitRatings: document.getElementById('submitRatings'),
   ratingForm: document.querySelector('.rating-form'),
-  generatePdfBtn: document.getElementById('generatePdfBtn'), // New
-  manageSignatoriesBtn: document.getElementById('manageSignatoriesBtn'), // New
-  signatoriesModal: document.getElementById('signatoriesModal'), // New
-  addSignatoryBtn: document.getElementById('addSignatoryBtn'), // New
-  newSignatoryName: document.getElementById('newSignatoryName'), // New
-  newSignatoryPosition: document.getElementById('newSignatoryPosition'), // New
-  newSignatoryAssignment: document.getElementById('newSignatoryAssignment'), // ADD THIS LINE
-  signatoriesUl: document.getElementById('signatoriesUl'), // New
-  closeSignatoriesModalBtns: document.querySelectorAll('.modal-close-signatories'), // New
-  
+  generatePdfBtn: document.getElementById('generatePdfBtn'),
+  manageSignatoriesBtn: document.getElementById('manageSignatoriesBtn'),
+  signatoriesModal: document.getElementById('signatoriesModal'),
+  addSignatoryBtn: document.getElementById('addSignatoryBtn'),
+  newSignatoryName: document.getElementById('newSignatoryName'),
+  newSignatoryPosition: document.getElementById('newSignatoryPosition'),
+  newSignatoryAssignment: document.getElementById('newSignatoryAssignment'),
+  signatoriesUl: document.getElementById('signatoriesUl'),
+  closeSignatoriesModalBtns: document.querySelectorAll('.modal-close-signatories'),
+  logoutAllModal: document.getElementById('logoutAllModal'),
+  logoutAllPassword: document.getElementById('logoutAllPassword'),
+  confirmLogoutAllBtn: document.getElementById('confirmLogoutAllBtn'),
+  closeLogoutAllModal: document.querySelectorAll('.modal-close'),
 };
 
 let vacancies = [];
@@ -1949,66 +1953,180 @@ function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
-function handleSignOutClick() {
+async function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
-  showModal('Confirm Sign Out', modalContent, () => {
-    gapi.client.setToken(null);
-    localStorage.clear();
-    console.log('All localStorage cleared');
-    currentEvaluator = null;
-    sessionId = null;
-    vacancies = [];
-    candidates = [];
-    compeCodes = [];
-    competencies = [];
-    submissionQueue = [];
-    console.log('Global variables reset');
-    updateUI(false);
-    resetDropdowns([]);
-    elements.competencyContainer.innerHTML = '';
-    clearRatings();
-    const evaluatorSelect = document.getElementById('evaluatorSelect');
-    if (evaluatorSelect) {
-      evaluatorSelect.value = '';
-      evaluatorSelect.parentElement.remove();
+  const result = await showModal('Confirm Sign Out', modalContent, async () => {
+    try {
+      const accessToken = gapi.client.getToken()?.access_token;
+      if (accessToken) {
+        // Revoke the access token
+        await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+      }
+      // Clear refresh token cookie on backend
+      await fetch(`${API_BASE_URL}/clear-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ sessionId }),
+        credentials: 'include'
+      });
+      // Reset client-side state
+      gapi.client.setToken(null);
+      localStorage.clear();
+      console.log('All localStorage cleared');
+      currentEvaluator = null;
+      sessionId = null;
+      secretariatMemberId = null;
+      vacancies = [];
+      candidates = [];
+      compeCodes = [];
+      competencies = [];
+      submissionQueue = [];
+      console.log('Global variables reset');
+      updateUI(false);
+      resetDropdowns([]);
+      elements.competencyContainer.innerHTML = '';
+      clearRatings();
+      const evaluatorSelect = document.getElementById('evaluatorSelect');
+      if (evaluatorSelect) {
+        evaluatorSelect.value = '';
+        evaluatorSelect.parentElement.remove();
+      }
+      if (elements.submitRatings) {
+        elements.submitRatings.disabled = true;
+      }
+      if (fetchTimeout) {
+        clearTimeout(fetchTimeout);
+        fetchTimeout = null;
+      }
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      const resultsArea = document.querySelector('.results-area');
+      if (resultsArea) {
+        resultsArea.remove();
+      }
+      const container = document.querySelector('.container');
+      container.style.marginTop = '20px';
+      const authSection = document.querySelector('.auth-section');
+      authSection.classList.add('signed-out');
+      showToast('success', 'Signed Out', 'You have been successfully signed out.');
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      showToast('error', 'Error', 'Failed to sign out completely. Please try again.');
     }
-    if (elements.submitRatings) {
-      elements.submitRatings.disabled = true;
-    }
-    if (fetchTimeout) {
-      clearTimeout(fetchTimeout);
-      fetchTimeout = null;
-    }
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) {
-      resultsArea.remove();
-    }
-    const container = document.querySelector('.container');
-    container.style.marginTop = '20px';
-    const authSection = document.querySelector('.auth-section');
-    authSection.classList.add('signed-out');
-    showToast('success', 'Signed Out', 'You have been successfully signed out.');
   }, () => {
     console.log('Sign out canceled');
   });
 }
 
+// Add handleLogoutAll for logout all functionality
+async function handleLogoutAll() {
+  const contentHTML = `
+    <p>Enter the admin password to log out all sessions:</p>
+    <input type="password" id="logoutAllPassword" placeholder="Enter password">
+  `;
+  const result = await showModal(
+    'Confirm Logout All Sessions',
+    contentHTML,
+    async () => {
+      const password = document.getElementById('logoutAllPassword').value;
+      if (password !== 'admindan') {
+        showToast('error', 'Error', 'Invalid password');
+        return;
+      }
+      try {
+        const accessToken = gapi.client.getToken()?.access_token;
+        const response = await fetch(`${API_BASE_URL}/logout-all`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ sessionId })
+        });
+        if (response.ok) {
+          // Reset client-side state
+          gapi.client.setToken(null);
+          localStorage.clear();
+          console.log('All localStorage cleared');
+          currentEvaluator = null;
+          sessionId = null;
+          secretariatMemberId = null;
+          vacancies = [];
+          candidates = [];
+          compeCodes = [];
+          competencies = [];
+          submissionQueue = [];
+          console.log('Global variables reset');
+          updateUI(false);
+          resetDropdowns([]);
+          elements.competencyContainer.innerHTML = '';
+          clearRatings();
+          const evaluatorSelect = document.getElementById('evaluatorSelect');
+          if (evaluatorSelect) {
+            evaluatorSelect.value = '';
+            evaluatorSelect.parentElement.remove();
+          }
+          if (elements.submitRatings) {
+            elements.submitRatings.disabled = true;
+          }
+          if (fetchTimeout) {
+            clearTimeout(fetchTimeout);
+            fetchTimeout = null;
+          }
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+          }
+          const resultsArea = document.querySelector('.results-area');
+          if (resultsArea) {
+            resultsArea.remove();
+          }
+          const container = document.querySelector('.container');
+          container.style.marginTop = '20px';
+          const authSection = document.querySelector('.auth-section');
+          authSection.classList.add('signed-out');
+          showToast('success', 'Success', 'All sessions logged out');
+        } else {
+          showToast('error', 'Error', 'Failed to log out all sessions');
+        }
+      } catch (error) {
+        console.error('Error logging out all sessions:', error);
+        showToast('error', 'Error', 'Failed to log out all sessions');
+      }
+    },
+    () => {
+      document.getElementById('logoutAllPassword').value = '';
+    }
+  );
+}
+
+// Update updateUI function in script.js
 function updateUI(isSignedIn) {
-  elements.authStatus.textContent = isSignedIn ? 'SIGNED IN' : 'You are not signed in';
-  elements.signInBtn.style.display = isSignedIn ? 'none' : 'inline-block';
-  elements.signOutBtn.style.display = isSignedIn ? 'inline-block' : 'none';
-  if (elements.ratingForm) elements.ratingForm.style.display = isSignedIn ? 'block' : 'none';
-  document.getElementById('tabsContainer').hidden = !isSignedIn; // Show/hide tabs
-  if (!isSignedIn) {
-    elements.competencyContainer.innerHTML = '';
-    const resultsArea = document.querySelector('.results-area');
-    if (resultsArea) resultsArea.classList.remove('active');
+  if (isSignedIn) {
+    elements.signInBtn.style.display = 'none';
+    elements.signOutBtn.style.display = 'block';
+    elements.logoutAllBtn.style.display = 'block';
+    elements.authStatus.textContent = currentEvaluator ? `Signed in as ${currentEvaluator}` : 'Signed in';
+    elements.ratingForm.style.display = currentTab === 'rater' ? 'block' : 'none';
+  } else {
+    elements.signInBtn.style.display = 'block';
+    elements.signOutBtn.style.display = 'none';
+    elements.logoutAllBtn.style.display = 'none';
+    elements.authStatus.textContent = 'Not signed in';
+    elements.ratingForm.style.display = 'none';
   }
 }
+
+// Add event listener for logout all button in script.js
+elements.logoutAllBtn.addEventListener('click', handleLogoutAll);
 
 async function loadSheetData(maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -4496,3 +4614,4 @@ setTimeout(() => {
   loadingState.uiReady = true;
   checkAndHideSpinner();
 }, 15000);
+
