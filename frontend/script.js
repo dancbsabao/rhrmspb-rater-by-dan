@@ -451,21 +451,23 @@ fetch(`${API_BASE_URL}/config`)
 
 function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
-  if (spinner) spinner.style.display = 'flex';
+  const pageWrapper = document.querySelector('.page-wrapper');
 
-  // Hide spinner when DOM is ready
-  window.addEventListener('load', () => {
-    if (spinner) {
-      spinner.style.opacity = '0';
-      setTimeout(() => spinner.remove(), 400);
-    }
-  });
+  // Show spinner, hide content
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+  }
+  if (pageWrapper) {
+    pageWrapper.style.display = 'none';
+  }
 
   gapi.load('client', async () => {
     try {
       await initializeGapiClient();
       gapiInitialized = true;
       console.log('GAPI client initialized');
+
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
@@ -484,12 +486,22 @@ function initializeApp() {
       );
       elements.addSignatoryBtn?.addEventListener('click', addSignatory);
 
-    } catch (err) {
-      console.error('Error initializing app:', err);
-      if (spinner) spinner.remove(); // failsafe
+    } catch (error) {
+      console.error('Error initializing app:', error);
+    } finally {
+      // Fade out spinner and show content
+      if (spinner) {
+        spinner.style.transition = 'opacity 0.4s ease';
+        spinner.style.opacity = '0';
+        setTimeout(() => spinner.remove(), 400);
+      }
+      if (pageWrapper) {
+        pageWrapper.style.display = 'block';
+      }
     }
   });
 }
+
 
 
 
@@ -4346,6 +4358,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
 
 
 
