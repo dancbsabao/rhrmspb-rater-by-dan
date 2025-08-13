@@ -171,7 +171,7 @@ app.get('/ping', (req, res) => {
   res.send('pong');
 });
 
-// Add clear-session endpoint to app.js
+// Add clear-session endpoint
 app.post('/clear-session', async (req, res) => {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
@@ -180,7 +180,6 @@ app.post('/clear-session', async (req, res) => {
     return res.status(401).json({ error: 'No access token or session ID provided' });
   }
   try {
-    // Remove the session from sessionStore
     sessionStore.delete(sessionId);
     res.clearCookie('refresh_token', {
       httpOnly: true,
@@ -194,7 +193,7 @@ app.post('/clear-session', async (req, res) => {
   }
 });
 
-// Add logout-all endpoint to app.js
+// Add logout-all endpoint
 app.post('/logout-all', async (req, res) => {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
@@ -228,5 +227,6 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 
 
