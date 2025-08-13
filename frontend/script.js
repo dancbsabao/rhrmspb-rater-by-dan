@@ -2134,27 +2134,56 @@ async function handleLogoutAll() {
 
 // Update updateUI to manage tabs visibility and logout buttons
 function updateUI(isSignedIn) {
-  if (isSignedIn) {
-    elements.signInBtn.style.display = 'none';
-    elements.signOutBtn.style.display = 'block';
-    elements.logoutAllBtn.style.display = 'block';
-    elements.authStatus.textContent = currentEvaluator
-      ? `Signed in as ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator}`
-      : 'Signed in';
-    elements.ratingForm.style.display = currentTab === 'rater' ? 'block' : 'none';
-    elements.tabsContainer.removeAttribute('hidden');
-    elements.raterContent.style.display = currentTab === 'rater' ? 'block' : 'none';
-    elements.secretariatContent.style.display = currentTab === 'secretariat' ? 'block' : 'none';
-  } else {
-    elements.signInBtn.style.display = 'block';
-    elements.signOutBtn.style.display = 'none';
-    elements.logoutAllBtn.style.display = 'none';
-    elements.authStatus.textContent = 'Not signed in';
-    elements.ratingForm.style.display = 'none';
-    elements.tabsContainer.setAttribute('hidden', '');
-    elements.raterContent.style.display = 'none';
-    elements.secretariatContent.style.display = 'none';
-  }
+    const isSecretariatAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
+    const currentTab = localStorage.getItem('currentTab') || 'rater'; // Default to 'rater' if not set
+
+    if (isSignedIn || isSecretariatAuthenticated) {
+        elements.signInBtn.style.display = 'none';
+        elements.signOutBtn.style.display = 'block';
+        elements.logoutAllBtn.style.display = 'block';
+
+        // Determine authentication status text
+        let authStatusText = '';
+        if (isSecretariatAuthenticated && secretariatMemberId) {
+            // Fetch member name based on secretariatMemberId (adjust based on your data structure)
+            const member = getMemberById(secretariatMemberId); // Implement this function
+            authStatusText = member ? `Signed in as Secretariat: ${member.name}` : 'Signed in as Secretariat';
+        } else {
+            authStatusText = currentEvaluator
+                ? `Signed in as ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator}`
+                : 'Signed in';
+        }
+        elements.authStatus.textContent = authStatusText;
+
+        // Show tabs and set content visibility based on currentTab
+        elements.tabsContainer.removeAttribute('hidden');
+        elements.raterContent.style.display = currentTab === 'rater' ? 'block' : 'none';
+        elements.secretariatContent.style.display = currentTab === 'secretariat' ? 'block' : 'none';
+        elements.ratingForm.style.display = currentTab === 'rater' ? 'block Tas 'block' : 'none';
+
+        // Ensure resultsArea is hidden for secretariat tab
+        const resultsArea = document.querySelector('.results-area');
+        if (resultsArea) {
+            resultsArea.style.display = currentTab === 'rater' ? 'block' : 'none';
+            resultsArea.classList.toggle('active', currentTab === 'rater');
+        }
+    } else {
+        elements.signInBtn.style.display = 'block';
+        elements.signOutBtn.style.display = 'none';
+        elements.logoutAllBtn.style.display = 'none';
+        elements.authStatus.textContent = 'Not signed in';
+        elements.ratingForm.style.display = 'none';
+        elements.tabsContainer.setAttribute('hidden', '');
+        elements.raterContent.style.display = 'none';
+        elements.secretariatContent.style.display = 'none';
+
+        // Hide resultsArea when not signed in
+        const resultsArea = document.querySelector('.results-area');
+        if (resultsArea) {
+            resultsArea.style.display = 'none';
+            resultsArea.classList.remove('active');
+        }
+    }
 }
 
 // Add event listener for logout all button
@@ -4690,6 +4719,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
