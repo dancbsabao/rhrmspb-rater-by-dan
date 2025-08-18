@@ -2,7 +2,7 @@
 let gapiInitialized = false;
 let tokenClient = null;
 let currentEvaluator = null;
-let fetchTimeout;
+let fetchTimeout = null;
 let isSubmitting = false;
 let refreshTimer = null;
 let sessionId = null; // To track server session
@@ -117,10 +117,18 @@ function saveDropdownState() {
     console.log('Dropdown state saved:', dropdownState);
   }, 100);
 }
+
+// 🔧 You had loadDropdownState defined twice. Keep ONE version only:
 function loadDropdownState() {
-  const dropdownState = JSON.parse(localStorage.getItem('dropdownState')) || {};
-  console.log('Loaded dropdown state:', dropdownState);
-  return dropdownState;
+  try {
+    const raw = localStorage.getItem('dropdownState');
+    const dropdownState = raw ? JSON.parse(raw) : {};
+    console.log('Loaded dropdown state:', dropdownState);
+    return dropdownState || {};
+  } catch (e) {
+    console.warn('Failed to parse dropdownState from localStorage:', e);
+    return {};
+  }
 }
 
 function loadAuthState() {
@@ -138,12 +146,6 @@ function loadAuthState() {
   };
   console.log('Loaded auth state:', sanitizedAuthState);
   return authState;
-}
-
-function loadDropdownState() {
-  const dropdownState = JSON.parse(localStorage.getItem('dropdownState'));
-  console.log('Loaded dropdown state:', dropdownState);
-  return dropdownState || {};
 }
 
 async function restoreState() {
@@ -1148,6 +1150,38 @@ async function safeLoadSignatories() {
     cacheTTL: 2 * 60 * 60 * 1000  // 2 hour TTL
   });
 }
+
+// ✅ A safe wrapper around the GAPI call that uses BulletproofAPIManager
+async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
+  if (!name || !item || !evaluator) {
+    throw new Error('Missing name/item/evaluator for ratings fetch');
+  }
+
+  const key = `ratings:${encodeURIComponent(item)}:${encodeURIComponent(name)}:${encodeURIComponent(evaluator)}`;
+
+  // The actual function that hits GAPI
+  const fetchFunction = async () => {
+    // Always ensure token is fresh right before the call
+    if (!await isTokenValid()) await refreshAccessToken();
+
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const values = response?.result?.values || [];
+    // Normalize shape to keep cache stable
+    return { values, ts: Date.now() };
+  };
+
+  // Cache defaults: ratings change during a session, but we can safely cache briefly
+  return await apiManager.bulletproofFetch(key, fetchFunction, {
+    maxCacheAge: 2 * 60 * 1000,  // prefer fresh within 2 minutes when available
+    cacheTTL:   10 * 60 * 1000,  // keep cached up to 10 minutes for fallback
+    forceRefresh
+  });
+}
+
 
 // Ultra-safe initialization with fallback UI loading
 async function initializeApp() {
@@ -3311,49 +3345,56 @@ function resetDropdowns(vacancies) {
   elements.nameDropdown.disabled = true;
 }
 
-async function fetchSubmittedRatings() {
+async function fetchSubmittedRatings({ forceRefresh = false } = {}) {
   if (fetchTimeout) clearTimeout(fetchTimeout);
 
   fetchTimeout = setTimeout(async () => {
-    const name = elements.nameDropdown.value;
-    const item = elements.itemDropdown.value;
+    const name = elements.nameDropdown?.value;
+    const item = elements.itemDropdown?.value;
+    const evaluator = currentEvaluator;
 
-    if (!currentEvaluator || !name || !item) {
+    if (!evaluator || !name || !item) {
       console.warn('Missing evaluator, name, or item');
-      elements.submitRatings.disabled = true;
+      if (elements.submitRatings) elements.submitRatings.disabled = true;
       clearRatings();
       return;
     }
 
     try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-      });
+      // Use the safe wrapper with retries, backoff, cache, and single-flight lock
+      const { values } = await safeFetchRatings({ name, item, evaluator, forceRefresh });
 
-      const data = response.result.values || [];
-      const filteredRows = data.slice(1).filter(row =>
-        row[2] === name && row[1] === item && row[5] === currentEvaluator
+      // Shape: values[0] is header. We filter from row 1 onward.
+      const filteredRows = (values.slice ? values.slice(1) : []).filter(row =>
+        row[2] === name && row[1] === item && row[5] === evaluator
       );
 
       const competencyRatings = {};
       filteredRows.forEach(row => {
         const competencyName = row[3];
         if (!competencyRatings[competencyName]) competencyRatings[competencyName] = {};
-        competencyRatings[competencyName][currentEvaluator] = row[4];
+        competencyRatings[competencyName][evaluator] = row[4];
       });
 
-      console.log(`Fetched ratings for ${name} (${item}):`, competencyRatings);
+      console.log(`Fetched ratings for ${name} (${item}) by ${evaluator}:`, competencyRatings);
       prefillRatings(competencyRatings, filteredRows.length === 0, name, item);
+      if (elements.submitRatings) elements.submitRatings.disabled = false;
+
     } catch (error) {
-      console.error('Error fetching ratings:', error);
+      console.error('Error fetching ratings (wrapped):', error);
+
+      // Try to soften the UX and still populate the form for entry.
       showToast('error', 'Error', 'Failed to fetch ratings');
       clearRatings();
       prefillRatings({}, true, name, item);
+
+      // Optional: surface more detail in console for diagnostics
+      const metrics = apiManager.getMetrics?.();
+      console.log('API manager metrics after failure:', metrics);
     }
   }, 300);
 }
+
 
 function clearRatings() {
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
