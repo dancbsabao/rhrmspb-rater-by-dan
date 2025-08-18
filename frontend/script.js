@@ -532,74 +532,366 @@ function startUIMonitoring() {
 
 
 // ===================
-// SAFE API CALL QUEUE
+// BULLETPROOF API RATE LIMITER
 // ===================
 
-// Minimum time between the same API call (per key) in milliseconds
-const API_COOLDOWN_MS = 60 * 1000; // 1 minute
-// Delay between staggered calls in milliseconds
-const API_STAGGER_DELAY_MS = 500; // 0.5 second
+class BulletproofAPIManager {
+  constructor(options = {}) {
+    // Configuration
+    this.baseDelay = options.baseDelay || 1000; // 1 second base delay
+    this.maxDelay = options.maxDelay || 60000; // 60 second max delay
+    this.maxRetries = options.maxRetries || 5;
+    this.quotaResetTime = options.quotaResetTime || 24 * 60 * 60 * 1000; // 24 hours
+    
+    // State management
+    this.cache = new Map();
+    this.requestQueue = new Map();
+    this.rateLimitInfo = new Map();
+    this.circuitBreaker = new Map();
+    
+    // Metrics
+    this.metrics = {
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      cacheHits: 0,
+      quotaExceeded: 0
+    };
+  }
 
-// Cache for storing API results and timestamps
-const apiCache = {};
-// Queue to store pending requests per key
-const apiQueue = {};
+  // Enhanced cache with TTL and versioning
+  getCachedData(key, maxAge = 5 * 60 * 1000) { // 5 minutes default
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+    
+    const age = Date.now() - cached.timestamp;
+    if (age > maxAge) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    this.metrics.cacheHits++;
+    console.log(`📦 Cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
+    return cached.data;
+  }
 
-// Wait helper
-const wait = (ms) => new Promise(res => setTimeout(res, ms));
+  setCachedData(key, data, customTTL = null) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl: customTTL
+    });
+  }
 
-// Safe throttled fetch — waits until cooldown is over instead of skipping
-async function safeThrottledFetch(key, fetchFn) {
-  const now = Date.now();
-  const cache = apiCache[key];
-  
-  if (cache) {
-    const timeSinceLastCall = now - cache.timestamp;
-    if (timeSinceLastCall < API_COOLDOWN_MS) {
-      const waitTime = API_COOLDOWN_MS - timeSinceLastCall;
-      console.log(`Waiting ${waitTime}ms before fetching fresh data for ${key}`);
-      
-      // If there's already a queue for this key, wait in line
-      if (!apiQueue[key]) {
-        apiQueue[key] = Promise.resolve();
+  // Exponential backoff with jitter
+  calculateBackoffDelay(attempt, baseDelay = this.baseDelay) {
+    const exponentialDelay = baseDelay * Math.pow(2, attempt);
+    const jitter = Math.random() * 0.1 * exponentialDelay; // 10% jitter
+    return Math.min(exponentialDelay + jitter, this.maxDelay);
+  }
+
+  // Circuit breaker pattern
+  isCircuitOpen(key) {
+    const breaker = this.circuitBreaker.get(key);
+    if (!breaker) return false;
+    
+    const now = Date.now();
+    if (now - breaker.lastFailure < breaker.cooldownTime) {
+      console.log(`🚫 Circuit breaker OPEN for ${key}. Cooling down...`);
+      return true;
+    }
+    
+    // Reset circuit breaker
+    this.circuitBreaker.delete(key);
+    return false;
+  }
+
+  recordFailure(key, isQuotaError = false) {
+    const now = Date.now();
+    const current = this.circuitBreaker.get(key) || { failures: 0, lastFailure: 0 };
+    
+    current.failures++;
+    current.lastFailure = now;
+    
+    if (isQuotaError) {
+      // Longer cooldown for quota errors
+      current.cooldownTime = Math.min(30000 * current.failures, 300000); // 30s to 5min
+      this.metrics.quotaExceeded++;
+    } else {
+      current.cooldownTime = Math.min(5000 * current.failures, 60000); // 5s to 1min
+    }
+    
+    this.circuitBreaker.set(key, current);
+    console.log(`🔥 Circuit breaker recorded failure for ${key}. Failures: ${current.failures}, Cooldown: ${current.cooldownTime}ms`);
+  }
+
+  recordSuccess(key) {
+    // Reset circuit breaker on success
+    this.circuitBreaker.delete(key);
+    this.metrics.successfulRequests++;
+  }
+
+  // Advanced error classification
+  classifyError(error) {
+    const errorMessage = error.message || error.toString();
+    const errorCode = error.code || error.status;
+    
+    // Quota exceeded errors
+    if (errorCode === 403 || errorMessage.includes('quotaExceeded') || 
+        errorMessage.includes('userRateLimitExceeded') ||
+        errorMessage.includes('dailyLimitExceeded')) {
+      return { type: 'quota', retryable: true, backoffMultiplier: 3 };
+    }
+    
+    // Rate limit errors
+    if (errorCode === 429 || errorMessage.includes('rateLimitExceeded')) {
+      return { type: 'rateLimit', retryable: true, backoffMultiplier: 2 };
+    }
+    
+    // Network errors
+    if (errorMessage.includes('network') || errorMessage.includes('timeout') ||
+        errorCode >= 500) {
+      return { type: 'network', retryable: true, backoffMultiplier: 1.5 };
+    }
+    
+    // Authentication errors
+    if (errorCode === 401 || errorMessage.includes('unauthorized')) {
+      return { type: 'auth', retryable: false, backoffMultiplier: 1 };
+    }
+    
+    // Default to non-retryable
+    return { type: 'unknown', retryable: false, backoffMultiplier: 1 };
+  }
+
+  // Main bulletproof fetch method
+  async bulletproofFetch(key, fetchFunction, options = {}) {
+    this.metrics.totalRequests++;
+    
+    // Check cache first
+    const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
+    const cachedData = this.getCachedData(key, maxCacheAge);
+    if (cachedData && !options.forceRefresh) {
+      return cachedData;
+    }
+
+    // Check circuit breaker
+    if (this.isCircuitOpen(key)) {
+      // Return stale cache if available
+      const staleData = this.cache.get(key);
+      if (staleData) {
+        console.log(`⚡ Using stale cache for ${key} due to circuit breaker`);
+        return staleData.data;
       }
-      apiQueue[key] = apiQueue[key].then(() => wait(waitTime));
-      await apiQueue[key];
+      throw new Error(`Circuit breaker is open for ${key}. No cached data available.`);
+    }
+
+    // Ensure only one request per key is in flight
+    if (this.requestQueue.has(key)) {
+      console.log(`⏳ Waiting for existing request: ${key}`);
+      return await this.requestQueue.get(key);
+    }
+
+    // Create the request promise
+    const requestPromise = this.executeWithRetry(key, fetchFunction, options);
+    this.requestQueue.set(key, requestPromise);
+
+    try {
+      const result = await requestPromise;
+      return result;
+    } finally {
+      this.requestQueue.delete(key);
     }
   }
 
-  console.log(`Fetching fresh data for ${key}`);
-  const data = await fetchFn();
-  apiCache[key] = { data, timestamp: Date.now() };
-  return data;
-}
-
-// Runs an array of fetch calls with a delay between each
-async function safeStaggeredFetch(fetchArray) {
-  const results = [];
-  for (let i = 0; i < fetchArray.length; i++) {
-    const { key, fn } = fetchArray[i];
-    const result = await safeThrottledFetch(key, fn);
-    results.push(result);
-
-    if (i < fetchArray.length - 1) {
-      await wait(API_STAGGER_DELAY_MS);
+  async executeWithRetry(key, fetchFunction, options) {
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key}`);
+        
+        const result = await fetchFunction();
+        
+        // Success!
+        this.recordSuccess(key);
+        this.setCachedData(key, result, options.cacheTTL);
+        
+        console.log(`✅ Successfully fetched ${key}`);
+        return result;
+        
+      } catch (error) {
+        lastError = error;
+        this.metrics.failedRequests++;
+        
+        const errorInfo = this.classifyError(error);
+        console.log(`❌ Attempt ${attempt + 1} failed for ${key}:`, {
+          type: errorInfo.type,
+          retryable: errorInfo.retryable,
+          message: error.message
+        });
+        
+        // Record failure for circuit breaker
+        this.recordFailure(key, errorInfo.type === 'quota');
+        
+        // Don't retry if not retryable or max retries reached
+        if (!errorInfo.retryable || attempt === this.maxRetries) {
+          break;
+        }
+        
+        // Calculate backoff delay
+        const baseDelay = this.baseDelay * errorInfo.backoffMultiplier;
+        const delay = this.calculateBackoffDelay(attempt, baseDelay);
+        
+        console.log(`⏱️  Waiting ${Math.round(delay/1000)}s before retry...`);
+        await this.wait(delay);
+      }
     }
+    
+    // All retries failed - try to return stale cache
+    const staleData = this.cache.get(key);
+    if (staleData) {
+      console.log(`🗃️  All retries failed for ${key}. Using stale cache.`);
+      return staleData.data;
+    }
+    
+    throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
   }
-  return results;
+
+  // Intelligent batch processing with adaptive delays
+  async batchFetch(requests, options = {}) {
+    const {
+      concurrency = 1, // Conservative default
+      adaptiveDelay = true,
+      priorityOrder = false
+    } = options;
+    
+    console.log(`🎯 Starting batch fetch of ${requests.length} requests with concurrency ${concurrency}`);
+    
+    // Sort by priority if specified
+    if (priorityOrder) {
+      requests.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    }
+    
+    const results = [];
+    const errors = [];
+    let adaptiveDelayMs = 1000; // Start with 1 second
+    
+    // Process in chunks based on concurrency
+    for (let i = 0; i < requests.length; i += concurrency) {
+      const chunk = requests.slice(i, i + concurrency);
+      const chunkPromises = chunk.map(async (request, index) => {
+        try {
+          // Stagger requests within the chunk
+          if (index > 0) {
+            await this.wait(adaptiveDelayMs / concurrency);
+          }
+          
+          const result = await this.bulletproofFetch(
+            request.key,
+            request.fetchFunction,
+            request.options || {}
+          );
+          
+          return { key: request.key, data: result, success: true };
+        } catch (error) {
+          return { key: request.key, error: error.message, success: false };
+        }
+      });
+      
+      const chunkResults = await Promise.all(chunkPromises);
+      
+      // Analyze results for adaptive delay
+      const failureRate = chunkResults.filter(r => !r.success).length / chunkResults.length;
+      
+      if (adaptiveDelay) {
+        if (failureRate > 0.5) {
+          // High failure rate - increase delay
+          adaptiveDelayMs = Math.min(adaptiveDelayMs * 2, 10000);
+          console.log(`📈 High failure rate (${Math.round(failureRate * 100)}%). Increasing delay to ${adaptiveDelayMs}ms`);
+        } else if (failureRate === 0 && adaptiveDelayMs > 500) {
+          // All successful - decrease delay
+          adaptiveDelayMs = Math.max(adaptiveDelayMs * 0.8, 500);
+          console.log(`📉 All requests successful. Decreasing delay to ${adaptiveDelayMs}ms`);
+        }
+      }
+      
+      // Separate results and errors
+      chunkResults.forEach(result => {
+        if (result.success) {
+          results.push(result);
+        } else {
+          errors.push(result);
+        }
+      });
+      
+      // Wait between chunks (except for last chunk)
+      if (i + concurrency < requests.length) {
+        await this.wait(adaptiveDelayMs);
+      }
+    }
+    
+    console.log(`🏁 Batch complete: ${results.length} successful, ${errors.length} failed`);
+    
+    return {
+      results,
+      errors,
+      metrics: this.getMetrics()
+    };
+  }
+
+  // Utility methods
+  wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getMetrics() {
+    const cacheSize = this.cache.size;
+    const queueSize = this.requestQueue.size;
+    const circuitBreakers = this.circuitBreaker.size;
+    
+    return {
+      ...this.metrics,
+      cacheSize,
+      queueSize,
+      circuitBreakers,
+      successRate: this.metrics.totalRequests > 0 ? 
+        (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0
+    };
+  }
+
+  clearCache() {
+    this.cache.clear();
+    console.log('🗑️  Cache cleared');
+  }
+
+  resetMetrics() {
+    this.metrics = {
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      cacheHits: 0,
+      quotaExceeded: 0
+    };
+    console.log('📊 Metrics reset');
+  }
 }
 
+// ===================
+// IMPLEMENTATION FOR YOUR APP
+// ===================
 
+// Create global instance
+const apiManager = new BulletproofAPIManager({
+  baseDelay: 2000,     // 2 second base delay
+  maxDelay: 120000,    // 2 minute max delay
+  maxRetries: 7        // More retries for critical data
+});
 
-
-
-
-
-
-function initializeApp() {
+// Enhanced initialization function
+async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-
+  
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -614,30 +906,79 @@ function initializeApp() {
       gapiInitialized = true;
       console.log('✅ GAPI client initialized');
       loadingState.gapi = true;
-
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
 
-      // ==== SAFE API CALLS WITH QUEUE + STAGGER ====
-      await safeStaggeredFetch([
-        { key: 'secretariatMembers', fn: fetchSecretariatMembers },
-        { key: 'vacanciesData', fn: fetchVacanciesData }
-      ]);
-
-      const maybePromise = loadSignatories && safeThrottledFetch('signatories', loadSignatories);
-      if (maybePromise && typeof maybePromise.then === 'function') {
-        await maybePromise;
+      // ===================
+      // BULLETPROOF API CALLS
+      // ===================
+      
+      console.log('🎯 Starting bulletproof API calls...');
+      
+      // Define your API requests with priorities and caching
+      const apiRequests = [
+        {
+          key: 'secretariatMembers',
+          fetchFunction: fetchSecretariatMembers,
+          priority: 3, // High priority
+          options: { 
+            maxCacheAge: 10 * 60 * 1000, // 10 minutes cache
+            cacheTTL: 30 * 60 * 1000     // 30 minutes TTL
+          }
+        },
+        {
+          key: 'vacanciesData',
+          fetchFunction: fetchVacanciesData,
+          priority: 2, // Medium priority
+          options: { 
+            maxCacheAge: 5 * 60 * 1000,  // 5 minutes cache
+            cacheTTL: 15 * 60 * 1000     // 15 minutes TTL
+          }
+        }
+      ];
+      
+      // Add signatories if available
+      if (loadSignatories && typeof loadSignatories === 'function') {
+        apiRequests.push({
+          key: 'signatories',
+          fetchFunction: loadSignatories,
+          priority: 1, // Lower priority
+          options: { 
+            maxCacheAge: 15 * 60 * 1000, // 15 minutes cache
+            cacheTTL: 60 * 60 * 1000     // 1 hour TTL
+          }
+        });
       }
-
-      // ✅ Mark API calls as done BEFORE UI monitoring
+      
+      // Execute batch fetch with bulletproof handling
+      const batchResult = await apiManager.batchFetch(apiRequests, {
+        concurrency: 1,        // Conservative: one at a time
+        adaptiveDelay: true,   // Adjust delays based on success rate
+        priorityOrder: true    // Process high priority first
+      });
+      
+      // Log results
+      console.log('📊 API Call Results:', {
+        successful: batchResult.results.length,
+        failed: batchResult.errors.length,
+        metrics: batchResult.metrics
+      });
+      
+      // Handle any critical failures
+      if (batchResult.errors.length > 0) {
+        console.warn('⚠️  Some API calls failed:', batchResult.errors);
+        // You might want to show a user notification here
+      }
+      
+      // Mark API calls as done
       loadingState.apiDone = true;
-
-      // ✅ Now start UI monitoring since data is available
+      
+      // Continue with UI setup
       startUIMonitoring();
-
       restoreState();
-
+      
+      // Event listeners
       elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
       elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
       elements.closeSignatoriesModalBtns.forEach(button =>
@@ -646,22 +987,44 @@ function initializeApp() {
         })
       );
       elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-
+      
       loadingState.dom = true;
-      checkAndHideSpinner(); // Won’t hide unless UI is also ready
-
+      checkAndHideSpinner();
+      
       console.log('✅ App initialization complete');
-
+      console.log('📊 Final metrics:', apiManager.getMetrics());
+      
     } catch (error) {
-      console.error('❌ Error initializing app:', error);
+      console.error('❌ Critical error during initialization:', error);
+      
+      // Emergency fallback - mark everything as done to show UI
       loadingState.gapi = true;
       loadingState.uiReady = true;
       loadingState.dom = true;
       loadingState.apiDone = true;
       checkAndHideSpinner();
+      
+      // Show user-friendly error
+      showErrorNotification('Some data could not be loaded. Please refresh the page or try again later.');
     }
   });
 }
+
+// Helper function for error notifications (implement as needed)
+function showErrorNotification(message) {
+  console.error('🚨 User notification:', message);
+  // Implement your preferred notification method here
+  // e.g., toast, modal, banner, etc.
+}
+
+// Optional: Add periodic cache cleanup
+setInterval(() => {
+  const metrics = apiManager.getMetrics();
+  if (metrics.cacheSize > 100) { // Arbitrary limit
+    console.log('🧹 Cleaning up old cache entries...');
+    // You could implement smarter cache eviction here
+  }
+}, 5 * 60 * 1000); // Every 5 minutes
 
 
 
@@ -4771,6 +5134,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
