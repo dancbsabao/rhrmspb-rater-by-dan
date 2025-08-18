@@ -24,6 +24,13 @@ const loadingState = {
   apiDone: false // ✅ Track API completion
 };
 
+// Create global instance with multi-device settings
+const apiManager = new BulletproofAPIManager({
+  baseDelay: 5000,     // 5 second base delay for multi-device
+  maxDelay: 300000,    // 5 minute max delay
+  maxRetries: 10       // More retries for critical data
+});
+
 let uiObserver;
 let uiCheckTimeout;
 
@@ -1118,13 +1125,6 @@ class BulletproofAPIManager {
 // ===================
 // ENHANCED IMPLEMENTATION FOR MULTI-DEVICE ENVIRONMENTS
 // ===================
-
-// Create global instance with multi-device settings
-const apiManager = new BulletproofAPIManager({
-  baseDelay: 5000,     // 5 second base delay for multi-device
-  maxDelay: 300000,    // 5 minute max delay
-  maxRetries: 10       // More retries for critical data
-});
 
 // Enhanced wrapper functions for your existing API calls
 async function safeFetchSecretariatMembers() {
@@ -5579,6 +5579,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
