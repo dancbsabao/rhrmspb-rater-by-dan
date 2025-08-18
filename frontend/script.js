@@ -3345,6 +3345,30 @@ function resetDropdowns(vacancies) {
   elements.nameDropdown.disabled = true;
 }
 
+
+
+
+
+// ====================
+// HELPER: Consistent row matching
+// ====================
+function matchesRatingRow(row, item, candidateName, evaluator) {
+  const candidateInitials = getInitials(candidateName);
+
+  // Adjust these indices if your sheet changes:
+  const rowId = row[0];   // e.g. "ITEM-AB" (item + initials)
+  const rowItem = row[1]; // item
+  const rowName = row[2]; // candidate name
+  const rowEvaluator = row[5]; // evaluator
+
+  return (
+    rowId?.startsWith(`${item}-${candidateInitials}`) &&
+    rowItem === item &&
+    rowName === candidateName &&
+    rowEvaluator === evaluator
+  );
+}
+
 async function fetchSubmittedRatings({ forceRefresh = false } = {}) {
   if (fetchTimeout) clearTimeout(fetchTimeout);
 
@@ -3361,12 +3385,10 @@ async function fetchSubmittedRatings({ forceRefresh = false } = {}) {
     }
 
     try {
-      // Use the safe wrapper with retries, backoff, cache, and single-flight lock
       const { values } = await safeFetchRatings({ name, item, evaluator, forceRefresh });
 
-      // Shape: values[0] is header. We filter from row 1 onward.
       const filteredRows = (values.slice ? values.slice(1) : []).filter(row =>
-        row[2] === name && row[1] === item && row[5] === evaluator
+        matchesRatingRow(row, item, name, evaluator)
       );
 
       const competencyRatings = {};
@@ -3377,23 +3399,23 @@ async function fetchSubmittedRatings({ forceRefresh = false } = {}) {
       });
 
       console.log(`Fetched ratings for ${name} (${item}) by ${evaluator}:`, competencyRatings);
+      console.log('Filtered rows after fetch:', filteredRows);
+
       prefillRatings(competencyRatings, filteredRows.length === 0, name, item);
       if (elements.submitRatings) elements.submitRatings.disabled = false;
 
     } catch (error) {
       console.error('Error fetching ratings (wrapped):', error);
-
-      // Try to soften the UX and still populate the form for entry.
       showToast('error', 'Error', 'Failed to fetch ratings');
       clearRatings();
       prefillRatings({}, true, name, item);
 
-      // Optional: surface more detail in console for diagnostics
       const metrics = apiManager.getMetrics?.();
       console.log('API manager metrics after failure:', metrics);
     }
   }, 300);
 }
+
 
 
 function clearRatings() {
@@ -3614,7 +3636,7 @@ async function processSubmissionQueue() {
         `<p>${result.message}</p>`,
         () => {
           console.log('Success modal closed');
-          fetchSubmittedRatings();
+          fetchSubmittedRatings({ forceRefresh: true });
         },
         null,
         false
@@ -3641,15 +3663,15 @@ async function checkExistingRatings(item, candidateName, evaluator) {
     });
 
     const existingData = response.result.values || [];
-    const candidateInitials = getInitials(candidateName);
     return existingData.filter(row =>
-      row[0].startsWith(`${item}-${candidateInitials}`) && row[5] === evaluator
+      matchesRatingRow(row, item, candidateName, evaluator)
     );
   } catch (error) {
     console.error('Error checking ratings:', error);
     return [];
   }
 }
+
 
 function revertToExistingRatings(existingRatings) {
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
@@ -5625,3 +5647,4 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
