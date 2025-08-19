@@ -1151,13 +1151,25 @@ async function safeLoadSignatories() {
   });
 }
 
-// ✅ A safe wrapper around the GAPI call that uses BulletproofAPIManager
+// ===================
+// CORRECTED safeFetchRatings - MATCHES YOUR SHEET STRUCTURE
+// ===================
+
 async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
   if (!name || !item || !evaluator) {
-    throw new Error('Missing name/item/evaluator for ratings fetch');
+    throw new Error('Missing required parameters: name, item, evaluator are all required');
   }
 
-  const key = `ratings:${encodeURIComponent(item)}:${encodeURIComponent(name)}:${encodeURIComponent(evaluator)}`;
+  // Make the cache key hyper-specific to prevent cross-contamination
+  const key = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
+
+  console.log(`🔍 Fetching ratings with precise key:`, {
+    key,
+    evaluator,
+    item, 
+    name,
+    deviceId: apiManager.deviceId
+  });
 
   // The actual function that hits GAPI
   const fetchFunction = async () => {
@@ -1170,17 +1182,147 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
     });
 
     const values = response?.result?.values || [];
-    // Normalize shape to keep cache stable
-    return { values, ts: Date.now() };
+    
+    // CORRECTED: Filter using your existing matchesRatingRow logic
+    const filteredValues = [];
+    
+    // Add header row if it exists
+    if (values.length > 0) {
+      filteredValues.push(values[0]); // Keep header
+      
+      // Filter data rows using your existing logic
+      const dataRows = values.slice(1);
+      const matchingRows = dataRows.filter(row => {
+        return matchesRatingRow(row, item, name, evaluator);
+      });
+      
+      filteredValues.push(...matchingRows);
+      
+      console.log(`✅ Found ${matchingRows.length} matching rating rows for:`, {
+        evaluator, item, name,
+        totalRows: dataRows.length,
+        matchingRows: matchingRows.length
+      });
+    }
+    
+    console.log(`📊 Rating fetch results:`, {
+      totalRows: values.length,
+      filteredRows: filteredValues.length - 1, // -1 for header
+      searchCriteria: { evaluator, item, name },
+      deviceId: apiManager.deviceId
+    });
+
+    // Return the filtered data for THIS specific combination
+    return { 
+      values: filteredValues, 
+      ts: Date.now(),
+      evaluator,  // Include for validation
+      item,       // Include for validation  
+      name        // Include for validation
+    };
   };
 
-  // Cache defaults: ratings change during a session, but we can safely cache briefly
+  // Cache with shorter duration for ratings since they change frequently
   return await apiManager.bulletproofFetch(key, fetchFunction, {
-    maxCacheAge: 2 * 60 * 1000,  // prefer fresh within 2 minutes when available
-    cacheTTL:   10 * 60 * 1000,  // keep cached up to 10 minutes for fallback
+    maxCacheAge: 30 * 1000,      // Only 30 seconds fresh cache
+    cacheTTL: 2 * 60 * 1000,     // 2 minutes TTL for fallback
     forceRefresh
   });
 }
+
+
+
+
+// ===================
+// IMPROVED PENDING RATING MANAGEMENT
+// ===================
+
+const pendingRatings = new Map(); // Store pending ratings by specific key
+
+function savePendingRating(evaluator, item, name, ratingData) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  const pendingData = {
+    ...ratingData,
+    evaluator,
+    item,
+    name,
+    deviceId: apiManager.deviceId,
+    timestamp: Date.now()
+  };
+  
+  pendingRatings.set(key, pendingData);
+  
+  // Store in localStorage with device-specific key
+  try {
+    localStorage.setItem(key, JSON.stringify(pendingData));
+    console.log(`💾 Saved pending rating:`, { evaluator, item, name, deviceId: apiManager.deviceId });
+  } catch (e) {
+    console.warn('Failed to save pending rating to localStorage:', e);
+  }
+}
+
+function getPendingRating(evaluator, item, name) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  // First check memory
+  let pending = pendingRatings.get(key);
+  
+  // If not in memory, try localStorage
+  if (!pending) {
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        pending = JSON.parse(stored);
+        // Validate it matches exactly
+        if (pending.evaluator === evaluator && 
+            pending.item === item && 
+            pending.name === name &&
+            pending.deviceId === apiManager.deviceId) {
+          
+          // Check if not too old (5 minutes)
+          if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
+            pendingRatings.set(key, pending);
+            console.log(`📤 Restored pending rating:`, { evaluator, item, name });
+          } else {
+            // Too old, remove it
+            localStorage.removeItem(key);
+            pending = null;
+          }
+        } else {
+          pending = null;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore pending rating:', e);
+      pending = null;
+    }
+  }
+  
+  return pending;
+}
+
+function clearPendingRating(evaluator, item, name) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  pendingRatings.delete(key);
+  
+  try {
+    localStorage.removeItem(key);
+    console.log(`🧹 Cleared pending rating:`, { evaluator, item, name });
+  } catch (e) {
+    console.warn('Failed to clear pending rating from localStorage:', e);
+  }
+}
+
+
+
+
+
+
+
+
+
 
 
 // Ultra-safe initialization with fallback UI loading
@@ -3637,6 +3779,7 @@ async function processSubmissionQueue() {
         () => {
           console.log('Success modal closed');
           fetchSubmittedRatings({ forceRefresh: true });
+          handleSuccessfulSubmission(ratings);
         },
         null,
         false
@@ -3653,6 +3796,58 @@ async function processSubmissionQueue() {
     processSubmissionQueue();
   }
 }
+
+
+// Add this to your processSubmissionQueue function after successful submission:
+function handleSuccessfulSubmission(ratings) {
+  const candidateName = ratings[0][2];
+  const item = ratings[0][1];
+  const evaluator = ratings[0][5];
+  
+  // Clear both old and new storage systems
+  localStorage.removeItem(`radioState_${candidateName}_${item}`);
+  clearPendingRating(evaluator, item, candidateName);
+  
+  console.log(`🧹 Cleared all stored data for successful submission:`, {
+    evaluator, item, candidateName
+  });
+}
+
+
+// ===================
+// DEBUGGING FUNCTION (UPDATED)
+// ===================
+
+function debugRatingSync(evaluator, item, name) {
+  console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
+  
+  const cacheKey = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
+  const pendingKey = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  const oldKey = `radioState_${name}_${item}`;
+  
+  console.log('Cache Key:', cacheKey);
+  console.log('Pending Key:', pendingKey);
+  console.log('Old RadioState Key:', oldKey);
+  console.log('Device ID:', apiManager.deviceId);
+  console.log('Cached Data:', apiManager.getCachedData(cacheKey));
+  console.log('Pending Data:', getPendingRating(evaluator, item, name));
+  console.log('Old RadioState Data:', localStorage.getItem(oldKey));
+  
+  // Check what's in localStorage
+  const allKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith('pending:') || key.startsWith('radioState_'))) {
+      allKeys.push(key);
+    }
+  }
+  console.log('All Rating-Related Keys in Storage:', allKeys);
+  
+  console.groupEnd();
+}
+
+// Make debug function globally available
+window.debugRatingSync = debugRatingSync;
 
 async function checkExistingRatings(item, candidateName, evaluator) {
   try {
@@ -4136,28 +4331,50 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
 
 
 function saveRadioState(competencyName, value, candidateName, item) {
-  const key = `radioState_${candidateName}_${item}`;
-  const state = JSON.parse(localStorage.getItem(key)) || {};
-  state[competencyName] = value;
-  localStorage.setItem(key, JSON.stringify(state));
+  // Use the new pending system instead of the old radioState system
+  const currentRatings = getCurrentFormRatings();
+  currentRatings[competencyName] = value;
+  
+  savePendingRating(currentEvaluator, item, candidateName, currentRatings);
 }
 
 function loadRadioState(candidateName, item) {
-  const key = `radioState_${candidateName}_${item}`;
-  const state = JSON.parse(localStorage.getItem(key)) || {};
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  // Load from pending system
+  const pending = getPendingRating(currentEvaluator, item, candidateName);
+  
+  if (pending && typeof pending === 'object') {
+    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+    
+    Array.from(competencyItems).forEach(itemElement => {
+      const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
+      const value = pending[competencyName];
+      
+      if (value) {
+        const radio = itemElement.querySelector(`input[type="radio"][value="${value}"]`);
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change'));
+          console.log(`🔄 Restored pending rating for ${competencyName}: ${value}`);
+        }
+      }
+    });
+  }
+}
 
+
+function getCurrentFormRatings() {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  const ratings = {};
+  
   Array.from(competencyItems).forEach(item => {
     const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const savedValue = state[competencyName];
-    if (savedValue) {
-      const radio = item.querySelector(`input[type="radio"][value="${savedValue}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
+    const checkedRadio = item.querySelector('input[type="radio"]:checked');
+    if (checkedRadio) {
+      ratings[competencyName] = checkedRadio.value;
     }
   });
+  
+  return ratings;
 }
 
 
@@ -5647,4 +5864,3 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
