@@ -24,6 +24,20 @@ const loadingState = {
   apiDone: false // ✅ Track API completion
 };
 
+// Configuration for optimized submission system
+const SUBMISSION_CONFIG = {
+  MAX_RETRIES: 3,
+  BASE_DELAY: 500,
+  MAX_DELAY: 3000,
+  LOCK_TIMEOUT: 8000,
+  BATCH_SIZE: 10,
+  QUEUE_PROCESS_INTERVAL: 100
+};
+
+// Cache for existing ratings
+const ratingsCache = new Map();
+const CACHE_DURATION = 30000; // 30 seconds
+
 let uiObserver;
 let uiCheckTimeout;
 
@@ -3630,124 +3644,440 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
   checkAllRatingsSelected();
 }
 
+
+
+
+
+
+
+
+
+// Submission queue class
+class SubmissionQueue {
+  constructor() {
+    this.queue = [];
+    this.processing = false;
+    this.retryQueue = [];
+  }
+
+  add(ratings, priority = 'normal') {
+    const submission = {
+      id: Date.now() + Math.random(),
+      ratings,
+      priority,
+      attempts: 0,
+      timestamp: Date.now()
+    };
+    
+    if (priority === 'high') {
+      this.queue.unshift(submission);
+    } else {
+      this.queue.push(submission);
+    }
+    
+    this.process();
+  }
+
+  async process() {
+    if (this.processing) return;
+    this.processing = true;
+
+    while (this.queue.length > 0 || this.retryQueue.length > 0) {
+      const submission = this.retryQueue.shift() || this.queue.shift();
+      if (!submission) break;
+
+      try {
+        const result = await this.processSubmission(submission);
+        if (result.success) {
+          handleSuccessfulSubmission(submission.ratings);
+          showToastOptimized('success', 'Success', result.message);
+        }
+      } catch (error) {
+        await this.handleFailedSubmission(submission, error);
+      }
+    }
+
+    this.processing = false;
+  }
+
+  async processSubmission(submission) {
+    submission.attempts++;
+    showSubmissionProgress(submission);
+    
+    try {
+      return await submitRatingsOptimized(submission.ratings);
+    } catch (error) {
+      if (submission.attempts >= SUBMISSION_CONFIG.MAX_RETRIES) {
+        throw error;
+      }
+      throw new Error(`Retry needed: ${error.message}`);
+    }
+  }
+
+  async handleFailedSubmission(submission, error) {
+    if (submission.attempts < SUBMISSION_CONFIG.MAX_RETRIES) {
+      const delay = Math.min(
+        SUBMISSION_CONFIG.BASE_DELAY * Math.pow(1.5, submission.attempts) + Math.random() * 100,
+        SUBMISSION_CONFIG.MAX_DELAY
+      );
+      
+      setTimeout(() => {
+        this.retryQueue.push(submission);
+        if (!this.processing) this.process();
+      }, delay);
+      
+      showToastOptimized('info', 'Retrying', `Attempt ${submission.attempts}/${SUBMISSION_CONFIG.MAX_RETRIES}`);
+    } else {
+      showToastOptimized('error', 'Failed', `Submission failed: ${error.message}`);
+      console.error('Final submission failure:', error);
+    }
+  }
+}
+
+// Global queue instance
+const submissionQueue = new SubmissionQueue();
+
+// Main submission function
 async function submitRatings() {
   if (isSubmitting) {
-    console.log('Submission already in progress');
+    showToastOptimized('info', 'Info', 'Submission already queued');
     return;
   }
 
   try {
-    const token = gapi.client.getToken();
-    if (!token || !await isTokenValid()) {
-      await refreshAccessToken();
-      if (!gapi.client.getToken()) {
-        showToast('error', 'Error', 'Authentication failed. Please sign in again.');
-        handleAuthClick();
-        return;
-      }
-    }
-
-    if (!currentEvaluator) {
-      showToast('warning', 'Warning', 'Please select an evaluator');
+    // Quick auth check
+    if (!await quickAuthCheck()) {
+      showToastOptimized('error', 'Error', 'Authentication failed. Please sign in again.');
+      handleAuthClick();
       return;
     }
 
-    const item = elements.itemDropdown.value;
-    const candidateName = elements.nameDropdown.value;
-
-    if (!item || !candidateName) {
-      showToast('error', 'Error', 'Please select both item and candidate');
+    // Validate inputs
+    const validation = validateSubmissionInputs();
+    if (!validation.valid) {
+      showToastOptimized('error', 'Error', validation.error);
       return;
     }
 
-    const existingRatings = await checkExistingRatings(item, candidateName, currentEvaluator);
+    const { item, candidateName } = validation.data;
+    
+    // Check for existing ratings with caching
+    const existingRatings = await checkExistingRatingsCached(item, candidateName, currentEvaluator);
     const isUpdate = existingRatings.length > 0;
 
-    let tempRatings = {};
     if (isUpdate) {
       const isVerified = await verifyEvaluatorPassword(existingRatings);
       if (!isVerified) {
         revertToExistingRatings(existingRatings);
-        showToast('warning', 'Update Canceled', 'Ratings reverted to original values');
+        showToastOptimized('warning', 'Canceled', 'Update canceled');
         return;
       }
-      // Store current ratings before update
-      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-      Array.from(competencyItems).forEach(item => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
-        if (rating) tempRatings[competencyName] = rating;
-      });
     }
 
+    // Prepare ratings data
     const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
     if (error) {
-      showToast('error', 'Error', error);
+      showToastOptimized('error', 'Error', error);
       return;
     }
 
-    const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
-    const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
-
-    let modalContent = `
-      <div class="modal-body">
-        <p>Are you sure you want to ${isUpdate ? 'update' : 'submit'} the following ratings?</p>
-        <div class="modal-field"><span class="modal-label">EVALUATOR:</span> <span class="modal-value">${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator}</span></div>
-        <div class="modal-field"><span class="modal-label">ASSIGNMENT:</span> <span class="modal-value">${elements.assignmentDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">POSITION:</span> <span class="modal-value">${elements.positionDropdown.value}</span></div>
-        <div class="modal-field"><span class="modal-label">ITEM:</span> <span class="modal-value">${item}</span></div>
-        <div class="modal-field"><span class="modal-label">NAME:</span> <span class="modal-value">${candidateName}</span></div>
-        <div class="modal-section">
-          <h4>RATINGS TO ${isUpdate ? 'UPDATE' : 'SUBMIT'}:</h4>
-          <div class="modal-field"><span class="modal-label">PSYCHO-SOCIAL:</span> <span class="modal-value rating-value">${psychoSocialRating}</span></div>
-          <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
-    `;
-
-    if (isUpdate) {
-      modalContent += '<h4>CHANGES:</h4>';
-      ratings.forEach(row => {
-        const competencyName = row[3];
-        const newRating = row[4];
-        const oldRating = existingRatings.find(r => r[3] === competencyName)?.[4] || 'N/A';
-        if (oldRating !== newRating) {
-          modalContent += `
-            <div class="modal-field">
-              <span class="modal-label">${competencyName}:</span>
-              <span class="modal-value rating-value">${oldRating} → ${newRating}</span>
-            </div>
-          `;
-        }
-      });
+    // Show confirmation modal
+    const confirmed = await showConfirmationModal(ratings, existingRatings, isUpdate);
+    if (!confirmed) {
+      if (isUpdate) revertToExistingRatings(existingRatings);
+      showToastOptimized('info', 'Canceled', `Ratings ${isUpdate ? 'update' : 'submission'} aborted`);
+      return;
     }
 
-    modalContent += `
-        </div>
-      </div>
-    `;
+    // Add to optimized queue
+    submissionQueue.add(ratings, isUpdate ? 'high' : 'normal');
+    showToastOptimized('info', 'Queued', 'Submission queued for processing');
 
-    showModal(
-      `CONFIRM ${isUpdate ? 'UPDATE' : 'SUBMISSION'}`,
-      modalContent,
-      () => {
-        submissionQueue.push(ratings);
-        showSubmittingIndicator();
-        processSubmissionQueue();
-      },
-      () => {
-        if (isUpdate) {
-          revertToExistingRatings(existingRatings);
-          showToast('info', 'Canceled', 'Ratings reverted to original values');
-        } else {
-          console.log('Submission canceled');
-          showToast('info', 'Canceled', 'Ratings submission aborted');
-        }
-      }
-    );
   } catch (error) {
     console.error('Submission error:', error);
-    showToast('error', 'Error', `Failed to submit: ${error.message}`);
+    showToastOptimized('error', 'Error', `Failed to submit: ${error.message}`);
     if (error.status === 401 || error.status === 403) handleAuthClick();
   }
+}
+
+// Optimized submission logic
+async function submitRatingsOptimized(ratings) {
+  try {
+    const result = await tryLocklessSubmission(ratings);
+    if (result.success) return result;
+  } catch (error) {
+    console.log('Lockless failed, trying with lock:', error.message);
+  }
+
+  return await submitWithOptimizedLock(ratings);
+}
+
+async function tryLocklessSubmission(ratings) {
+  const hasUpdates = await checkForUpdates(ratings);
+  
+  if (!hasUpdates) {
+    if (!await isTokenValid()) await refreshAccessToken();
+    
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values: ratings },
+    });
+    
+    return { success: true, message: 'Ratings submitted successfully' };
+  }
+  
+  throw new Error('Updates detected, lock required');
+}
+
+async function submitWithOptimizedLock(ratings) {
+  const lockData = {
+    sessionId: sessionId,
+    timestamp: Date.now(),
+    operation: 'rating_submission'
+  };
+  
+  let lockAcquired = false;
+  
+  try {
+    lockAcquired = await acquireOptimizedLock(lockData);
+    if (!lockAcquired) {
+      throw new Error('Could not acquire lock - system busy');
+    }
+
+    const result = await processRatingsBatch(ratings);
+    return result;
+    
+  } finally {
+    if (lockAcquired) {
+      await releaseOptimizedLock(lockData);
+    }
+  }
+}
+
+// Optimized lock system
+async function acquireOptimizedLock(lockData) {
+  const lockRange = "RATELOG!G1:J1";
+  const maxAttempts = 3;
+  
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      
+      const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: lockRange,
+      });
+      
+      const lockRow = lockStatusResponse.result.values?.[0] || ['', '', '', ''];
+      const [status, timestamp, owner, operation] = lockRow;
+      
+      const now = Date.now();
+      const lockAge = now - new Date(timestamp).getTime();
+      
+      if (status !== 'locked' || lockAge > SUBMISSION_CONFIG.LOCK_TIMEOUT) {
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: lockRange,
+          valueInputOption: 'RAW',
+          resource: { 
+            values: [['locked', new Date(now).toISOString(), lockData.sessionId, lockData.operation]]
+          },
+        });
+        
+        const verifyResponse = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: lockRange,
+        });
+        
+        const verifyRow = verifyResponse.result.values?.[0] || [];
+        if (verifyRow[2] === lockData.sessionId) {
+          return true;
+        }
+      }
+      
+      const delay = SUBMISSION_CONFIG.BASE_DELAY * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+    } catch (error) {
+      console.error(`Lock attempt ${attempt + 1} failed:`, error);
+      if (attempt === maxAttempts - 1) throw error;
+    }
+  }
+  
+  return false;
+}
+
+async function releaseOptimizedLock(lockData) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: "RATELOG!G1:J1",
+      valueInputOption: 'RAW',
+      resource: { values: [['', '', '', '']] },
+    });
+  } catch (error) {
+    console.error('Lock release failed:', error);
+    showToastOptimized('error', 'Lock Error', 'Lock release failed—may resolve automatically');
+  }
+}
+
+// Batch processing
+async function processRatingsBatch(ratings) {
+  if (!await isTokenValid()) await refreshAccessToken();
+  
+  const response = await gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: SHEET_RANGES.RATELOG,
+  });
+
+  const existingData = response.result.values || [];
+  const updates = [];
+  const appends = [];
+  
+  const existingMap = new Map();
+  existingData.forEach((row, index) => {
+    if (row[0]) existingMap.set(row[0], index);
+  });
+
+  ratings.forEach(rating => {
+    const ratingCode = rating[0];
+    if (existingMap.has(ratingCode)) {
+      const index = existingMap.get(ratingCode);
+      updates.push({ index, rating });
+    } else {
+      appends.push(rating);
+    }
+  });
+
+  const operations = [];
+  
+  if (updates.length > 0) {
+    updates.forEach(({ index, rating }) => {
+      existingData[index] = rating;
+    });
+    
+    operations.push(
+      gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+        valueInputOption: 'RAW',
+        resource: { values: existingData },
+      })
+    );
+  }
+
+  if (appends.length > 0) {
+    const chunks = [];
+    for (let i = 0; i < appends.length; i += SUBMISSION_CONFIG.BATCH_SIZE) {
+      chunks.push(appends.slice(i, i + SUBMISSION_CONFIG.BATCH_SIZE));
+    }
+    
+    chunks.forEach(chunk => {
+      operations.push(
+        gapi.client.sheets.spreadsheets.values.append({
+          spreadsheetId: SHEET_ID,
+          range: SHEET_RANGES.RATELOG,
+          valueInputOption: 'RAW',
+          insertDataOption: 'INSERT_ROWS',
+          resource: { values: chunk },
+        })
+      );
+    });
+  }
+
+  await Promise.all(operations);
+  return {
+    success: true,
+    message: updates.length > 0 ? 'Ratings updated successfully' : 'Ratings submitted successfully'
+  };
+}
+
+// Helper functions
+async function quickAuthCheck() {
+  const token = gapi.client.getToken();
+  if (!token) {
+    await refreshAccessToken();
+    return !!gapi.client.getToken();
+  }
+  
+  if (!await isTokenValid()) {
+    await refreshAccessToken();
+    return !!gapi.client.getToken();
+  }
+  
+  return true;
+}
+
+function validateSubmissionInputs() {
+  if (!currentEvaluator) {
+    return { valid: false, error: 'Please select an evaluator' };
+  }
+
+  const item = elements.itemDropdown.value;
+  const candidateName = elements.nameDropdown.value;
+
+  if (!item || !candidateName) {
+    return { valid: false, error: 'Please select both item and candidate' };
+  }
+
+  return { valid: true, data: { item, candidateName } };
+}
+
+async function checkExistingRatingsCached(item, candidateName, evaluator) {
+  const cacheKey = `${item}:${candidateName}:${evaluator}`;
+  const cached = ratingsCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    return cached.data;
+  }
+  
+  const ratings = await checkExistingRatings(item, candidateName, evaluator);
+  ratingsCache.set(cacheKey, { data: ratings, timestamp: Date.now() });
+  
+  return ratings;
+}
+
+async function checkExistingRatings(item, candidateName, evaluator) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const existingData = response.result.values || [];
+    return existingData.filter(row =>
+      matchesRatingRow(row, item, candidateName, evaluator)
+    );
+  } catch (error) {
+    console.error('Error checking ratings:', error);
+    return [];
+  }
+}
+
+async function checkForUpdates(ratings) {
+  const firstRating = ratings[0];
+  if (!firstRating) return false;
+  
+  const existingRatings = await checkExistingRatingsCached(
+    firstRating[1],
+    firstRating[2],
+    firstRating[5]
+  );
+  
+  return existingRatings.length > 0;
+}
+
+function showSubmissionProgress(submission) {
+  const message = submission.attempts > 1 
+    ? `Submitting... (attempt ${submission.attempts})`
+    : 'Submitting...';
+    
+  showSubmittingIndicator();
 }
 
 function showSubmittingIndicator() {
@@ -3771,129 +4101,54 @@ function hideSubmittingIndicator() {
   if (indicator) indicator.remove();
 }
 
-async function processSubmissionQueue() {
-  if (isSubmitting || !submissionQueue.length) return;
-  isSubmitting = true;
-
-  const ratings = submissionQueue.shift();
-
-  try {
-    const result = await submitRatingsWithLock(ratings);
-    if (result.success) {
-      const candidateName = ratings[0][2];
-      const item = ratings[0][1];
-      localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showModal(
-        'Submission Successful',
-        `<p>${result.message}</p>`,
-        () => {
-          console.log('Success modal closed');
-          fetchSubmittedRatings({ forceRefresh: true });
-          handleSuccessfulSubmission(ratings);
-        },
-        null,
-        false
-      );
-    }
-  } catch (error) {
-    console.error('Queue submission failed:', error);
-    showToast('error', 'Error', error.message);
-    submissionQueue.unshift(ratings);
-    setTimeout(processSubmissionQueue, 5000);
-  } finally {
-    isSubmitting = false;
-    hideSubmittingIndicator();
-    processSubmissionQueue();
-  }
-}
-
-
-// Add this to your processSubmissionQueue function after successful submission:
-function handleSuccessfulSubmission(ratings) {
-  const candidateName = ratings[0][2];
-  const item = ratings[0][1];
-  const evaluator = ratings[0][5];
-  
-  // Clear both old and new storage systems
-  localStorage.removeItem(`radioState_${candidateName}_${item}`);
-  clearPendingRating(evaluator, item, candidateName);
-  
-  console.log(`🧹 Cleared all stored data for successful submission:`, {
-    evaluator, item, candidateName
-  });
-}
-
-
-// ===================
-// DEBUGGING FUNCTION (UPDATED)
-// ===================
-
-function debugRatingSync(evaluator, item, name) {
-  console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
-  
-  const cacheKey = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
-  const pendingKey = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  const oldKey = `radioState_${name}_${item}`;
-  
-  console.log('Cache Key:', cacheKey);
-  console.log('Pending Key:', pendingKey);
-  console.log('Old RadioState Key:', oldKey);
-  console.log('Device ID:', apiManager.deviceId);
-  console.log('Cached Data:', apiManager.getCachedData(cacheKey));
-  console.log('Pending Data:', getPendingRating(evaluator, item, name));
-  console.log('Old RadioState Data:', localStorage.getItem(oldKey));
-  
-  // Check what's in localStorage
-  const allKeys = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && (key.startsWith('pending:') || key.startsWith('radioState_'))) {
-      allKeys.push(key);
-    }
-  }
-  console.log('All Rating-Related Keys in Storage:', allKeys);
-  
-  console.groupEnd();
-}
-
-// Make debug function globally available
-window.debugRatingSync = debugRatingSync;
-
-async function checkExistingRatings(item, candidateName, evaluator) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const existingData = response.result.values || [];
-    return existingData.filter(row =>
-      matchesRatingRow(row, item, candidateName, evaluator)
+async function showConfirmationModal(ratings, existingRatings, isUpdate) {
+  return new Promise((resolve) => {
+    const modalContent = createConfirmationContent(ratings, existingRatings, isUpdate);
+    
+    showModal(
+      `CONFIRM ${isUpdate ? 'UPDATE' : 'SUBMISSION'}`,
+      modalContent,
+      () => resolve(true),
+      () => resolve(false)
     );
-  } catch (error) {
-    console.error('Error checking ratings:', error);
-    return [];
-  }
+  });
 }
 
+function createConfirmationContent(ratings, existingRatings, isUpdate) {
+  const firstRating = ratings[0];
+  const psychoSocialRating = document.getElementById('psychosocial-rating-value')?.textContent || '0.00';
+  const potentialRating = document.getElementById('potential-rating-value')?.textContent || '0.00';
+  
+  let content = `
+    <div class="modal-body">
+      <p>Confirm ${isUpdate ? 'update' : 'submission'} for <strong>${firstRating[2]}</strong>?</p>
+      <div class="rating-summary">
+        <div>Psycho-Social: <span class="rating-value">${psychoSocialRating}</span></div>
+        <div>Potential: <span class="rating-value">${potentialRating}</span></div>
+      </div>
+  `;
+  
+  if (isUpdate) {
+    const changeCount = ratings.filter(rating => {
+      const existing = existingRatings.find(r => r[3] === rating[3]);
+      return !existing || existing[4] !== rating[4];
+    }).length;
+    
+    content += `<div class="change-summary">${changeCount} competencies will be updated</div>`;
+  }
+  
+  content += '</div>';
+  return content;
+}
 
-function revertToExistingRatings(existingRatings) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
-    if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
-    } else {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => radio.checked = false);
-    }
+function showToastOptimized(type, title, message) {
+  const existingToasts = document.querySelectorAll(`.toast.${type}`);
+  existingToasts.forEach(toastElement => {
+    const container = toastElement.closest('.toast-container');
+    if (container) container.remove();
   });
+  
+  showToast(type, title, message);
 }
 
 async function verifyEvaluatorPassword(existingRatings) {
@@ -3913,6 +4168,24 @@ async function verifyEvaluatorPassword(existingRatings) {
       revertToExistingRatings(existingRatings);
       resolve(false);
     });
+  });
+}
+
+function revertToExistingRatings(existingRatings) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
+    if (existingRating) {
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    } else {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => radio.checked = false);
+    }
   });
 }
 
@@ -3948,136 +4221,71 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
   return { ratings };
 }
 
-async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:I1";
-  const LOCK_TIMEOUT = 15000;
-  let retryCount = 0;
-  let lockAcquired = false;
+function handleSuccessfulSubmission(ratings) {
+  const candidateName = ratings[0][2];
+  const item = ratings[0][1];
+  const evaluator = ratings[0][5];
+  
+  localStorage.removeItem(`radioState_${candidateName}_${item}`);
+  clearPendingRating(evaluator, item, candidateName);
+  
+  console.log(`🧹 Cleared all stored data for successful submission:`, {
+    evaluator, item, candidateName
+  });
+  
+  fetchSubmittedRatings({ forceRefresh: true });
+}
 
-  while (retryCount < maxRetries) {
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const { acquired, owner } = await acquireLock(sessionId);
-      if (!acquired) {
-        showToast('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
-        await delay(Math.pow(2, retryCount) * 1000);
-        retryCount++;
-        continue;
-      }
-      lockAcquired = true;
-
-      const result = await processRatings(ratings);
-      await releaseLock(sessionId);
-      return result;
-    } catch (error) {
-      console.error('Error in submitRatingsWithLock:', error);
-      retryCount++;
-      if (lockAcquired) await releaseLock(sessionId);
-      if (retryCount === maxRetries) {
-        throw new Error('Submission failed after retries—queued for later');
-      }
-      await delay(Math.pow(2, retryCount) * 1000);
+function debugRatingSync(evaluator, item, name) {
+  console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
+  
+  const cacheKey = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
+  const pendingKey = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  const oldKey = `radioState_${name}_${item}`;
+  
+  console.log('Cache Key:', cacheKey);
+  console.log('Pending Key:', pendingKey);
+  console.log('Old RadioState Key:', oldKey);
+  console.log('Device ID:', apiManager.deviceId);
+  console.log('Cached Data:', apiManager.getCachedData(cacheKey));
+  console.log('Pending Data:', getPendingRating(evaluator, item, name));
+  console.log('Old RadioState Data:', localStorage.getItem(oldKey));
+  
+  const allKeys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith('pending:') || key.startsWith('radioState_'))) {
+      allKeys.push(key);
     }
   }
+  console.log('All Rating-Related Keys in Storage:', allKeys);
+  
+  console.groupEnd();
 }
 
-async function acquireLock(sessionId) {
-  const lockRange = "RATELOG!G1:I1";
-  try {
-    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-    });
-    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
-    
-    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < 15000) {
-      return { acquired: false, owner: lockOwner || 'unknown' };
+window.debugRatingSync = debugRatingSync;
+
+// Periodic cache cleanup
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of ratingsCache.entries()) {
+    if (now - value.timestamp > CACHE_DURATION * 2) {
+      ratingsCache.delete(key);
     }
-
-    const timestamp = new Date().toISOString();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-      valueInputOption: 'RAW',
-      resource: { values: [['locked', timestamp, sessionId]] },
-    });
-    return { acquired: true };
-  } catch (error) {
-    console.error('Lock acquisition failed:', error);
-    return { acquired: false, owner: 'error' };
   }
-}
+}, CACHE_DURATION);
 
-async function releaseLock(sessionId) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: "RATELOG!G1:I1",
-      valueInputOption: 'RAW',
-      resource: { values: [['', '', '']] },
-    });
-  } catch (error) {
-    console.error('Failed to release lock:', error);
-    showToast('error', 'Lock Error', 'Lock release failed—may resolve in 15s');
-  }
-}
+console.log('✅ Optimized submission system loaded');
 
-async function processRatings(ratings) {
-  if (!await isTokenValid()) await refreshAccessToken();
-  const response = await gapi.client.sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: SHEET_RANGES.RATELOG,
-  });
 
-  let existingData = response.result.values || [];
-  const newRatings = [];
-  let isUpdated = false;
 
-  const existingRatingsMap = new Map();
-  existingData.forEach((row, index) => {
-    if (row[0]) existingRatingsMap.set(row[0], { row, index });
-  });
 
-  ratings.forEach(newRating => {
-    const ratingCode = newRating[0];
-    if (existingRatingsMap.has(ratingCode)) {
-      const { index } = existingRatingsMap.get(ratingCode);
-      existingData[index] = newRating;
-      isUpdated = true;
-    } else {
-      newRatings.push(newRating);
-    }
-  });
 
-  const batchUpdates = [];
-  if (isUpdated) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: existingData },
-      })
-    );
-  }
-  if (newRatings.length > 0) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: newRatings },
-      })
-    );
-  }
 
-  await Promise.all(batchUpdates);
-  return {
-    success: true,
-    message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
-  };
-}
+
+
+
+
 
 function getInitials(name) {
   return name.split(' ').map(word => word.slice(0, 3)).join('');
@@ -5874,4 +6082,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
