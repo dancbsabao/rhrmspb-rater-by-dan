@@ -3566,8 +3566,18 @@ function clearRatings() {
     const radios = item.querySelectorAll('input[type="radio"]');
     radios.forEach(radio => (radio.checked = false));
   });
-  console.log('Radio buttons cleared');
+  
+  // Reset all rating arrays to zero
+  basicRatings.fill(0);
+  orgRatings.fill(0);
+  leadershipRatings.fill(0);
+  minimumRatings.fill(0);
+  
+  console.log('Radio buttons cleared and rating arrays reset');
 }
+
+
+
 
 let originalRatings = {};
 function prefillRatings(competencyRatings, noFetchedData, name, item) {
@@ -5864,3 +5874,4 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
