@@ -3858,11 +3858,9 @@ async function submitRatingsOptimized(ratings) {
 }
 
 async function tryLocklessSubmission(ratings) {
-  // For new submissions only, we can avoid locks
   const hasUpdates = await checkForUpdates(ratings);
   
   if (!hasUpdates) {
-    // Pure append operation - no lock needed
     if (!await isTokenValid()) await refreshAccessToken();
     
     await gapi.client.sheets.spreadsheets.values.append({
@@ -6363,6 +6361,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
