@@ -4667,9 +4667,6 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   
   updateMarginTop();
   window.addEventListener('resize', updateMarginTop);
-
-  // At the top level of your script (outside any function), declare:
-  let clearRatings = null;
   
   const basicRatings = Array(competenciesColumn1.length).fill(0);
   const orgRatings = Array(competenciesColumn2.length).fill(0);
@@ -4774,24 +4771,41 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
   }
 
-  document.getElementById('reset-ratings').addEventListener('click', () => {
-    showModal(
-      'CONFIRM RESET',
-      '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
-      () => {
-        clearRatings();
-        computeBasicRating();
-        computeOrgRating();
-        computeLeadershipRating();
-        computeMinimumRating();
-        computePsychosocial();
-        computePotential();
-        localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
-        elements.submitRatings.disabled = true;
-        showToast('success', 'Reset Complete', 'All ratings have been cleared.');
-      }
-    );
-  });
+  // Inside displayCompetencies function, replace the reset button event listener with:
+
+document.getElementById('reset-ratings').addEventListener('click', () => {
+  showModal(
+    'CONFIRM RESET',
+    '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
+    () => {
+      // Clear the radio buttons
+      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+      Array.from(competencyItems).forEach(item => {
+        const radios = item.querySelectorAll('input[type="radio"]');
+        radios.forEach(radio => (radio.checked = false));
+      });
+      
+      // Reset all rating arrays to zero
+      basicRatings.fill(0);
+      orgRatings.fill(0);
+      leadershipRatings.fill(0);
+      minimumRatings.fill(0);
+      
+      console.log('Radio buttons cleared and rating arrays reset');
+      
+      // Update all computations
+      computeBasicRating();
+      computeOrgRating();
+      computeLeadershipRating();
+      computeMinimumRating();
+      computePsychosocial();
+      computePotential();
+      localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
+      elements.submitRatings.disabled = true;
+      showToast('success', 'Reset Complete', 'All ratings have been cleared.');
+    }
+  );
+});
 
   loadRadioState(name, elements.itemDropdown.value);
 }
@@ -6331,6 +6345,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
