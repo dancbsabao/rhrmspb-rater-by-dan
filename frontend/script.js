@@ -4668,6 +4668,9 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   updateMarginTop();
   window.addEventListener('resize', updateMarginTop);
 
+  // At the top level of your script (outside any function), declare:
+  let clearRatings = null;
+  
   const basicRatings = Array(competenciesColumn1.length).fill(0);
   const orgRatings = Array(competenciesColumn2.length).fill(0);
   const leadershipRatings = Array(competenciesColumn3.length).fill(0);
@@ -6328,6 +6331,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
