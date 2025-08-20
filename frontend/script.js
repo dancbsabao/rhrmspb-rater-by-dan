@@ -24,6 +24,19 @@ const loadingState = {
 };
 
 
+const SUBMISSION_CONFIG = {
+  MAX_RETRIES: 3,
+  BASE_DELAY: 500,
+  MAX_DELAY: 3000,
+  LOCK_TIMEOUT: 8000,
+  BATCH_SIZE: 10,
+  QUEUE_PROCESS_INTERVAL: 100
+};
+
+// Cache for existing ratings
+const ratingsCache = new Map();
+const CACHE_DURATION = 30000; // 30 seconds
+
 // Submission queue class
 class SubmissionQueue {
   constructor() {
@@ -109,18 +122,7 @@ class SubmissionQueue {
 // Global queue instance
 const submissionQueue = new SubmissionQueue();
 // Configuration for optimized submission system
-const SUBMISSION_CONFIG = {
-  MAX_RETRIES: 3,
-  BASE_DELAY: 500,
-  MAX_DELAY: 3000,
-  LOCK_TIMEOUT: 8000,
-  BATCH_SIZE: 10,
-  QUEUE_PROCESS_INTERVAL: 100
-};
 
-// Cache for existing ratings
-const ratingsCache = new Map();
-const CACHE_DURATION = 30000; // 30 seconds
 
 let uiObserver;
 let uiCheckTimeout;
@@ -6085,6 +6087,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
