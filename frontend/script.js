@@ -3802,7 +3802,6 @@ async function submitRatings() {
         showToastOptimized('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
-      // Store current ratings before update
       const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
       Array.from(competencyItems).forEach(item => {
         const competencyName = item.querySelector('label').textContent.split('. ')[1];
@@ -3817,7 +3816,6 @@ async function submitRatings() {
       return;
     }
 
-    // Show confirmation modal
     const confirmed = await showConfirmationModal(ratings, existingRatings, isUpdate);
     if (!confirmed) {
       if (isUpdate) {
@@ -3830,7 +3828,8 @@ async function submitRatings() {
       return;
     }
 
-    // Add to optimized queue instead of direct submission
+    // Show submission indicator when queuing
+    showSubmittingIndicator();
     submissionQueue.add(ratings, 'normal');
     showToastOptimized('info', 'Queued', 'Submission queued for processing');
 
@@ -4220,6 +4219,8 @@ async function processSubmissionQueue() {
   const ratings = submissionQueue.shift();
 
   try {
+    // Ensure indicator is shown at the start of processing
+    showSubmittingIndicator();
     const result = await submitRatingsWithLock(ratings);
     if (result.success) {
       const candidateName = ratings[0][2];
@@ -4244,8 +4245,10 @@ async function processSubmissionQueue() {
     setTimeout(processSubmissionQueue, 5000);
   } finally {
     isSubmitting = false;
-    hideSubmittingIndicator();
-    processSubmissionQueue();
+    hideSubmittingIndicator(); // Ensure indicator is hidden after processing
+    if (submissionQueue.length > 0) {
+      processSubmissionQueue(); // Continue processing next item in queue
+    }
   }
 }
 
@@ -6354,6 +6357,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
