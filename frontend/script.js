@@ -6,7 +6,6 @@ let fetchTimeout = null;
 let isSubmitting = false;
 let refreshTimer = null;
 let sessionId = null; // To track server session
-let submissionQueue = []; // Queue for pending submissions
 let currentTab = 'rater'; // Track current tab ('rater' or 'secretariat')
 let generalList = [];
 let disqualified = [];
@@ -24,6 +23,8 @@ const loadingState = {
   apiDone: false // ✅ Track API completion
 };
 
+// Global queue instance
+const submissionQueue = new SubmissionQueue();
 // Configuration for optimized submission system
 const SUBMISSION_CONFIG = {
   MAX_RETRIES: 3,
@@ -3734,8 +3735,7 @@ class SubmissionQueue {
   }
 }
 
-// Global queue instance
-const submissionQueue = new SubmissionQueue();
+
 
 // Main submission function
 async function submitRatings() {
@@ -6082,5 +6082,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
