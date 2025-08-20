@@ -4673,22 +4673,22 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
   const leadershipRatings = Array(competenciesColumn3.length).fill(0);
   const minimumRatings = Array(competencies.length).fill(0);
 
-  // Define clearRatings inside displayCompetencies so it has access to the arrays
-function clearRatings() {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const radios = item.querySelectorAll('input[type="radio"]');
-    radios.forEach(radio => (radio.checked = false));
-  });
-  
-  // Reset all rating arrays to zero
-  basicRatings.fill(0);
-  orgRatings.fill(0);
-  leadershipRatings.fill(0);
-  minimumRatings.fill(0);
-  
-  console.log('Radio buttons cleared and rating arrays reset');
-}
+    // Define clearRatings inside displayCompetencies so it has access to the arrays
+  function clearRatings() {
+    const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+    Array.from(competencyItems).forEach(item => {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => (radio.checked = false));
+    });
+    
+    // Reset all rating arrays to zero
+    basicRatings.fill(0);
+    orgRatings.fill(0);
+    leadershipRatings.fill(0);
+    minimumRatings.fill(0);
+    
+    console.log('Radio buttons cleared and rating arrays reset');
+  }
 
   function createCompetencyItem(comp, idx, ratings, updateFunction) {
     const div = document.createElement("div");
@@ -6328,6 +6328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
