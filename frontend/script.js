@@ -23,6 +23,89 @@ const loadingState = {
   apiDone: false // ✅ Track API completion
 };
 
+
+// Submission queue class
+class SubmissionQueue {
+  constructor() {
+    this.queue = [];
+    this.processing = false;
+    this.retryQueue = [];
+  }
+
+  add(ratings, priority = 'normal') {
+    const submission = {
+      id: Date.now() + Math.random(),
+      ratings,
+      priority,
+      attempts: 0,
+      timestamp: Date.now()
+    };
+    
+    if (priority === 'high') {
+      this.queue.unshift(submission);
+    } else {
+      this.queue.push(submission);
+    }
+    
+    this.process();
+  }
+
+  async process() {
+    if (this.processing) return;
+    this.processing = true;
+
+    while (this.queue.length > 0 || this.retryQueue.length > 0) {
+      const submission = this.retryQueue.shift() || this.queue.shift();
+      if (!submission) break;
+
+      try {
+        const result = await this.processSubmission(submission);
+        if (result.success) {
+          handleSuccessfulSubmission(submission.ratings);
+          showToastOptimized('success', 'Success', result.message);
+        }
+      } catch (error) {
+        await this.handleFailedSubmission(submission, error);
+      }
+    }
+
+    this.processing = false;
+  }
+
+  async processSubmission(submission) {
+    submission.attempts++;
+    showSubmissionProgress(submission);
+    
+    try {
+      return await submitRatingsOptimized(submission.ratings);
+    } catch (error) {
+      if (submission.attempts >= SUBMISSION_CONFIG.MAX_RETRIES) {
+        throw error;
+      }
+      throw new Error(`Retry needed: ${error.message}`);
+    }
+  }
+
+  async handleFailedSubmission(submission, error) {
+    if (submission.attempts < SUBMISSION_CONFIG.MAX_RETRIES) {
+      const delay = Math.min(
+        SUBMISSION_CONFIG.BASE_DELAY * Math.pow(1.5, submission.attempts) + Math.random() * 100,
+        SUBMISSION_CONFIG.MAX_DELAY
+      );
+      
+      setTimeout(() => {
+        this.retryQueue.push(submission);
+        if (!this.processing) this.process();
+      }, delay);
+      
+      showToastOptimized('info', 'Retrying', `Attempt ${submission.attempts}/${SUBMISSION_CONFIG.MAX_RETRIES}`);
+    } else {
+      showToastOptimized('error', 'Failed', `Submission failed: ${error.message}`);
+      console.error('Final submission failure:', error);
+    }
+  }
+}
+
 // Global queue instance
 const submissionQueue = new SubmissionQueue();
 // Configuration for optimized submission system
@@ -3653,87 +3736,7 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
 
 
 
-// Submission queue class
-class SubmissionQueue {
-  constructor() {
-    this.queue = [];
-    this.processing = false;
-    this.retryQueue = [];
-  }
 
-  add(ratings, priority = 'normal') {
-    const submission = {
-      id: Date.now() + Math.random(),
-      ratings,
-      priority,
-      attempts: 0,
-      timestamp: Date.now()
-    };
-    
-    if (priority === 'high') {
-      this.queue.unshift(submission);
-    } else {
-      this.queue.push(submission);
-    }
-    
-    this.process();
-  }
-
-  async process() {
-    if (this.processing) return;
-    this.processing = true;
-
-    while (this.queue.length > 0 || this.retryQueue.length > 0) {
-      const submission = this.retryQueue.shift() || this.queue.shift();
-      if (!submission) break;
-
-      try {
-        const result = await this.processSubmission(submission);
-        if (result.success) {
-          handleSuccessfulSubmission(submission.ratings);
-          showToastOptimized('success', 'Success', result.message);
-        }
-      } catch (error) {
-        await this.handleFailedSubmission(submission, error);
-      }
-    }
-
-    this.processing = false;
-  }
-
-  async processSubmission(submission) {
-    submission.attempts++;
-    showSubmissionProgress(submission);
-    
-    try {
-      return await submitRatingsOptimized(submission.ratings);
-    } catch (error) {
-      if (submission.attempts >= SUBMISSION_CONFIG.MAX_RETRIES) {
-        throw error;
-      }
-      throw new Error(`Retry needed: ${error.message}`);
-    }
-  }
-
-  async handleFailedSubmission(submission, error) {
-    if (submission.attempts < SUBMISSION_CONFIG.MAX_RETRIES) {
-      const delay = Math.min(
-        SUBMISSION_CONFIG.BASE_DELAY * Math.pow(1.5, submission.attempts) + Math.random() * 100,
-        SUBMISSION_CONFIG.MAX_DELAY
-      );
-      
-      setTimeout(() => {
-        this.retryQueue.push(submission);
-        if (!this.processing) this.process();
-      }, delay);
-      
-      showToastOptimized('info', 'Retrying', `Attempt ${submission.attempts}/${SUBMISSION_CONFIG.MAX_RETRIES}`);
-    } else {
-      showToastOptimized('error', 'Failed', `Submission failed: ${error.message}`);
-      console.error('Final submission failure:', error);
-    }
-  }
-}
 
 
 
@@ -6082,6 +6085,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
