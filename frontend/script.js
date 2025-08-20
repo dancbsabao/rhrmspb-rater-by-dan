@@ -4754,34 +4754,29 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
     document.getElementById("potential-rating-value").textContent = potential.toFixed(2);
   }
 
-  // Reset button event listener with inline logic
+    // Inside displayCompetencies function - replace the reset button event listener:
   document.getElementById('reset-ratings').addEventListener('click', () => {
     showModal(
       'CONFIRM RESET',
       '<p>Are you sure you want to reset all ratings? This action cannot be undone.</p>',
       () => {
-        // Clear the radio buttons
-        const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-        Array.from(competencyItems).forEach(item => {
-          const radios = item.querySelectorAll('input[type="radio"]');
-          radios.forEach(radio => (radio.checked = false));
-        });
+        // Use global clearRatings function
+        clearRatings();
         
-        // Reset all rating arrays to zero
+        // Additionally reset the rating arrays (only accessible here)
         basicRatings.fill(0);
         orgRatings.fill(0);
         leadershipRatings.fill(0);
         minimumRatings.fill(0);
         
-        console.log('Radio buttons cleared and rating arrays reset');
-        
-        // Update all computations
+        // Update all computations to ensure everything is 0.00
         computeBasicRating();
         computeOrgRating();
         computeLeadershipRating();
         computeMinimumRating();
         computePsychosocial();
         computePotential();
+        
         localStorage.removeItem(`radioState_${name}_${elements.itemDropdown.value}`);
         elements.submitRatings.disabled = true;
         showToast('success', 'Reset Complete', 'All ratings have been cleared.');
@@ -4791,6 +4786,38 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
 
   loadRadioState(name, elements.itemDropdown.value);
 }
+
+
+// Add this at the global level (outside any function)
+function clearRatings() {
+  // Clear visual radio buttons
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const radios = item.querySelectorAll('input[type="radio"]');
+    radios.forEach(radio => (radio.checked = false));
+  });
+  
+  // Reset all displayed values to 0.00
+  const ratingElements = [
+    'basic-rating-value',
+    'organizational-rating-value', 
+    'leadership-rating-value',
+    'minimum-rating-value',
+    'psychosocial-rating-value',
+    'potential-rating-value'
+  ];
+  
+  ratingElements.forEach(elementId => {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.textContent = '0.00';
+    }
+  });
+  
+  console.log('Radio buttons cleared and displays reset to 0.00');
+}
+
+
 
 
 function saveRadioState(competencyName, value, candidateName, item) {
@@ -6327,6 +6354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
