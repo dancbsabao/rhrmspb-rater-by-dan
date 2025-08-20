@@ -3848,7 +3848,9 @@ async function submitRatingsOptimized(ratings) {
   // Try lockless submission first for better performance
   try {
     const result = await tryLocklessSubmission(ratings);
-    if (result.success) return result;
+    if (result.success) {
+      return result;
+    }
   } catch (error) {
     console.log('Lockless failed, trying with lock:', error.message);
   }
@@ -4218,13 +4220,16 @@ async function processSubmissionQueue() {
 
   try {
     showSubmittingIndicator();
-    const result = await submitRatingsWithLock(ratings);
+    
+    // Use the optimized submission function
+    const result = await submitRatingsOptimized(ratings);
+    
     if (result.success) {
       const candidateName = ratings[0][2];
       const item = ratings[0][1];
       localStorage.removeItem(`radioState_${candidateName}_${item}`);
       
-      // Hide indicator before showing modal to ensure it’s removed
+      // Hide indicator before showing modal to ensure it's removed
       hideSubmittingIndicator();
       
       await new Promise((resolve) => {
@@ -6361,6 +6366,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
