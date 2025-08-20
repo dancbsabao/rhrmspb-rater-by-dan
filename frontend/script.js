@@ -3559,7 +3559,34 @@ async function fetchSubmittedRatings({ forceRefresh = false } = {}) {
 }
 
 
-
+// Add this at the global level (outside any function)
+function clearRatings() {
+  // Clear visual radio buttons
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const radios = item.querySelectorAll('input[type="radio"]');
+    radios.forEach(radio => (radio.checked = false));
+  });
+  
+  // Reset all displayed values to 0.00
+  const ratingElements = [
+    'basic-rating-value',
+    'organizational-rating-value', 
+    'leadership-rating-value',
+    'minimum-rating-value',
+    'psychosocial-rating-value',
+    'potential-rating-value'
+  ];
+  
+  ratingElements.forEach(elementId => {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.textContent = '0.00';
+    }
+  });
+  
+  console.log('Radio buttons cleared and displays reset to 0.00');
+}
 
 
 
@@ -4788,34 +4815,7 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
 }
 
 
-// Add this at the global level (outside any function)
-function clearRatings() {
-  // Clear visual radio buttons
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const radios = item.querySelectorAll('input[type="radio"]');
-    radios.forEach(radio => (radio.checked = false));
-  });
-  
-  // Reset all displayed values to 0.00
-  const ratingElements = [
-    'basic-rating-value',
-    'organizational-rating-value', 
-    'leadership-rating-value',
-    'minimum-rating-value',
-    'psychosocial-rating-value',
-    'potential-rating-value'
-  ];
-  
-  ratingElements.forEach(elementId => {
-    const element = document.getElementById(elementId);
-    if (element) {
-      element.textContent = '0.00';
-    }
-  });
-  
-  console.log('Radio buttons cleared and displays reset to 0.00');
-}
+
 
 
 
@@ -6354,6 +6354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
