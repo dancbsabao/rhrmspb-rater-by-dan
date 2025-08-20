@@ -4219,24 +4219,30 @@ async function processSubmissionQueue() {
   const ratings = submissionQueue.shift();
 
   try {
-    // Ensure indicator is shown at the start of processing
     showSubmittingIndicator();
     const result = await submitRatingsWithLock(ratings);
     if (result.success) {
       const candidateName = ratings[0][2];
       const item = ratings[0][1];
       localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showModal(
-        'Submission Successful',
-        `<p>${result.message}</p>`,
-        () => {
-          console.log('Success modal closed');
-          fetchSubmittedRatings({ forceRefresh: true });
-          handleSuccessfulSubmission(ratings);
-        },
-        null,
-        false
-      );
+      
+      // Hide indicator before showing modal to ensure it’s removed
+      hideSubmittingIndicator();
+      
+      await new Promise((resolve) => {
+        showModal(
+          'Submission Successful',
+          `<p>${result.message}</p>`,
+          () => {
+            console.log('Success modal closed');
+            fetchSubmittedRatings({ forceRefresh: true });
+            handleSuccessfulSubmission(ratings);
+            resolve();
+          },
+          null,
+          false
+        );
+      });
     }
   } catch (error) {
     console.error('Queue submission failed:', error);
@@ -4245,7 +4251,7 @@ async function processSubmissionQueue() {
     setTimeout(processSubmissionQueue, 5000);
   } finally {
     isSubmitting = false;
-    hideSubmittingIndicator(); // Ensure indicator is hidden after processing
+    hideSubmittingIndicator(); // Ensure indicator is hidden in case of errors
     if (submissionQueue.length > 0) {
       processSubmissionQueue(); // Continue processing next item in queue
     }
@@ -6357,6 +6363,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
