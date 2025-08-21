@@ -46,8 +46,8 @@ let SHEET_RANGES = {
   RATELOG: 'RATELOG!A:H',
   GENERAL_LIST: 'GENERAL_LIST!A:P',
   DISQUALIFIED: 'DISQUALIFIED!A:D',
-  MEMBERS: 'SECRETARIAT_MEMBERS!A:D', // Add MEMBERS range
-  SECRETARIAT_SIGNATORIES: 'SECRETARIAT_SIGNATORIES!E:G'
+  SECRETARIAT_MEMBERS: 'SECRETARIAT_MEMBERS!A:D',
+  SECRETARIAT_SIGNATORIES: 'SECRETARIAT_MEMBERS!E:G'
 };
 
 
@@ -462,15 +462,43 @@ fetch(`${API_BASE_URL}/config`)
     if (config.SHEET_RANGES) {
       SHEET_RANGES = { ...SHEET_RANGES, ...config.SHEET_RANGES };
     }
-    loadingState.configLoaded = true; // Mark config as loaded
+    if (!SHEET_RANGES.SECRETARIAT_MEMBERS) {
+      console.warn('SHEET_RANGES.SECRETARIAT_MEMBERS is missing, using default: SECRETARIAT_MEMBERS!A:D');
+      SHEET_RANGES.SECRETARIAT_MEMBERS = 'SECRETARIAT_MEMBERS!A:D';
+    }
+    loadingState.configLoaded = true;
     initializeApp();
   })
   .catch((error) => {
     console.error('Error fetching config:', error);
     elements.authStatus.textContent = 'Error loading configuration';
-    loadingState.configLoaded = true; // Allow app to proceed with fallback ranges
+    loadingState.configLoaded = true; // Proceed with defaults
     initializeApp();
   });
+
+// ===================
+// NEW: PARSE SECRETARIAT MEMBERS FUNCTION
+// ===================
+function parseSecretariatMembers(values) {
+  if (!values || values.length <= 1) {
+    console.warn('No secretariat members data or only header row found');
+    return [];
+  }
+  // Expected format: SECRETARIAT_MEMBERS!A:D = [Name, ID, (unused), Vacancies]
+  // Vacancies (column D) is a comma-separated list of item numbers
+  return values.slice(1).map((row, index) => {
+    try {
+      return {
+        name: row[0]?.trim() || '',
+        id: row[1]?.trim() || '',
+        vacancies: row[3] ? row[3].split(',').map(v => v.trim().toUpperCase()) : []
+      };
+    } catch (error) {
+      console.warn(`Error parsing secretariat member row ${index + 2}:`, row, error);
+      return null;
+    }
+  }).filter(member => member && member.name && member.id); // Filter out invalid rows
+}
 
 function checkAndHideSpinner() {
   if (loadingState.gapi && loadingState.dom && loadingState.uiReady && loadingState.apiDone) {
@@ -1889,37 +1917,35 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
 }
 
 async function safeFetchSecretariatMembers(options = {}) {
-  if (!SHEET_RANGES.MEMBERS) {
-    console.error('SHEET_RANGES.MEMBERS is undefined');
-    throw new Error('Members range configuration missing');
+  if (!SHEET_RANGES.SECRETARIAT_MEMBERS) {
+    console.error('SHEET_RANGES.SECRETARIAT_MEMBERS is undefined');
+    throw new Error('Secretariat members range configuration missing');
   }
-
   const cached = smartCache.getWithFallback('secretariatMembers', options.forceRefresh ? 0 : 20 * 60 * 1000);
   if (cached && !options.forceRefresh) {
-    window.currentSecretariatMembers = cached;
+    currentSecretariatMembers = cached;
     usageOptimizer.logAccess('secretariatMembers', true);
+    console.log('💨 Cache hit for secretariat members');
     return cached;
   }
-
   const fallbackData = smartCache.getWithFallback('secretariatMembers', 2 * 60 * 60 * 1000);
-
   const apiFunction = async () => {
     if (!await isTokenValid()) await refreshAccessToken();
     try {
       const response = await gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.MEMBERS,
+        range: SHEET_RANGES.SECRETARIAT_MEMBERS, // Updated to correct range
       });
       const members = parseSecretariatMembers(response.result.values);
-      window.currentSecretariatMembers = members;
+      currentSecretariatMembers = members;
       smartCache.setWithCompression('secretariatMembers', members, 60 * 60 * 1000);
+      console.log('Secretariat members loaded:', members.length);
       return members;
     } catch (error) {
       console.error('Failed to fetch secretariat members:', error);
       throw error;
     }
   };
-
   usageOptimizer.logAccess('secretariatMembers', false);
   return await apiManager.enhancedBulletproofFetch('secretariatMembers', apiFunction, {
     maxAge: options.maxAge || 10 * 60 * 1000,
@@ -7144,6 +7170,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
