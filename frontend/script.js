@@ -3706,12 +3706,40 @@ class SubmissionQueue {
       if (!submission) break;
 
       try {
+        showSubmittingIndicator();
+        console.log('🔄 Starting submission process');
+
         const result = await this.processSubmission(submission);
+        
+        // Always hide indicator immediately after submission attempt
+        hideSubmittingIndicator();
+        console.log('🔄 Submitting indicator hidden');
+
         if (result.success) {
+          const candidateName = submission.ratings[0][2];
+          const item = submission.ratings[0][1];
+          
+          // Clear stored data
+          localStorage.removeItem(`radioState_${candidateName}_${item}`);
           handleSuccessfulSubmission(submission.ratings);
-          showToastOptimized('success', 'Success', result.message);
+          
+          // Show success modal
+          await new Promise((resolve) => {
+            showModal(
+              'Submission Successful',
+              `<p>${result.message}</p>`,
+              () => {
+                console.log('Success modal closed');
+                fetchSubmittedRatings({ forceRefresh: true });
+                resolve();
+              },
+              null,
+              false
+            );
+          });
         }
       } catch (error) {
+        hideSubmittingIndicator(); // Ensure indicator is hidden on error
         await this.handleFailedSubmission(submission, error);
       }
     }
@@ -3752,22 +3780,27 @@ class SubmissionQueue {
       console.error('Final submission failure:', error);
     }
   }
+
+  isEmpty() {
+    return this.queue.length === 0 && this.retryQueue.length === 0;
+  }
 }
 
 // Global queue instance
 const submissionQueue = new SubmissionQueue();
 
 // =====================================
-// MAIN SUBMISSION FUNCTION (OPTIMIZED)
+// MAIN SUBMISSION FUNCTION
 // =====================================
 
 async function submitRatings() {
-  if (isSubmitting) {
-    showToastOptimized('info', 'Info', 'Submission already queued');
+  if (submissionQueue.processing) {
+    showToastOptimized('info', 'Info', 'Submission already in progress');
     return;
   }
 
   try {
+    // Validate authentication
     const token = gapi.client.getToken();
     if (!token || !await isTokenValid()) {
       await refreshAccessToken();
@@ -3778,23 +3811,25 @@ async function submitRatings() {
       }
     }
 
+    // Validate evaluator
     if (!currentEvaluator) {
       showToastOptimized('warning', 'Warning', 'Please select an evaluator');
       return;
     }
 
+    // Validate form data
     const item = elements.itemDropdown.value;
     const candidateName = elements.nameDropdown.value;
-
     if (!item || !candidateName) {
       showToastOptimized('error', 'Error', 'Please select both item and candidate');
       return;
     }
 
+    // Check for existing ratings
     const existingRatings = await checkExistingRatingsCached(item, candidateName, currentEvaluator);
     const isUpdate = existingRatings.length > 0;
 
-    let tempRatings = {};
+    // Handle updates with password verification
     if (isUpdate) {
       const isVerified = await verifyEvaluatorPassword(existingRatings);
       if (!isVerified) {
@@ -3802,34 +3837,28 @@ async function submitRatings() {
         showToastOptimized('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
-      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-      Array.from(competencyItems).forEach(item => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
-        if (rating) tempRatings[competencyName] = rating;
-      });
     }
 
+    // Prepare ratings data
     const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
     if (error) {
       showToastOptimized('error', 'Error', error);
       return;
     }
 
+    // Show confirmation modal
     const confirmed = await showConfirmationModal(ratings, existingRatings, isUpdate);
     if (!confirmed) {
       if (isUpdate) {
         revertToExistingRatings(existingRatings);
         showToastOptimized('info', 'Canceled', 'Ratings reverted to original values');
       } else {
-        console.log('Submission canceled');
         showToastOptimized('info', 'Canceled', 'Ratings submission aborted');
       }
       return;
     }
 
-    // Show submission indicator when queuing
-    showSubmittingIndicator();
+    // Add to queue and process
     submissionQueue.add(ratings, 'normal');
     showToastOptimized('info', 'Queued', 'Submission queued for processing');
 
@@ -3841,22 +3870,20 @@ async function submitRatings() {
 }
 
 // =====================================
-// OPTIMIZED CORE SUBMISSION LOGIC
+// OPTIMIZED SUBMISSION LOGIC
 // =====================================
 
 async function submitRatingsOptimized(ratings) {
-  // Try lockless submission first for better performance
   try {
+    // Try lockless submission first for better performance
     const result = await tryLocklessSubmission(ratings);
-    if (result.success) {
-      return result;
-    }
+    if (result.success) return result;
   } catch (error) {
     console.log('Lockless failed, trying with lock:', error.message);
   }
 
-  // Fall back to optimized locked submission
-  return await submitWithOptimizedLock(ratings);
+  // Fall back to locked submission
+  return await submitWithLock(ratings);
 }
 
 async function tryLocklessSubmission(ratings) {
@@ -3879,7 +3906,7 @@ async function tryLocklessSubmission(ratings) {
   throw new Error('Updates detected, lock required');
 }
 
-async function submitWithOptimizedLock(ratings) {
+async function submitWithLock(ratings) {
   const lockData = {
     sessionId: sessionId,
     timestamp: Date.now(),
@@ -3889,7 +3916,7 @@ async function submitWithOptimizedLock(ratings) {
   let lockAcquired = false;
   
   try {
-    lockAcquired = await acquireOptimizedLock(lockData);
+    lockAcquired = await acquireLock(lockData);
     if (!lockAcquired) {
       throw new Error('Could not acquire lock - system busy');
     }
@@ -3899,16 +3926,16 @@ async function submitWithOptimizedLock(ratings) {
     
   } finally {
     if (lockAcquired) {
-      await releaseOptimizedLock(lockData);
+      await releaseLock(lockData);
     }
   }
 }
 
 // =====================================
-// OPTIMIZED LOCK SYSTEM
+// LOCK SYSTEM
 // =====================================
 
-async function acquireOptimizedLock(lockData) {
+async function acquireLock(lockData) {
   const lockRange = "RATELOG!G1:J1";
   const maxAttempts = 3;
   
@@ -3961,7 +3988,7 @@ async function acquireOptimizedLock(lockData) {
   return false;
 }
 
-async function releaseOptimizedLock(lockData) {
+async function releaseLock(lockData) {
   try {
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -4050,7 +4077,7 @@ async function processRatingsBatch(ratings) {
 }
 
 // =====================================
-// HELPER FUNCTIONS (NEW)
+// HELPER FUNCTIONS
 // =====================================
 
 async function checkExistingRatingsCached(item, candidateName, evaluator) {
@@ -4067,6 +4094,24 @@ async function checkExistingRatingsCached(item, candidateName, evaluator) {
   return ratings;
 }
 
+async function checkExistingRatings(item, candidateName, evaluator) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const existingData = response.result.values || [];
+    return existingData.filter(row =>
+      matchesRatingRow(row, item, candidateName, evaluator)
+    );
+  } catch (error) {
+    console.error('Error checking ratings:', error);
+    return [];
+  }
+}
+
 async function checkForUpdates(ratings) {
   const firstRating = ratings[0];
   if (!firstRating) return false;
@@ -4080,12 +4125,73 @@ async function checkForUpdates(ratings) {
   return existingRatings.length > 0;
 }
 
+function prepareRatingsData(item, candidateName, currentEvaluator) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  const ratings = [];
+
+  for (let itemElement of competencyItems) {
+    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
+    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
+      .find(radio => radio.checked)?.value;
+
+    if (!rating) {
+      return { error: 'Please rate all competencies' };
+    }
+
+    const competencyCode = getCompetencyCode(competencyName);
+    const candidateInitials = getInitials(candidateName);
+    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
+    
+    ratings.push([
+      ratingCode,
+      item,
+      candidateName,
+      competencyName,
+      rating,
+      currentEvaluator,
+      '',
+      ''
+    ]);
+  }
+  console.log('Ratings to submit:', ratings);
+  return { ratings };
+}
+
 function showSubmissionProgress(submission) {
   const message = submission.attempts > 1 
     ? `Submitting... (attempt ${submission.attempts})`
     : 'Submitting...';
     
   showToastOptimized('info', 'Processing', message);
+}
+
+// =====================================
+// UI FUNCTIONS
+// =====================================
+
+function showSubmittingIndicator() {
+  // Remove any existing indicator first
+  hideSubmittingIndicator();
+  
+  const indicator = document.createElement('div');
+  indicator.id = 'submittingIndicator';
+  indicator.className = 'submitting-indicator';
+  indicator.innerHTML = `
+    <div class="submitting-content">
+      <span class="spinner"></span>
+      <span>SUBMITTING...</span>
+    </div>
+  `;
+  document.body.appendChild(indicator);
+  console.log('🔄 Submitting indicator shown');
+}
+
+function hideSubmittingIndicator() {
+  const indicator = document.getElementById('submittingIndicator');
+  if (indicator) {
+    indicator.remove();
+    console.log('🔄 Submitting indicator removed');
+  }
 }
 
 async function showConfirmationModal(ratings, existingRatings, isUpdate) {
@@ -4138,6 +4244,44 @@ async function showConfirmationModal(ratings, existingRatings, isUpdate) {
   });
 }
 
+async function verifyEvaluatorPassword(existingRatings) {
+  return new Promise((resolve) => {
+    const modalContent = `
+      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
+      <input type="password" id="verificationPassword" class="modal-input">
+    `;
+    showModal('Password Verification', modalContent, () => {
+      const password = document.getElementById('verificationPassword').value;
+      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    }, () => {
+      revertToExistingRatings(existingRatings);
+      resolve(false);
+    });
+  });
+}
+
+function revertToExistingRatings(existingRatings) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
+    if (existingRating) {
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    } else {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => radio.checked = false);
+    }
+  });
+}
+
 function showToastOptimized(type, title, message) {
   // Remove existing toasts of the same type to prevent spam
   const existingToasts = document.querySelectorAll(`.toast.${type}`);
@@ -4151,115 +4295,8 @@ function showToastOptimized(type, title, message) {
 }
 
 // =====================================
-// CORE SUBMISSION LOGIC (OPTIMIZED)
+// SUCCESS HANDLING
 // =====================================
-
-async function submitRatingsOptimized(ratings) {
-  // Try lockless submission first
-  try {
-    const result = await tryLocklessSubmission(ratings);
-    if (result.success) return result;
-  } catch (error) {
-    console.log('Lockless failed, using lock:', error.message);
-  }
-
-  // Fall back to locked submission
-  return await submitRatingsWithLock(ratings, SUBMISSION_CONFIG.MAX_RETRIES);
-}
-
-async function tryLocklessSubmission(ratings) {
-  const hasUpdates = await checkForUpdates(ratings);
-  
-  if (!hasUpdates) {
-    if (!await isTokenValid()) await refreshAccessToken();
-    
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-      valueInputOption: 'RAW',
-      insertDataOption: 'INSERT_ROWS',
-      resource: { values: ratings },
-    });
-    
-    return { success: true, message: 'Ratings submitted successfully' };
-  }
-  
-  throw new Error('Updates detected, lock required');
-}
-
-// =====================================
-// ORIGINAL FUNCTIONS (KEEP AS-IS)
-// =====================================
-
-function showSubmittingIndicator() {
-  let indicator = document.getElementById('submittingIndicator');
-  if (!indicator) {
-    indicator = document.createElement('div');
-    indicator.id = 'submittingIndicator';
-    indicator.className = 'submitting-indicator';
-    indicator.innerHTML = `
-      <div class="submitting-content">
-        <span class="spinner"></span>
-        <span>SUBMITTING...</span>
-      </div>
-    `;
-    document.body.appendChild(indicator);
-  }
-}
-
-function hideSubmittingIndicator() {
-  const indicator = document.getElementById('submittingIndicator');
-  if (indicator) indicator.remove();
-}
-
-async function processSubmissionQueue() {
-  if (isSubmitting || !submissionQueue.length) return;
-  isSubmitting = true;
-
-  const ratings = submissionQueue.shift();
-
-  try {
-    showSubmittingIndicator();
-    
-    // Use the optimized submission function
-    const result = await submitRatingsOptimized(ratings);
-    
-    if (result.success) {
-      const candidateName = ratings[0][2];
-      const item = ratings[0][1];
-      localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      
-      // Hide indicator before showing modal to ensure it's removed
-      hideSubmittingIndicator();
-      
-      await new Promise((resolve) => {
-        showModal(
-          'Submission Successful',
-          `<p>${result.message}</p>`,
-          () => {
-            console.log('Success modal closed');
-            fetchSubmittedRatings({ forceRefresh: true });
-            handleSuccessfulSubmission(ratings);
-            resolve();
-          },
-          null,
-          false
-        );
-      });
-    }
-  } catch (error) {
-    console.error('Queue submission failed:', error);
-    showToast('error', 'Error', error.message);
-    submissionQueue.unshift(ratings);
-    setTimeout(processSubmissionQueue, 5000);
-  } finally {
-    isSubmitting = false;
-    hideSubmittingIndicator(); // Ensure indicator is hidden in case of errors
-    if (submissionQueue.length > 0) {
-      processSubmissionQueue(); // Continue processing next item in queue
-    }
-  }
-}
 
 function handleSuccessfulSubmission(ratings) {
   const candidateName = ratings[0][2];
@@ -4274,6 +4311,10 @@ function handleSuccessfulSubmission(ratings) {
     evaluator, item, candidateName
   });
 }
+
+// =====================================
+// DEBUG FUNCTIONS
+// =====================================
 
 function debugRatingSync(evaluator, item, name) {
   console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
@@ -4302,229 +4343,11 @@ function debugRatingSync(evaluator, item, name) {
   console.groupEnd();
 }
 
+// Make debug function available globally
 window.debugRatingSync = debugRatingSync;
 
-async function checkExistingRatings(item, candidateName, evaluator) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const existingData = response.result.values || [];
-    return existingData.filter(row =>
-      matchesRatingRow(row, item, candidateName, evaluator)
-    );
-  } catch (error) {
-    console.error('Error checking ratings:', error);
-    return [];
-  }
-}
-
-function revertToExistingRatings(existingRatings) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
-    if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
-    } else {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => radio.checked = false);
-    }
-  });
-}
-
-async function verifyEvaluatorPassword(existingRatings) {
-  return new Promise((resolve) => {
-    const modalContent = `
-      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
-      <input type="password" id="verificationPassword" class="modal-input">
-    `;
-    showModal('Password Verification', modalContent, () => {
-      const password = document.getElementById('verificationPassword').value;
-      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    }, () => {
-      revertToExistingRatings(existingRatings);
-      resolve(false);
-    });
-  });
-}
-
-function prepareRatingsData(item, candidateName, currentEvaluator) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  const ratings = [];
-
-  for (let itemElement of competencyItems) {
-    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
-    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
-      .find(radio => radio.checked)?.value;
-
-    if (!rating) {
-      return { error: 'Please rate all competencies' };
-    }
-
-    const competencyCode = getCompetencyCode(competencyName);
-    const candidateInitials = getInitials(candidateName);
-    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
-    
-    ratings.push([
-      ratingCode,
-      item,
-      candidateName,
-      competencyName,
-      rating,
-      currentEvaluator,
-      '',
-      ''
-    ]);
-  }
-  console.log('Ratings to submit:', ratings);
-  return { ratings };
-}
-
-async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:I1";
-  const LOCK_TIMEOUT = SUBMISSION_CONFIG.LOCK_TIMEOUT;
-  let retryCount = 0;
-  let lockAcquired = false;
-
-  while (retryCount < maxRetries) {
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const { acquired, owner } = await acquireLock(sessionId);
-      if (!acquired) {
-        showToastOptimized('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
-        await delay(Math.pow(2, retryCount) * 1000);
-        retryCount++;
-        continue;
-      }
-      lockAcquired = true;
-
-      const result = await processRatings(ratings);
-      await releaseLock(sessionId);
-      return result;
-    } catch (error) {
-      console.error('Error in submitRatingsWithLock:', error);
-      retryCount++;
-      if (lockAcquired) await releaseLock(sessionId);
-      if (retryCount === maxRetries) {
-        throw new Error('Submission failed after retries—queued for later');
-      }
-      await delay(Math.pow(2, retryCount) * 1000);
-    }
-  }
-}
-
-async function acquireLock(sessionId) {
-  const lockRange = "RATELOG!G1:I1";
-  try {
-    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-    });
-    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
-    
-    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < SUBMISSION_CONFIG.LOCK_TIMEOUT) {
-      return { acquired: false, owner: lockOwner || 'unknown' };
-    }
-
-    const timestamp = new Date().toISOString();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-      valueInputOption: 'RAW',
-      resource: { values: [['locked', timestamp, sessionId]] },
-    });
-    return { acquired: true };
-  } catch (error) {
-    console.error('Lock acquisition failed:', error);
-    return { acquired: false, owner: 'error' };
-  }
-}
-
-async function releaseLock(sessionId) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: "RATELOG!G1:I1",
-      valueInputOption: 'RAW',
-      resource: { values: [['', '', '']] },
-    });
-  } catch (error) {
-    console.error('Failed to release lock:', error);
-    showToastOptimized('error', 'Lock Error', 'Lock release failed—may resolve in 8s');
-  }
-}
-
-async function processRatings(ratings) {
-  if (!await isTokenValid()) await refreshAccessToken();
-  const response = await gapi.client.sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: SHEET_RANGES.RATELOG,
-  });
-
-  let existingData = response.result.values || [];
-  const newRatings = [];
-  let isUpdated = false;
-
-  const existingRatingsMap = new Map();
-  existingData.forEach((row, index) => {
-    if (row[0]) existingRatingsMap.set(row[0], { row, index });
-  });
-
-  ratings.forEach(newRating => {
-    const ratingCode = newRating[0];
-    if (existingRatingsMap.has(ratingCode)) {
-      const { index } = existingRatingsMap.get(ratingCode);
-      existingData[index] = newRating;
-      isUpdated = true;
-    } else {
-      newRatings.push(newRating);
-    }
-  });
-
-  const batchUpdates = [];
-  if (isUpdated) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: existingData },
-      })
-    );
-  }
-  if (newRatings.length > 0) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: newRatings },
-      })
-    );
-  }
-
-  await Promise.all(batchUpdates);
-  return {
-    success: true,
-    message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
-  };
-}
-
 // =====================================
-// CACHE CLEANUP
+// CLEANUP AND UTILITIES
 // =====================================
 
 // Clean up cache periodically
@@ -6366,6 +6189,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
