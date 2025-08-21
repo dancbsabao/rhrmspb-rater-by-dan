@@ -454,7 +454,7 @@ fetch(`${API_BASE_URL}/config`)
     if (!SHEET_RANGES.VACANCIES || !SHEET_RANGES.CANDIDATES || !SHEET_RANGES.COMPECODE || !SHEET_RANGES.COMPETENCY) {
       throw new Error('Incomplete SHEET_RANGES configuration');
     }
-    initializeApp();
+    initializeAppWithEnhancements();
   })
   .catch((error) => {
     console.error('Error fetching config:', error);
@@ -6615,7 +6615,7 @@ document.addEventListener("DOMContentLoaded", function () {
   loadingState.dom = true;
   
   // Initialize the app
-  initializeApp();
+  initializeAppWithEnhancements();
 });
 
 // Call initializeTabs on DOM load
@@ -6656,4 +6656,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
