@@ -1,4 +1,5 @@
 // Global variables
+let pendingRatings = new Map(); // Add global pendingRatings Map
 let gapiInitialized = false;
 let tokenClient = null;
 let currentEvaluator = null;
@@ -21,7 +22,8 @@ const loadingState = {
   gapi: false,
   dom: false,
   uiReady: false,
-  apiDone: false // ✅ Track API completion
+  apiDone: false, // ✅ Track API completion
+  configLoaded: false // Add to track config loading
 };
 
 let uiObserver;
@@ -33,7 +35,22 @@ let API_KEY;
 let SHEET_ID;
 let SCOPES;
 let EVALUATOR_PASSWORDS;
-let SHEET_RANGES;
+
+
+// Ensure SHEET_RANGES has a fallback
+let SHEET_RANGES = {
+  VACANCIES: 'VACANCIES!A:H',
+  CANDIDATES: 'CANDIDATES!A:P',
+  COMPECODE: 'COMPECODE!A:B',
+  COMPETENCY: 'COMPETENCY!A:B',
+  RATELOG: 'RATELOG!A:H',
+  GENERAL_LIST: 'GENERAL_LIST!A:P',
+  DISQUALIFIED: 'DISQUALIFIED!A:D',
+  MEMBERS: 'SECRETARIAT_MEMBERS!A:D', // Add MEMBERS range
+  SECRETARIAT_SIGNATORIES: 'SECRETARIAT_SIGNATORIES!E:G'
+};
+
+
 let SECRETARIAT_MEMBERS = [];
 let SIGNATORIES = []; // To store signatories
 
@@ -422,43 +439,37 @@ async function initializeSecretariatDropdowns() {
 // Flag to indicate restoration is in progress
 let dropdownStateRestoring = false;
 
-// Config fetch logic (around line 331)
+// ===================
+// CONFIG FETCH LOGIC
+// ===================
 fetch(`${API_BASE_URL}/config`)
   .then((response) => {
     if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
     return response.json();
   })
   .then((config) => {
-    // Define sanitizedConfig to exclude sensitive fields
     const sanitizedConfig = {
       SCOPES: config.SCOPES || '',
-      SHEET_RANGES: Object.keys(config.SHEET_RANGES || {}), // Log only range keys
-      // Exclude CLIENT_ID, API_KEY, SHEET_ID, EVALUATOR_PASSWORDS, SECRETARIAT_PASSWORD
+      SHEET_RANGES: Object.keys(config.SHEET_RANGES || {}),
     };
-    console.log('Config loaded:', sanitizedConfig); // Debug log
+    console.log('Config loaded:', sanitizedConfig);
     CLIENT_ID = config.CLIENT_ID || '';
     API_KEY = config.API_KEY || '';
     SHEET_ID = config.SHEET_ID || '';
     SCOPES = config.SCOPES || '';
     EVALUATOR_PASSWORDS = config.EVALUATOR_PASSWORDS || [];
-    SHEET_RANGES = config.SHEET_RANGES || {
-      VACANCIES: 'VACANCIES!A:H',
-      CANDIDATES: 'CANDIDATES!A:P',
-      COMPECODE: 'COMPECODE!A:B',
-      COMPETENCY: 'COMPETENCY!A:B',
-      RATELOG: 'RATELOG!A:H',
-      GENERAL_LIST: 'GENERAL_LIST!A:P',
-      DISQUALIFIED: 'DISQUALIFIED!A:D'
-    };
     SECRETARIAT_PASSWORD = config.SECRETARIAT_PASSWORD || '';
-    if (!SHEET_RANGES.VACANCIES || !SHEET_RANGES.CANDIDATES || !SHEET_RANGES.COMPECODE || !SHEET_RANGES.COMPETENCY) {
-      throw new Error('Incomplete SHEET_RANGES configuration');
+    if (config.SHEET_RANGES) {
+      SHEET_RANGES = { ...SHEET_RANGES, ...config.SHEET_RANGES };
     }
+    loadingState.configLoaded = true; // Mark config as loaded
     initializeApp();
   })
   .catch((error) => {
     console.error('Error fetching config:', error);
     elements.authStatus.textContent = 'Error loading configuration';
+    loadingState.configLoaded = true; // Allow app to proceed with fallback ranges
+    initializeApp();
   });
 
 function checkAndHideSpinner() {
@@ -1825,6 +1836,10 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
   if (!name || !item || !evaluator) {
     throw new Error('Missing required parameters');
   }
+  if (!SHEET_RANGES.RATELOG) {
+    console.error('SHEET_RANGES.RATELOG is undefined');
+    throw new Error('Rating range configuration missing');
+  }
 
   const key = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
   
@@ -1839,27 +1854,28 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
 
   const apiFunction = async () => {
     if (!await isTokenValid()) await refreshAccessToken();
-
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const values = response?.result?.values || [];
-    const filteredValues = [];
-    
-    if (values.length > 0) {
-      filteredValues.push(values[0]);
-      const dataRows = values.slice(1);
-      const matchingRows = dataRows.filter(row => matchesRatingRow(row, item, name, evaluator));
-      filteredValues.push(...matchingRows);
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+      });
+      const values = response?.result?.values || [];
+      const filteredValues = [];
+      
+      if (values.length > 0) {
+        filteredValues.push(values[0]);
+        const dataRows = values.slice(1);
+        const matchingRows = dataRows.filter(row => matchesRatingRow(row, item, name, evaluator));
+        filteredValues.push(...matchingRows);
+      }
+      
+      const result = { values: filteredValues, ts: Date.now(), evaluator, item, name };
+      smartCache.setWithCompression(key, result, 30 * 60 * 1000);
+      return result;
+    } catch (error) {
+      console.error(`Failed to fetch ratings for ${key}:`, error);
+      throw error;
     }
-    
-    const result = { values: filteredValues, ts: Date.now(), evaluator, item, name };
-    
-    smartCache.setWithCompression(key, result, 30 * 60 * 1000);
-    
-    return result;
   };
 
   usageOptimizer.logAccess(key, false);
@@ -1873,6 +1889,11 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
 }
 
 async function safeFetchSecretariatMembers(options = {}) {
+  if (!SHEET_RANGES.MEMBERS) {
+    console.error('SHEET_RANGES.MEMBERS is undefined');
+    throw new Error('Members range configuration missing');
+  }
+
   const cached = smartCache.getWithFallback('secretariatMembers', options.forceRefresh ? 0 : 20 * 60 * 1000);
   if (cached && !options.forceRefresh) {
     window.currentSecretariatMembers = cached;
@@ -1884,18 +1905,19 @@ async function safeFetchSecretariatMembers(options = {}) {
 
   const apiFunction = async () => {
     if (!await isTokenValid()) await refreshAccessToken();
-    
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.MEMBERS,
-    });
-    
-    const members = parseSecretariatMembers(response.result.values);
-    window.currentSecretariatMembers = members;
-    
-    smartCache.setWithCompression('secretariatMembers', members, 60 * 60 * 1000);
-    
-    return members;
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.MEMBERS,
+      });
+      const members = parseSecretariatMembers(response.result.values);
+      window.currentSecretariatMembers = members;
+      smartCache.setWithCompression('secretariatMembers', members, 60 * 60 * 1000);
+      return members;
+    } catch (error) {
+      console.error('Failed to fetch secretariat members:', error);
+      throw error;
+    }
   };
 
   usageOptimizer.logAccess('secretariatMembers', false);
@@ -1908,6 +1930,11 @@ async function safeFetchSecretariatMembers(options = {}) {
 }
 
 async function safeFetchVacanciesData(options = {}) {
+  if (!SHEET_RANGES.VACANCIES) {
+    console.error('SHEET_RANGES.VACANCIES is undefined');
+    throw new Error('Vacancies range configuration missing');
+  }
+
   const cached = smartCache.getWithFallback('vacanciesData', options.forceRefresh ? 0 : 30 * 60 * 1000);
   if (cached && !options.forceRefresh) {
     usageOptimizer.logAccess('vacanciesData', true);
@@ -1918,16 +1945,19 @@ async function safeFetchVacanciesData(options = {}) {
 
   const apiFunction = async () => {
     if (!await isTokenValid()) await refreshAccessToken();
-    
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.VACANCIES,
-    });
-    
-    const result = parseVacanciesData(response.result.values);
-    smartCache.setWithCompression('vacanciesData', result, 2 * 60 * 60 * 1000);
-    
-    return result;
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.VACANCIES,
+      });
+      const result = parseVacanciesData(response.result.values);
+      smartCache.setWithCompression('vacanciesData', result, 2 * 60 * 60 * 1000);
+      vacanciesData = result; // Update global vacanciesData
+      return result;
+    } catch (error) {
+      console.error('Failed to fetch vacancies data:', error);
+      throw error;
+    }
   };
 
   usageOptimizer.logAccess('vacanciesData', false);
@@ -1940,15 +1970,48 @@ async function safeFetchVacanciesData(options = {}) {
 }
 
 async function safeLoadSignatories(options = {}) {
-  if (!loadSignatories || typeof loadSignatories !== 'function') {
-    console.log('loadSignatories function not available');
-    return null;
+  if (!SHEET_RANGES.SECRETARIAT_SIGNATORIES) {
+    console.error('SHEET_RANGES.SECRETARIAT_SIGNATORIES is undefined');
+    throw new Error('Signatories range configuration missing');
   }
-  
-  return await apiManager.enhancedBulletproofFetch('signatories', loadSignatories, {
+
+  const cached = smartCache.getWithFallback('signatories', options.forceRefresh ? 0 : 20 * 60 * 1000);
+  if (cached && !options.forceRefresh) {
+    SIGNATORIES = cached;
+    usageOptimizer.logAccess('signatories', true);
+    return cached;
+  }
+
+  const fallbackData = smartCache.getWithFallback('signatories', 2 * 60 * 60 * 1000);
+
+  const apiFunction = async () => {
+    if (!await isTokenValid()) await refreshAccessToken();
+    try {
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.SECRETARIAT_SIGNATORIES,
+      });
+      const values = response.result.values || [];
+      const signatories = values.map(row => ({
+        name: row[0] || '',
+        position: row[1] || '',
+        assignment: row[2] || ''
+      }));
+      SIGNATORIES = signatories;
+      smartCache.setWithCompression('signatories', signatories, 2 * 60 * 60 * 1000);
+      return signatories;
+    } catch (error) {
+      console.error('Failed to fetch signatories:', error);
+      throw error;
+    }
+  };
+
+  usageOptimizer.logAccess('signatories', false);
+  return await apiManager.enhancedBulletproofFetch('signatories', apiFunction, {
     maxAge: options.maxAge || 20 * 60 * 1000,
     ttl: 2 * 60 * 60 * 1000,
-    forceRefresh: options.forceRefresh
+    forceRefresh: options.forceRefresh,
+    fallbackData
   });
 }
 
@@ -2007,6 +2070,18 @@ document.addEventListener('dblclick', (e) => {
 // ===================
 
 async function preloadCriticalData() {
+  if (!loadingState.configLoaded) {
+    console.log('⏳ Waiting for config to load before preloading...');
+    await new Promise(resolve => {
+      const checkConfig = setInterval(() => {
+        if (loadingState.configLoaded) {
+          clearInterval(checkConfig);
+          resolve();
+        }
+      }, 100);
+    });
+  }
+
   console.log('🚀 Preloading critical data...');
   
   try {
@@ -2014,25 +2089,32 @@ async function preloadCriticalData() {
     await safeFetchVacanciesData();
     
     const currentEvaluator = getCurrentEvaluator();
-    if (currentEvaluator && window.currentSecretariatMembers) {
+    if (currentEvaluator && window.currentSecretariatMembers && Array.isArray(window.currentSecretariatMembers)) {
       const commonItems = ['Leadership', 'Communication'];
       const topMembers = window.currentSecretariatMembers.slice(0, 3);
       
       for (const item of commonItems) {
         for (const member of topMembers) {
-          safeFetchRatings({
-            evaluator: currentEvaluator,
-            item,
-            name: member.name
-          }).catch(e => console.log('Preload failed:', e.message));
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          if (member.name) {
+            await safeFetchRatings({
+              evaluator: currentEvaluator,
+              item,
+              name: member.name
+            }).catch(e => console.log(`Preload failed for ${item}/${member.name}:`, e.message));
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
         }
       }
+    } else {
+      console.warn('⚠️ Skipping rating preload: currentEvaluator or currentSecretariatMembers unavailable', {
+        currentEvaluator,
+        hasMembers: !!window.currentSecretariatMembers
+      });
     }
     
     console.log('✅ Critical data preloaded');
   } catch (error) {
-    console.log('⚠️ Preload failed:', error.message);
+    console.error('⚠️ Preload failed:', error.message);
   }
 }
 
@@ -2092,11 +2174,12 @@ function getPendingRating(evaluator, item, name) {
       const stored = localStorage.getItem(key);
       if (stored) {
         pending = JSON.parse(stored);
-        if (pending.evaluator === evaluator && 
-            pending.item === item && 
-            pending.name === name &&
-            pending.deviceId === apiManager.deviceId) {
-          
+        if (
+          pending.evaluator === evaluator &&
+          pending.item === item &&
+          pending.name === name &&
+          pending.deviceId === apiManager.deviceId
+        ) {
           if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
             pendingRatings.set(key, pending);
             console.log(`📤 Restored pending rating:`, { evaluator, item, name });
@@ -2135,6 +2218,18 @@ function clearPendingRating(evaluator, item, name) {
 // ===================
 
 async function initializeApp() {
+  if (!loadingState.configLoaded) {
+    console.log('⏳ Waiting for config to load before initializing...');
+    await new Promise(resolve => {
+      const checkConfig = setInterval(() => {
+        if (loadingState.configLoaded) {
+          clearInterval(checkConfig);
+          resolve();
+        }
+      }, 100);
+    });
+  }
+
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
   
@@ -2180,7 +2275,7 @@ async function initializeApp() {
           required: true
         },
         {
-          key: 'vacanciesData', 
+          key: 'vacanciesData',
           fetchFunction: safeFetchVacanciesData,
           priority: 2,
           required: true
@@ -2218,7 +2313,7 @@ async function initializeApp() {
       
       console.log('📊 Multi-device API Results:', {
         successful: batchResult.results.length,
-        failed: batchResult.errors.length_pin,
+        failed: batchResult.errors.length,
         metrics: batchResult.metrics,
         quotaStatus: apiManager.globalQuotaState.quotaExceededAt ? 'EXCEEDED' : 'OK'
       });
@@ -2231,24 +2326,6 @@ async function initializeApp() {
       await handleInitializationFailure();
     }
   });
-
-  setInterval(() => {
-    const status = conservativeAPI.getStatus();
-    const syncStatus = offlineRatingManager.getSyncStatus();
-    
-    console.log('📊 System Status:', {
-      apiQuota: `${status.dailyUsage}/280`,
-      cacheSize: smartCache.cache.size,
-      pendingSync: syncStatus.unsynced,
-      mode: status.conservativeMode ? 'Conservative' : 'Normal'
-    });
-    
-    if (syncStatus.unsynced > 10) {
-      console.warn(`⚠️ ${syncStatus.unsynced} ratings waiting to sync`);
-    }
-  }, 2 * 60 * 1000);
-
-  createSyncStatusIndicator();
 }
 
 function createSyncStatusIndicator() {
@@ -7067,6 +7144,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
