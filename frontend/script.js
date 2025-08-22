@@ -532,11 +532,12 @@ function startUIMonitoring() {
 
 
 // ===========================
-// LIVE API NOTIFIER (Safe + Auto-Updating)
+// LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
 // ===========================
 
 let apiNotifierEl = null;
 
+// Create or get the notifier element
 function createApiNotifier() {
   if (!apiNotifierEl) {
     apiNotifierEl = document.createElement("div");
@@ -574,14 +575,16 @@ function createApiNotifier() {
   return { update };
 }
 
-// Initialize notifier immediately (UI exists)
+// ===========================
+// Initialize notifier
+// ===========================
 const apiNotifier = createApiNotifier();
 
-// Backward-compatible updater
+// ✅ Backward compatibility shim
 function updateApiNotifier(status, message, extra = {}) {
   apiNotifier.update({
     ready: status === "ready",
-    deviceId: extra.deviceId ?? "N/A",
+    deviceId: extra.deviceId, // fully dynamic
     quota: extra.quota ?? "?",
     resetTime: extra.resetTime ?? null,
     lastRequest: extra.lastRequest ?? null,
@@ -590,36 +593,54 @@ function updateApiNotifier(status, message, extra = {}) {
 }
 
 // ===========================
-// Fetch device info safely
+// Fetch live device info from apiManager
 // ===========================
 async function fetchDeviceInfo() {
-  if (!window.apiManager) return null;
-
-  const metrics = apiManager.getMetrics?.() || {};
-  const globalQuotaState = metrics.globalQuotaState || {};
-
-  return {
-    deviceId: globalQuotaState.deviceId ?? "N/A",
-    quota: typeof globalQuotaState.requestsToday === "number" ? (globalQuotaState.quotaLimit ?? 100) - globalQuotaState.requestsToday : "?",
-    resetTime: globalQuotaState.quotaResetTime ?? null,
-    lastRequest: globalQuotaState.lastRequestTime ?? Date.now(),
-    message: globalQuotaState.lastQuotaError ? `Last error: ${globalQuotaState.lastQuotaError}` : "",
-  };
-}
-
-// ===========================
-// Auto-live notifier updater
-// ===========================
-async function liveUpdateNotifier() {
   try {
-    const info = await fetchDeviceInfo();
-    if (!info) return; // apiManager not ready
+    const metrics = apiManager.getMetrics(); // your live API manager metrics
+    const globalQuota = metrics.globalQuotaState || {};
 
-    updateApiNotifier("ready", "Live status update", info);
+    return {
+      requestsToday: globalQuota.requestsToday ?? 0,
+      isExceeded: !!globalQuota.quotaExceededAt,
+      activeDevices: metrics.activeDevices ?? 1,
+      quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
+      lastQuotaError: globalQuota.lastQuotaError ?? null,
+      lastRequestTime: Date.now(),
+      deviceId: metrics.deviceId ?? "unknown_device"
+    };
   } catch (err) {
-    updateApiNotifier("error", `Failed to fetch device info: ${err.message}`);
+    console.error("❌ Failed to fetch device info:", err);
+    return {
+      requestsToday: "?",
+      isExceeded: false,
+      activeDevices: "?",
+      quotaResetTime: null,
+      lastQuotaError: err.message,
+      lastRequestTime: Date.now(),
+      deviceId: "unknown_device"
+    };
   }
 }
+
+// ===========================
+// Live auto-update every 5s
+// ===========================
+async function liveUpdateNotifier() {
+  const info = await fetchDeviceInfo();
+
+  updateApiNotifier("ready", "Live status update", {
+    deviceId: info.deviceId,
+    quota: info.requestsToday >= 0 ? `Remaining: ${info.requestsToday}` : "?",
+    resetTime: info.quotaResetTime,
+    lastRequest: info.lastRequestTime
+  });
+}
+
+// Initial call + auto-update every 5s
+liveUpdateNotifier();
+setInterval(liveUpdateNotifier, 5000);
+
 
 
 
@@ -1416,34 +1437,50 @@ const pendingRatingsManager = {
 // ============================================================================
 
 async function initializeApp() {
+  // 1. Show a loading spinner to the user immediately.
+  // This provides feedback that the application is starting up.
   showSpinner(true);
 
   try {
+    // 2. Initialize the custom API manager. This is an asynchronous operation.
     await apiManager.init();
 
-    gapi.load("client", async () => {
-      try {
-        await initializeGapiClient();
-        console.log("✅ GAPI client initialized");
-
-        setupUI();
-        await loadInitialData();
-        finishInitialization();
-
-        // ✅ Start live API notifier only AFTER apiManager is ready
-        liveUpdateNotifier();              // initial call
-        setInterval(liveUpdateNotifier, 5000); // auto-update every 5s
-
-      } catch (gapiError) {
-        console.error("❌ GAPI initialization failed:", gapiError);
-        handleInitializationFailure(gapiError);
-      }
+    // 3. Load the GAPI client library.
+    // The gapi.client.init call is asynchronous and can be awaited directly.
+    await new Promise((resolve, reject) => {
+      // Use gapi.load to ensure the 'client' library is ready before proceeding.
+      gapi.load('client', async () => {
+        try {
+          await initializeGapiClient();
+          console.log('✅ GAPI client initialized successfully.');
+          resolve();
+        } catch (gapiError) {
+          reject(gapiError); // Reject the promise on GAPI client initialization failure.
+        }
+      });
     });
-  } catch (managerError) {
-    console.error("❌ BulletproofAPIManager initialization failed:", managerError);
-    handleInitializationFailure(managerError);
+
+    // 4. Setup the user interface once all asynchronous initialization is complete.
+    setupUI();
+
+    // 5. Load the initial application data.
+    // This could involve fetching data from various sources.
+    await loadInitialData();
+
+    // 6. Finalize the initialization process.
+    // This typically includes hiding the spinner and making the app interactive.
+    finishInitialization();
+
+  } catch (error) {
+    // 7. Catch and handle any errors from the entire initialization process.
+    console.error('❌ Application initialization failed:', error);
+    handleInitializationFailure(error);
+  } finally {
+    // This ensures the spinner is always hidden, even if an error occurs.
+    showSpinner(false);
   }
 }
+
 
 /**
  * Loads critical data, first from cache, then concurrently via network.
@@ -6172,6 +6209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
