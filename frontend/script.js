@@ -532,12 +532,11 @@ function startUIMonitoring() {
 
 
 // ===========================
-// LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
+// LIVE API NOTIFIER (Safe + Auto-Updating)
 // ===========================
 
 let apiNotifierEl = null;
 
-// Create or get the notifier element
 function createApiNotifier() {
   if (!apiNotifierEl) {
     apiNotifierEl = document.createElement("div");
@@ -575,16 +574,14 @@ function createApiNotifier() {
   return { update };
 }
 
-// ===========================
-// Initialize notifier
-// ===========================
+// Initialize notifier immediately (UI exists)
 const apiNotifier = createApiNotifier();
 
-// ✅ Backward compatibility shim
+// Backward-compatible updater
 function updateApiNotifier(status, message, extra = {}) {
   apiNotifier.update({
     ready: status === "ready",
-    deviceId: extra.deviceId, // fully dynamic
+    deviceId: extra.deviceId ?? "N/A",
     quota: extra.quota ?? "?",
     resetTime: extra.resetTime ?? null,
     lastRequest: extra.lastRequest ?? null,
@@ -593,48 +590,35 @@ function updateApiNotifier(status, message, extra = {}) {
 }
 
 // ===========================
-// Fetch live device info from apiManager
+// Fetch device info safely
 // ===========================
 async function fetchDeviceInfo() {
-  try {
-    const metrics = apiManager.getMetrics(); // your live API manager metrics
-    const globalQuota = metrics.globalQuotaState || {};
+  if (!window.apiManager) return null;
 
-    return {
-      requestsToday: globalQuota.requestsToday ?? 0,
-      isExceeded: !!globalQuota.quotaExceededAt,
-      activeDevices: metrics.activeDevices ?? 1,
-      quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
-      lastQuotaError: globalQuota.lastQuotaError ?? null,
-      lastRequestTime: Date.now(),
-      deviceId: metrics.deviceId ?? "unknown_device"
-    };
-  } catch (err) {
-    console.error("❌ Failed to fetch device info:", err);
-    return {
-      requestsToday: "?",
-      isExceeded: false,
-      activeDevices: "?",
-      quotaResetTime: null,
-      lastQuotaError: err.message,
-      lastRequestTime: Date.now(),
-      deviceId: "unknown_device"
-    };
-  }
+  const metrics = apiManager.getMetrics?.() || {};
+  const globalQuotaState = metrics.globalQuotaState || {};
+
+  return {
+    deviceId: globalQuotaState.deviceId ?? "N/A",
+    quota: typeof globalQuotaState.requestsToday === "number" ? (globalQuotaState.quotaLimit ?? 100) - globalQuotaState.requestsToday : "?",
+    resetTime: globalQuotaState.quotaResetTime ?? null,
+    lastRequest: globalQuotaState.lastRequestTime ?? Date.now(),
+    message: globalQuotaState.lastQuotaError ? `Last error: ${globalQuotaState.lastQuotaError}` : "",
+  };
 }
 
 // ===========================
-// Live auto-update every 5s
+// Auto-live notifier updater
 // ===========================
 async function liveUpdateNotifier() {
-  const info = await fetchDeviceInfo();
+  try {
+    const info = await fetchDeviceInfo();
+    if (!info) return; // apiManager not ready
 
-  updateApiNotifier("ready", "Live status update", {
-    deviceId: info.deviceId,
-    quota: info.requestsToday >= 0 ? `Remaining: ${info.requestsToday}` : "?",
-    resetTime: info.quotaResetTime,
-    lastRequest: info.lastRequestTime
-  });
+    updateApiNotifier("ready", "Live status update", info);
+  } catch (err) {
+    updateApiNotifier("error", `Failed to fetch device info: ${err.message}`);
+  }
 }
 
 // Initial call + auto-update every 5s
@@ -1440,24 +1424,26 @@ async function initializeApp() {
   try {
     await apiManager.init();
 
-    gapi.load('client', async () => {
+    gapi.load("client", async () => {
       try {
         await initializeGapiClient();
-        console.log('✅ GAPI client initialized');
+        console.log("✅ GAPI client initialized");
 
         setupUI();
-
         await loadInitialData();
-
         finishInitialization();
 
+        // ✅ Start live API notifier only AFTER apiManager is ready
+        liveUpdateNotifier();              // initial call
+        setInterval(liveUpdateNotifier, 5000); // auto-update every 5s
+
       } catch (gapiError) {
-        console.error('❌ GAPI initialization failed:', gapiError);
+        console.error("❌ GAPI initialization failed:", gapiError);
         handleInitializationFailure(gapiError);
       }
     });
   } catch (managerError) {
-    console.error('❌ BulletproofAPIManager initialization failed:', managerError);
+    console.error("❌ BulletproofAPIManager initialization failed:", managerError);
     handleInitializationFailure(managerError);
   }
 }
@@ -6189,6 +6175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
