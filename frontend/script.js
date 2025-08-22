@@ -1655,14 +1655,14 @@ async function initializeApp() {
     pageWrapper.style.opacity = '0.3';
   }
 
-  // Force hide spinner after 10 seconds to prevent hanging
+  // Force hide spinner after 60 seconds to prevent hanging
   setTimeout(() => {
     if (spinner && spinner.style.display !== 'none') {
       console.warn('🕒 Forcing spinner hide due to timeout');
       spinner.style.display = 'none';
       if (pageWrapper) pageWrapper.style.opacity = '1';
     }
-  }, 10000);
+  }, 60000);
 
   gapi.load('client', async () => {
     try {
@@ -6705,6 +6705,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
