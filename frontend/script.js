@@ -886,7 +886,6 @@ class BulletproofAPIManager {
   generateDeviceId() {
     const stored = localStorage.getItem('device_id');
     if (stored) return stored;
-    
     const deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
     localStorage.setItem('device_id', deviceId);
     return deviceId;
@@ -897,8 +896,6 @@ class BulletproofAPIManager {
       const stored = localStorage.getItem(this.globalQuotaKey);
       if (stored) {
         const state = JSON.parse(stored);
-        
-        // Reset if it's a new day
         if (Date.now() - (state.lastReset || 0) > this.quotaResetTime) {
           return this.resetGlobalQuotaState();
         }
@@ -930,51 +927,37 @@ class BulletproofAPIManager {
     }
   }
 
-  // Simplified quota check
   isGlobalQuotaExceeded() {
     if (!this.globalQuotaState.quotaExceededAt) return false;
-    
     const timeSinceQuotaError = Date.now() - this.globalQuotaState.quotaExceededAt;
-    
-    // Only block for 10 minutes after quota error, then try again
     if (timeSinceQuotaError < 10 * 60 * 1000) {
       return true;
     }
-    
-    // Reset quota exceeded state
     this.globalQuotaState.quotaExceededAt = null;
     this.saveGlobalQuotaState();
     return false;
   }
 
-  // Enhanced cache getter (integrating with existing cache method)
   getCachedData(key, maxAge = 5 * 60 * 1000) {
-    // Try enhanced cache first
     const enhanced = this.enhancedCache.getWithFallback(key, maxAge);
     if (enhanced) {
       this.metrics.cacheHits++;
       return enhanced;
     }
-    
-    // Fallback to original cache if available
     const originalCached = this.cache?.get(key);
     if (originalCached) {
       const age = Date.now() - originalCached.timestamp;
-      if (age < maxAge * 2) { // More lenient for fallback
+      if (age < maxAge * 2) {
         this.metrics.cacheHits++;
         console.log(`📦 Original cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
         return originalCached.data;
       }
     }
-    
     return null;
   }
 
   setCachedData(key, data, customTTL = null) {
-    // Set in enhanced cache
     this.enhancedCache.setWithCompression(key, data, customTTL || 60 * 60 * 1000);
-    
-    // Also set in original cache if it exists
     if (this.cache) {
       this.cache.set(key, {
         data,
@@ -984,54 +967,50 @@ class BulletproofAPIManager {
     }
   }
 
-  // Simplified error classification
   classifyError(error) {
     const errorMessage = error.message || error.toString();
     const errorCode = error.code || error.status;
-    
-    // Quota exceeded errors
-    if (errorCode === 403 || 
-        errorMessage.includes('quotaExceeded') || 
-        errorMessage.includes('userRateLimitExceeded') ||
-        errorMessage.includes('dailyLimitExceeded') ||
-        errorMessage.includes('Quota exceeded')) {
-      
+    if (
+      errorCode === 403 ||
+      errorMessage.includes('quotaExceeded') ||
+      errorMessage.includes('userRateLimitExceeded') ||
+      errorMessage.includes('dailyLimitExceeded') ||
+      errorMessage.includes('Quota exceeded')
+    ) {
       this.globalQuotaState.quotaExceededAt = Date.now();
       this.globalQuotaState.lastQuotaError = errorMessage;
       this.saveGlobalQuotaState();
-      
-      return { 
-        type: 'quota', 
-        retryable: true, 
-        backoffMultiplier: 3
-      };
+      return { type: 'quota', retryable: true, backoffMultiplier: 3 };
     }
-    
-    // Rate limit errors
     if (errorCode === 429 || errorMessage.includes('rateLimitExceeded')) {
       return { type: 'rateLimit', retryable: true, backoffMultiplier: 2 };
     }
-    
-    // Network errors
-    if (errorMessage.includes('network') || 
-        errorMessage.includes('timeout') ||
-        errorCode >= 500) {
+    if (
+      errorMessage.includes('network') ||
+      errorMessage.includes('timeout') ||
+      errorCode >= 500
+    ) {
       return { type: 'network', retryable: true, backoffMultiplier: 1.5 };
     }
-    
-    // Authentication errors
     if (errorCode === 401 || errorMessage.includes('unauthorized')) {
       return { type: 'auth', retryable: false, backoffMultiplier: 1 };
     }
-    
     return { type: 'unknown', retryable: false, backoffMultiplier: 1 };
+  }
+
+  recordSuccess(key) {
+    console.log(`📈 Recording success for ${key}`);
+    this.circuitBreaker.delete(key);
+    this.metrics.successfulRequests++;
+    this.globalQuotaState.requestsToday++;
+    this.saveGlobalQuotaState();
   }
 
   // Simplified main fetch with adaptive management
   async bulletproofFetch(key, fetchFunction, options = {}) {
     this.metrics.totalRequests++;
+    console.log(`🚀 Initiating fetch for ${key}`);
 
-    // Check cache first
     const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
     const cachedData = this.getCachedData(key, maxCacheAge);
     if (cachedData && !options.forceRefresh) {
@@ -1039,12 +1018,9 @@ class BulletproofAPIManager {
       return cachedData;
     }
 
-    // Check if request is already in flight
     if (this.requestQueue.has(key)) {
       console.log(`⏳ Waiting for existing request: ${key}`);
       const requestPromise = this.requestQueue.get(key);
-
-      // Add timeout to prevent indefinite waiting
       try {
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error(`Request timeout for ${key} after 10s`)), 10000)
@@ -1053,24 +1029,22 @@ class BulletproofAPIManager {
         return result;
       } catch (error) {
         console.warn(`⚠️ Request for ${key} timed out or failed, removing from queue:`, error.message);
-        this.requestQueue.delete(key); // Clear stuck request
-        // Retry as a new request
+        this.requestQueue.delete(key);
       }
     }
 
-    // Create new request
     const requestPromise = this.adaptiveManager.safeApiCall(async () => {
       return await this.executeWithRetry(key, fetchFunction, options);
-    }, this.getCachedData(key, 30 * 60 * 1000)); // 30min fallback
+    }, this.getCachedData(key, 30 * 60 * 1000));
 
     this.requestQueue.set(key, requestPromise);
 
     try {
       const result = await requestPromise;
-      this.requestQueue.delete(key); // Ensure request is removed
+      this.requestQueue.delete(key);
       return result;
     } catch (error) {
-      this.requestQueue.delete(key); // Clear on error
+      this.requestQueue.delete(key);
       throw error;
     }
   }
@@ -1083,7 +1057,17 @@ class BulletproofAPIManager {
         console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key}`);
         const result = await fetchFunction();
 
-        this.recordSuccess(key);
+        // Ensure recordSuccess is called
+        if (typeof this.recordSuccess === 'function') {
+          this.recordSuccess(key);
+        } else {
+          console.error('❌ recordSuccess method is missing! Falling back to manual metrics update.');
+          this.circuitBreaker.delete(key);
+          this.metrics.successfulRequests++;
+          this.globalQuotaState.requestsToday++;
+          this.saveGlobalQuotaState();
+        }
+
         this.setCachedData(key, result, options.cacheTTL);
         console.log(`✅ Successfully fetched ${key}`);
         return result;
@@ -1110,8 +1094,7 @@ class BulletproofAPIManager {
       }
     }
 
-    // Try stale cache as last resort
-    const staleData = this.getCachedData(key, 2 * 60 * 60 * 1000); // 2 hour fallback
+    const staleData = this.getCachedData(key, 2 * 60 * 60 * 1000);
     if (staleData) {
       console.log(`🗃️ All retries failed for ${key}. Using stale cache.`);
       return staleData;
@@ -1134,7 +1117,6 @@ class BulletproofAPIManager {
     let currentDelay = 2000;
 
     for (const request of requests) {
-      // Skip if already loaded from cache
       const cachedData = this.getCachedData(request.key, request.options?.maxCacheAge || 5 * 60 * 1000);
       if (cachedData && !request.options?.forceRefresh) {
         console.log(`📦 Skipping ${request.key} - using cached data`);
@@ -1194,13 +1176,14 @@ class BulletproofAPIManager {
   getMetrics() {
     const enhancedStatus = this.enhancedCache.getQuotaStatus();
     const adaptiveStatus = this.adaptiveManager.getStatus();
-    
+
     return {
       ...this.metrics,
       cacheSize: this.enhancedCache.cache.size,
       queueSize: this.requestQueue.size,
-      successRate: this.metrics.totalRequests > 0 ? 
-        (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0,
+      successRate: this.metrics.totalRequests > 0
+        ? (this.metrics.successfulRequests / this.metrics.totalRequests) * 100
+        : 0,
       enhancedCache: enhancedStatus,
       adaptiveManager: adaptiveStatus,
       globalQuotaState: {
@@ -1217,7 +1200,6 @@ class BulletproofAPIManager {
   }
 
   cleanup() {
-    // Minimal cleanup
     console.log(`🧹 Device ${this.deviceId} cleaned up`);
   }
 }
@@ -6723,6 +6705,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
