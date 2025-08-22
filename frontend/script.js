@@ -531,6 +531,59 @@ function startUIMonitoring() {
 }
 
 
+// ------------------------------
+// API Notifier Helpers
+// ------------------------------
+function createApiNotifier() {
+  let notifier = document.getElementById("api-notifier");
+  if (!notifier) {
+    notifier = document.createElement("div");
+    notifier.id = "api-notifier";
+    notifier.style.position = "fixed";
+    notifier.style.bottom = "20px";
+    notifier.style.right = "20px";
+    notifier.style.padding = "10px 15px";
+    notifier.style.borderRadius = "12px";
+    notifier.style.fontFamily = "Arial, sans-serif";
+    notifier.style.fontSize = "14px";
+    notifier.style.color = "#fff";
+    notifier.style.background = "rgba(0, 0, 0, 0.75)";
+    notifier.style.zIndex = "9999";
+    notifier.style.display = "none";
+    document.body.appendChild(notifier);
+  }
+  return notifier;
+}
+
+function updateApiNotifier(status, message) {
+  const notifier = createApiNotifier();
+  notifier.innerText = message;
+
+  switch (status) {
+    case "ready":
+      notifier.style.background = "rgba(46, 204, 113, 0.9)"; // green
+      break;
+    case "waiting":
+      notifier.style.background = "rgba(241, 196, 15, 0.9)"; // yellow
+      break;
+    case "error":
+      notifier.style.background = "rgba(231, 76, 60, 0.9)"; // red
+      break;
+    default:
+      notifier.style.background = "rgba(0, 0, 0, 0.75)"; // default
+  }
+
+  notifier.style.display = "block";
+
+  // Auto-hide after 5s (unless "waiting")
+  if (status !== "waiting") {
+    setTimeout(() => {
+      notifier.style.display = "none";
+    }, 5000);
+  }
+}
+
+
 
 
 // ============================================================================
@@ -600,56 +653,6 @@ class BulletproofAPIManager {
   } catch (err) {
     console.error("Init failed:", err);
     updateApiNotifier("error", err.message);
-  }
-}
-
-
-
-// ============================================================================
-// API Readiness Notifier (UI Overlay)
-// ============================================================================
-
-function createApiNotifier() {
-  let el = document.getElementById("api-notifier");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "api-notifier";
-    Object.assign(el.style, {
-      position: "fixed",
-      bottom: "15px",
-      right: "15px",
-      padding: "10px 16px",
-      borderRadius: "8px",
-      color: "#fff",
-      fontSize: "14px",
-      fontFamily: "Arial, sans-serif",
-      zIndex: "9999",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-      transition: "opacity 0.3s ease, transform 0.3s ease",
-      opacity: "0.95"
-    });
-    document.body.appendChild(el);
-  }
-  return el;
-}
-
-function updateApiNotifier(status, message) {
-  const el = createApiNotifier();
-  if (status === "ready") {
-    el.style.background = "#28a745"; // green
-    el.textContent = `✅ API Ready: ${message || "All systems go"}`;
-  } else if (status === "loading") {
-    el.style.background = "#ffc107"; // amber
-    el.textContent = `⏳ Initializing API... ${message || ""}`;
-  } else if (status === "error") {
-    el.style.background = "#dc3545"; // red
-    el.textContent = `❌ API Error: ${message || "Check connection/quota"}`;
-  } else if (status === "warning") {
-    el.style.background = "#fd7e14"; // orange
-    el.textContent = `⚠️ ${message || "Potential issue detected"}`;
-  } else {
-    el.style.background = "#6c757d"; // gray fallback
-    el.textContent = message || "ℹ️ Status unknown";
   }
 }
 
@@ -6106,6 +6109,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
