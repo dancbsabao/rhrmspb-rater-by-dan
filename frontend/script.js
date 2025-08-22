@@ -3,6 +3,92 @@
 // =====================================
 
 // =====================================
+// BulletproofAPIManager (from 3.js)
+// =====================================
+
+class BulletproofAPIManager {
+  constructor() {
+    this.cache = new Map();
+  }
+
+  async bulletproofFetch(cacheKey, fetchFunction, options = {}) {
+    const {
+      forceRefresh = false,
+      cacheDuration = 600000
+    } = options;
+
+    if (!forceRefresh && this.cache.has(cacheKey)) {
+      const cachedData = this.cache.get(cacheKey);
+      if (Date.now() - cachedData.timestamp < cacheDuration) {
+        console.log(`Cache hit for ${cacheKey}.`);
+        return cachedData.data;
+      }
+    }
+
+    try {
+      const response = await fetchFunction();
+      if (!response.result) {
+        throw new Error("Invalid API response format");
+      }
+      this.cache.set(cacheKey, {
+        data: response,
+        timestamp: Date.now()
+      });
+      return response;
+    } catch (error) {
+      console.error(`Error fetching ${cacheKey}:`, error);
+      if (this.cache.has(cacheKey)) {
+        console.log(`Failed to fetch, returning stale data for ${cacheKey}.`);
+        return this.cache.get(cacheKey).data;
+      }
+      throw error;
+    }
+  }
+
+  async batchFetch(requests, options = {}) {
+    const results = [];
+    const promises = requests.map(request =>
+      this.bulletproofFetch(request.key, request.fetchFunction, request.options)
+      .then(data => results.push({
+        key: request.key,
+        data
+      }))
+      .catch(error => {
+        console.error(`Batch fetch error for ${request.key}:`, error);
+        results.push({
+          key: request.key,
+          error
+        });
+      })
+    );
+
+    await Promise.allSettled(promises);
+    return {
+      results
+    };
+  }
+
+  getCachedData(cacheKey) {
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 600000) {
+      return cached.data;
+    }
+    return null;
+  }
+
+  setCachedData(cacheKey, data) {
+    this.cache.set(cacheKey, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  clearCache() {
+    this.cache.clear();
+  }
+}
+
+// =====================================
 // CONFIGURATION (from 3.js)
 // =====================================
 
@@ -1806,5 +1892,56 @@ function getSignatures() {
   }] : [];
 }
 
-// BulletproofAPIManager and other classes are already defined at the top
-// of the combined file, so no need to redefine here.
+// =====================================
+// MISSING FUNCTION STUBS (To prevent "not defined" errors) (from 1.js)
+// =====================================
+// These are stubs for functions that might not be defined in your existing code
+if (typeof parseSecretariatMembers === 'undefined') {
+  window.parseSecretariatMembers = function(values) {
+    console.log('parseSecretariatMembers stub called');
+    if (!values || values.length <= 1) return [];
+
+    const members = [];
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      if (row && row[0]) {
+        members.push({
+          id: row[0],
+          name: row[1] || '',
+          position: row[2] || '',
+          vacancies: (row[3] || '').split(',').map(v => v.trim()).filter(Boolean)
+        });
+      }
+    }
+    return members;
+  };
+}
+
+if (typeof parseVacanciesData === 'undefined') {
+  window.parseVacanciesData = function(values) {
+    console.log('parseVacanciesData stub called');
+    return values || [];
+  };
+}
+
+if (typeof matchesRatingRow === 'undefined') {
+  window.matchesRatingRow = function(row, item, name, evaluator) {
+    if (!row || row.length < 4) return false;
+
+    // Adjust these indices based on your actual sheet structure
+    const rowEvaluator = row[3]?.trim().toUpperCase();
+    const rowItem = row[1]?.trim().toUpperCase();
+    const rowName = row[0]?.trim().toUpperCase();
+
+    const isMatch = rowEvaluator === evaluator.toUpperCase() &&
+      rowItem === item.toUpperCase() &&
+      rowName === name.toUpperCase();
+
+    return isMatch;
+  };
+}
+
+function initializeDropdowns(vacancies) {
+  const assignments = [...new Set(vacancies.slice(1).map(row => row[2]))].filter(Boolean);
+  updateDropdown(elements.assignmentDropdown, assignments, 'Select Assignment');
+}
