@@ -536,7 +536,7 @@ function startUIMonitoring() {
 // ============================================================================
 //
 //      PROFESSIONALLY REFACTORED BULLETPROOF API & STATE MANAGER
-//      (Version 2.0 - MODIFIED FOR FASTER BATCH FETCH)
+//      (Version 2.1 - OPTIMIZED FOR IMMEDIATE INITIAL LOAD)
 //
 //      - Singleton design for unified state management.
 //      - Efficient, event-driven multi-tab state synchronization.
@@ -661,6 +661,8 @@ class BulletproofAPIManager {
   /**
    * Processes a batch of requests with multi-device awareness.
    * Requests are executed serially to respect rate limits.
+   * This method is now primarily for scenarios where serial execution is desired.
+   * For immediate loading, consider using `concurrentFetch` or direct `bulletproofFetch` calls.
    * @param {Array<object>} requests Array of request objects.
    * @param {object} [options={}] Batch processing options.
    * @param {boolean} [options.priorityOrder=true] Sort requests by priority.
@@ -714,6 +716,45 @@ class BulletproofAPIManager {
     }
 
     console.log(`🏁 Batch complete: ${results.length} successful, ${errors.length} failed.`);
+    return { results, errors, metrics: this.getMetrics() };
+  }
+
+  /**
+   * Processes a batch of requests concurrently.
+   * This method is designed for speed, but use with caution as it can hit API rate limits faster.
+   * It still leverages `bulletproofFetch` for individual request resilience.
+   * @param {Array<object>} requests Array of request objects, each with { key, fetchFunction, options }.
+   * @returns {Promise<{results: Array, errors: Array, metrics: object}>}
+   */
+  async concurrentFetch(requests) {
+    console.log(`⚡ Starting concurrent fetch for ${requests.length} items.`);
+    this.metrics.totalRequests += requests.length; // Account for all requests upfront
+
+    const promises = requests.map(async (request) => {
+      try {
+        const result = await this.bulletproofFetch(request.key, request.fetchFunction, request.options);
+        return { key: request.key, data: result, success: true };
+      } catch (error) {
+        return { key: request.key, error: error.message, success: false };
+      }
+    });
+
+    const settledResults = await Promise.allSettled(promises);
+
+    const results = [];
+    const errors = [];
+
+    for (const settledResult of settledResults) {
+      if (settledResult.status === 'fulfilled') {
+        results.push(settledResult.value);
+      } else {
+        // This case should ideally be caught by bulletproofFetch's internal error handling
+        // but included for robustness.
+        errors.push({ key: 'unknown', error: settledResult.reason?.message || 'Unknown error', success: false });
+      }
+    }
+    
+    console.log(`🏁 Concurrent fetch complete: ${results.length} successful, ${errors.length} failed.`);
     return { results, errors, metrics: this.getMetrics() };
   }
   
@@ -770,6 +811,7 @@ class BulletproofAPIManager {
    */
   async _executeWithRetry(key, fetchFunction, options) {
     // Add a staggered delay based on device ID to prevent simultaneous requests from multiple devices
+    // This delay is still important for concurrent fetches to reduce initial collision risk
     await this._wait(this._calculateDeviceDelay());
 
     let lastError = null;
@@ -1233,7 +1275,7 @@ async function initializeApp() {
         
         setupUI(); // Setup UI elements that don't depend on data
         
-        await loadInitialData();
+        await loadInitialData(); // THIS IS THE KEY CHANGE
         
         finishInitialization();
         
@@ -1249,10 +1291,11 @@ async function initializeApp() {
 }
 
 /**
- * Loads critical data, first from cache, then via network.
+ * Loads critical data, first from cache, then concurrently via network.
+ * This is now optimized for immediate loading.
  */
 async function loadInitialData() {
-  console.log('🎯 Starting multi-device API calls...');
+  console.log('🎯 Starting immediate initial data load...');
   console.log('📱 Device Info:', apiManager.getMetrics().globalQuotaState);
   
   const apiRequests = [
@@ -1262,54 +1305,56 @@ async function loadInitialData() {
   ];
 
   // Attempt to load everything from cache first for a fast startup
-  const { loadedFromCache, requestsToFetch } = await tryLoadFromCache(apiRequests);
-  if (requestsToFetch.length === 0) {
+  const { cachedResults, requestsToFetch } = apiManager._processBatchCache(apiRequests); // Use internal helper
+  
+  // If all required data is in cache, we're done!
+  const allRequiredCached = apiRequests.filter(r => r.required).every(req => 
+    cachedResults.some(cr => cr.key === req.key)
+  );
+
+  if (allRequiredCached && requestsToFetch.length === 0) {
       console.log('🚀 All required data loaded from cache! UI is ready.');
+      // You might want to process cachedResults here if needed for UI
       return;
   }
+
+  // Fetch remaining data concurrently using the new concurrentFetch method
+  console.log(`⚡ Fetching ${requestsToFetch.length} remaining items concurrently.`);
+  const concurrentResult = await apiManager.concurrentFetch(requestsToFetch);
   
-  // Fetch remaining data using the batch processor
-  const batchResult = await apiManager.batchFetch(requestsToFetch);
-  
-  const criticalErrors = batchResult.errors.filter(err =>
+  // Combine cached results with newly fetched results
+  const allResults = [...cachedResults, ...concurrentResult.results];
+  const allErrors = concurrentResult.errors;
+
+  const criticalErrors = allErrors.filter(err =>
     apiRequests.find(req => req.key === err.key)?.required
   );
 
   if (criticalErrors.length > 0) {
-    console.error('🚨 Critical API failures detected:', criticalErrors);
+    console.error('🚨 Critical API failures detected during concurrent load:', criticalErrors);
     handleCriticalAPIFailure(criticalErrors);
+  } else {
+      console.log('✅ Initial data load complete (concurrently fetched).');
+      // Here you would typically process `allResults` to populate your UI
+      // For example:
+      // const secretariatMembers = allResults.find(r => r.key === 'secretariatMembers')?.data;
+      // const vacanciesData = allResults.find(r => r.key === 'vacanciesData')?.data;
+      // ... update UI with this data
   }
 }
 
 /**
  * Tries to fulfill API requests from cache.
- * @returns {{loadedFromCache: boolean, requestsToFetch: Array}}
+ * NOTE: This helper is now internal to BulletproofAPIManager as _processBatchCache
+ * and is used by loadInitialData.
  */
-async function tryLoadFromCache(requests) {
-    const requestsToFetch = [];
-    let requiredLoadedCount = 0;
-    const totalRequired = requests.filter(r => r.required).length;
-
-    for (const req of requests) {
-        const cached = apiManager._getCachedData(req.key, 30 * 60 * 1000); // 30 min tolerance
-        if (cached) {
-            console.log(`✅ Loaded "${req.key}" from cache.`);
-            if (req.required) requiredLoadedCount++;
-        } else {
-            requestsToFetch.push(req);
-        }
-    }
-    return {
-        loadedFromCache: requiredLoadedCount === totalRequired,
-        requestsToFetch,
-    };
-}
+// async function tryLoadFromCache(requests) { ... removed ... }
 
 
 function setupUI() {
   createEvaluatorSelector();
   setupTabNavigation();
-  // ... other UI setup that doesn't need API data
+  // ... other UI setup that doesn't depend on data
 }
 
 function finishInitialization() {
@@ -1551,6 +1596,17 @@ function handleTokenCallback(tokenResponse) {
       });
   }
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 function maybeEnableButtons() {
@@ -5941,6 +5997,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
