@@ -532,10 +532,12 @@ function startUIMonitoring() {
 
 
 // ===========================
-// LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
+// ENHANCED LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
 // ===========================
-
 let apiNotifierEl = null;
+let updateInterval = null;
+let isMinimized = false;
+let lastUpdateTime = null;
 
 // Create or get the notifier element
 function createApiNotifier() {
@@ -546,12 +548,33 @@ function createApiNotifier() {
     apiNotifierEl.style.bottom = "10px";
     apiNotifierEl.style.right = "10px";
     apiNotifierEl.style.padding = "12px 16px";
-    apiNotifierEl.style.background = "#222";
+    apiNotifierEl.style.background = "linear-gradient(135deg, #2d3748, #4a5568)";
     apiNotifierEl.style.color = "white";
     apiNotifierEl.style.borderRadius = "12px";
-    apiNotifierEl.style.boxShadow = "0 4px 8px rgba(0,0,0,0.25)";
-    apiNotifierEl.style.fontSize = "14px";
+    apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
+    apiNotifierEl.style.fontSize = "13px";
+    apiNotifierEl.style.fontFamily = "system-ui, -apple-system, sans-serif";
     apiNotifierEl.style.zIndex = "9999";
+    apiNotifierEl.style.cursor = "pointer";
+    apiNotifierEl.style.transition = "all 0.3s ease";
+    apiNotifierEl.style.border = "1px solid rgba(255,255,255,0.1)";
+    apiNotifierEl.style.backdropFilter = "blur(10px)";
+    apiNotifierEl.style.userSelect = "none";
+    
+    // Click handler for minimize/expand
+    apiNotifierEl.addEventListener('click', toggleMinimize);
+    
+    // Hover effects
+    apiNotifierEl.addEventListener('mouseenter', () => {
+      apiNotifierEl.style.transform = "translateY(-2px)";
+      apiNotifierEl.style.boxShadow = "0 8px 25px rgba(0,0,0,0.4)";
+    });
+    
+    apiNotifierEl.addEventListener('mouseleave', () => {
+      apiNotifierEl.style.transform = "translateY(0)";
+      apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
+    });
+    
     document.body.appendChild(apiNotifierEl);
   }
 
@@ -559,35 +582,101 @@ function createApiNotifier() {
     const quotaRemaining = status.quota ?? "?";
     const resetTimeFormatted = status.resetTime ? new Date(status.resetTime).toLocaleString() : "?";
     const lastRequestFormatted = status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?";
-
-    apiNotifierEl.innerHTML = `
-      <div style="font-weight:bold; margin-bottom:4px;">
-        🔔 API Status: ${status.ready ? "READY ✅" : "NOT READY ❌"}
-      </div>
-      <div><strong>Device:</strong> ${status.deviceId || "N/A"}</div>
-      <div><strong>Quota Remaining:</strong> ${quotaRemaining}</div>
-      <div><strong>Reset Time:</strong> ${resetTimeFormatted}</div>
-      <div><strong>Last Request:</strong> ${lastRequestFormatted}</div>
-      <div style="margin-top:6px; opacity:0.85;">${status.message || ""}</div>
-    `;
+    const connectionStatus = getConnectionStatus(status);
+    const quotaDisplay = getQuotaDisplay(status);
+    
+    lastUpdateTime = new Date();
+    
+    if (isMinimized) {
+      apiNotifierEl.innerHTML = `
+        <div style="font-weight:bold; font-size:12px;">
+          ${connectionStatus.icon} API ${connectionStatus.short}
+          <span style="opacity:0.7; margin-left:8px;">↗️</span>
+        </div>
+      `;
+      apiNotifierEl.style.padding = "8px 12px";
+    } else {
+      apiNotifierEl.innerHTML = `
+        <div style="font-weight:bold; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>${connectionStatus.icon} API Status: ${connectionStatus.text}</span>
+          <span style="opacity:0.6; font-size:11px; cursor:pointer;">↙️</span>
+        </div>
+        <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 12px; font-size:12px;">
+          <span style="opacity:0.8;"><strong>Device:</strong></span>
+          <span>${status.deviceId || "N/A"}</span>
+          
+          <span style="opacity:0.8;"><strong>Quota:</strong></span>
+          <span>${quotaDisplay}</span>
+          
+          <span style="opacity:0.8;"><strong>Reset:</strong></span>
+          <span>${resetTimeFormatted}</span>
+          
+          <span style="opacity:0.8;"><strong>Last Request:</strong></span>
+          <span>${lastRequestFormatted}</span>
+        </div>
+        ${status.message ? `<div style="margin-top:8px; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; font-size:11px; opacity:0.9;">${status.message}</div>` : ''}
+        <div style="margin-top:6px; font-size:10px; opacity:0.5; text-align:center;">
+          Updated: ${lastUpdateTime.toLocaleTimeString()}
+        </div>
+      `;
+      apiNotifierEl.style.padding = "12px 16px";
+    }
   }
 
   return { update };
 }
 
-// ===========================
-// Initialize notifier
-// ===========================
-const apiNotifier = createApiNotifier();
+// Helper functions for status display
+function getConnectionStatus(status) {
+  if (!status.ready) {
+    return { icon: "🔴", text: "NOT READY ❌", short: "DOWN" };
+  }
+  
+  if (status.isExceeded) {
+    return { icon: "⚠️", text: "QUOTA EXCEEDED ⚠️", short: "LIMIT" };
+  }
+  
+  if (status.hasError) {
+    return { icon: "🟡", text: "WARNING ⚠️", short: "WARN" };
+  }
+  
+  return { icon: "🟢", text: "READY ✅", short: "OK" };
+}
+
+function getQuotaDisplay(status) {
+  if (status.isExceeded) {
+    return "⚠️ EXCEEDED";
+  }
+  
+  if (typeof status.requestsToday === 'number' && status.quotaLimit) {
+    const remaining = status.quotaLimit - status.requestsToday;
+    const percentage = Math.round((remaining / status.quotaLimit) * 100);
+    return `${remaining} left (${percentage}%)`;
+  }
+  
+  return status.quota || "Unknown";
+}
+
+// Toggle minimize/expand
+function toggleMinimize() {
+  isMinimized = !isMinimized;
+  // Trigger immediate update to refresh display
+  liveUpdateNotifier();
+}
 
 // ✅ Backward compatibility shim
 function updateApiNotifier(status, message, extra = {}) {
+  const apiNotifier = createApiNotifier();
   apiNotifier.update({
     ready: status === "ready",
-    deviceId: extra.deviceId, // fully dynamic
+    deviceId: extra.deviceId,
     quota: extra.quota ?? "?",
+    quotaLimit: extra.quotaLimit,
+    requestsToday: extra.requestsToday,
     resetTime: extra.resetTime ?? null,
     lastRequest: extra.lastRequest ?? null,
+    isExceeded: extra.isExceeded ?? false,
+    hasError: extra.hasError ?? false,
     message: message || "",
   });
 }
@@ -597,49 +686,164 @@ function updateApiNotifier(status, message, extra = {}) {
 // ===========================
 async function fetchDeviceInfo() {
   try {
-    const metrics = apiManager.getMetrics(); // your live API manager metrics
-    const globalQuota = metrics.globalQuotaState || {};
+    // Check if apiManager exists
+    if (typeof apiManager === 'undefined') {
+      return {
+        requestsToday: "?",
+        isExceeded: false,
+        activeDevices: "?",
+        quotaResetTime: null,
+        lastQuotaError: "API Manager not found",
+        lastRequestTime: Date.now(),
+        deviceId: "unknown_device",
+        hasError: true
+      };
+    }
 
+    const metrics = apiManager.getMetrics();
+    const globalQuota = metrics.globalQuotaState || {};
+    
     return {
       requestsToday: globalQuota.requestsToday ?? 0,
+      quotaLimit: globalQuota.quotaLimit ?? 100, // Assume default limit
       isExceeded: !!globalQuota.quotaExceededAt,
       activeDevices: metrics.activeDevices ?? 1,
       quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
       lastQuotaError: globalQuota.lastQuotaError ?? null,
       lastRequestTime: Date.now(),
-      deviceId: metrics.deviceId ?? "unknown_device"
+      deviceId: metrics.deviceId ?? "unknown_device",
+      hasError: false
     };
   } catch (err) {
     console.error("❌ Failed to fetch device info:", err);
     return {
       requestsToday: "?",
+      quotaLimit: null,
       isExceeded: false,
       activeDevices: "?",
       quotaResetTime: null,
       lastQuotaError: err.message,
       lastRequestTime: Date.now(),
-      deviceId: "unknown_device"
+      deviceId: "error_device",
+      hasError: true
     };
   }
 }
 
 // ===========================
-// Live auto-update every 5s
+// Live auto-update with smart intervals
 // ===========================
 async function liveUpdateNotifier() {
+  // Skip update if page is hidden (performance optimization)
+  if (document.hidden) return;
+  
   const info = await fetchDeviceInfo();
-
-  updateApiNotifier("ready", "Live status update", {
+  const apiNotifier = createApiNotifier();
+  
+  let message = "";
+  if (info.hasError && info.lastQuotaError) {
+    message = `⚠️ ${info.lastQuotaError}`;
+  } else if (info.isExceeded) {
+    message = `🚫 Quota exceeded. Resets at ${new Date(info.quotaResetTime).toLocaleTimeString()}`;
+  }
+  
+  apiNotifier.update({
+    ready: !info.hasError && !info.isExceeded,
     deviceId: info.deviceId,
-    quota: info.requestsToday >= 0 ? `Remaining: ${info.requestsToday}` : "?",
+    quota: info.requestsToday >= 0 ? `${info.requestsToday}/${info.quotaLimit || '?'}` : "?",
+    quotaLimit: info.quotaLimit,
+    requestsToday: info.requestsToday,
     resetTime: info.quotaResetTime,
-    lastRequest: info.lastRequestTime
+    lastRequest: info.lastRequestTime,
+    isExceeded: info.isExceeded,
+    hasError: info.hasError,
+    message: message
   });
 }
 
-// Initial call + auto-update every 5s
-liveUpdateNotifier();
-setInterval(liveUpdateNotifier, 5000);
+// ===========================
+// Lifecycle management
+// ===========================
+function startLiveUpdates() {
+  if (updateInterval) return; // Already running
+  
+  liveUpdateNotifier(); // Initial call
+  updateInterval = setInterval(liveUpdateNotifier, 5000);
+  
+  // Pause updates when page is hidden, resume when visible
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      liveUpdateNotifier(); // Immediate update when tab becomes visible
+    }
+  });
+  
+  console.log("🔔 API Notifier started");
+}
+
+function stopLiveUpdates() {
+  if (updateInterval) {
+    clearInterval(updateInterval);
+    updateInterval = null;
+    console.log("🔔 API Notifier stopped");
+  }
+}
+
+function removeNotifier() {
+  stopLiveUpdates();
+  if (apiNotifierEl) {
+    apiNotifierEl.remove();
+    apiNotifierEl = null;
+  }
+}
+
+// ===========================
+// Initialization integration
+// ===========================
+async function initializeApiNotifier() {
+  try {
+    console.log('🔔 Initializing API Notifier...');
+    
+    // Wait for apiManager to be available before starting
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds maximum wait
+    
+    while (typeof apiManager === 'undefined' && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
+    if (typeof apiManager === 'undefined') {
+      console.warn('⚠️ API Manager not found after 5s, starting notifier anyway...');
+    }
+    
+    // Start the live updates
+    startLiveUpdates();
+    console.log('✅ API Notifier initialized successfully');
+    
+    return true;
+  } catch (error) {
+    console.error('❌ API Notifier initialization failed:', error);
+    return false;
+  }
+}
+
+// ===========================
+// Auto-start and cleanup
+// ===========================
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', stopLiveUpdates);
+
+// Export functions for manual control
+window.apiNotifierControl = {
+  init: initializeApiNotifier,
+  start: startLiveUpdates,
+  stop: stopLiveUpdates,
+  remove: removeNotifier,
+  toggle: toggleMinimize,
+  update: liveUpdateNotifier,
+  isRunning: () => updateInterval !== null
+};
 
 
 
@@ -1440,11 +1644,13 @@ async function initializeApp() {
   // 1. Show a loading spinner to the user immediately.
   // This provides feedback that the application is starting up.
   showSpinner(true);
-
   try {
     // 2. Initialize the custom API manager. This is an asynchronous operation.
     await apiManager.init();
-
+    
+    // 2.1 Initialize API Notifier after API manager is ready
+    await initializeApiNotifier();
+    
     // 3. Load the GAPI client library.
     // The gapi.client.init call is asynchronous and can be awaited directly.
     await new Promise((resolve, reject) => {
@@ -1459,21 +1665,26 @@ async function initializeApp() {
         }
       });
     });
-
     // 4. Setup the user interface once all asynchronous initialization is complete.
     setupUI();
-
     // 5. Load the initial application data.
     // This could involve fetching data from various sources.
     await loadInitialData();
-
     // 6. Finalize the initialization process.
     // This typically includes hiding the spinner and making the app interactive.
     finishInitialization();
-
   } catch (error) {
     // 7. Catch and handle any errors from the entire initialization process.
     console.error('❌ Application initialization failed:', error);
+    
+    // Show error in API notifier if available
+    if (window.apiNotifierControl?.isRunning()) {
+      updateApiNotifier("error", `Initialization failed: ${error.message}`, {
+        deviceId: "init_error",
+        hasError: true
+      });
+    }
+    
     handleInitializationFailure(error);
   } finally {
     // This ensures the spinner is always hidden, even if an error occurs.
@@ -6209,6 +6420,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
