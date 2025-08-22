@@ -4444,6 +4444,59 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
 
 
 
+// ------------------------------
+// Backwards-compatible pending-rating helpers
+// ------------------------------
+// Add these if older UI code calls savePendingRating/getPendingRating/clearPendingRating
+
+function savePendingRating(evaluator, item, name, ratingData) {
+  // Prefer the new manager if present
+  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.save) {
+    return pendingRatingsManager.save(evaluator, item, name, ratingData);
+  }
+  // Fallback: store in localStorage using same key format
+  try {
+    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
+    localStorage.setItem(key, JSON.stringify({ ...ratingData, evaluator, item, name, timestamp: Date.now() }));
+    console.log(`💾 (fallback) Saved pending rating for "${name}" on item "${item}".`);
+  } catch (e) {
+    console.warn('Failed to save pending rating fallback:', e);
+  }
+}
+
+function getPendingRating(evaluator, item, name) {
+  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.get) {
+    return pendingRatingsManager.get(evaluator, item, name);
+  }
+  try {
+    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : null;
+  } catch (e) {
+    console.warn('Failed to get pending rating fallback:', e);
+    return null;
+  }
+}
+
+function clearPendingRating(evaluator, item, name) {
+  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.clear) {
+    return pendingRatingsManager.clear(evaluator, item, name);
+  }
+  try {
+    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
+    localStorage.removeItem(key);
+    console.log(`🧹 (fallback) Cleared pending rating for "${name}" on item "${item}".`);
+  } catch (e) {
+    console.warn('Failed to clear pending rating fallback:', e);
+  }
+}
+
+
+
+
+
+
+
 
 
 
@@ -5981,4 +6034,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
