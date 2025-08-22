@@ -532,7 +532,7 @@ function startUIMonitoring() {
 
 
 // ===========================
-// API NOTIFIER (Enhanced)
+// API NOTIFIER (Enhanced + Backward Compatible)
 // ===========================
 function createApiNotifier() {
   let notifier = document.getElementById("apiNotifier");
@@ -559,6 +559,7 @@ function createApiNotifier() {
       <div><strong>Quota Remaining:</strong> ${status.quota ?? "?"}</div>
       <div><strong>Reset Time:</strong> ${status.resetTime ? new Date(status.resetTime).toLocaleString() : "?"}</div>
       <div><strong>Last Request:</strong> ${status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?"}</div>
+      <div style="margin-top:6px; opacity:0.85;">${status.message || ""}</div>
     `;
   }
 
@@ -566,10 +567,25 @@ function createApiNotifier() {
 }
 
 // ===========================
-// Example hook inside fetch wrapper
+// Initialize notifier
 // ===========================
 const apiNotifier = createApiNotifier();
 
+// ✅ Backward compatibility shim
+function updateApiNotifier(status, message, extra = {}) {
+  apiNotifier.update({
+    ready: status === "ready",
+    deviceId: extra.deviceId || "device_te1z6mgrx_1755852237973", // fallback
+    quota: extra.quota ?? "?",
+    resetTime: extra.resetTime ?? null,
+    lastRequest: extra.lastRequest ?? null,
+    message: message || "",
+  });
+}
+
+// ===========================
+// Example fetch wrapper
+// ===========================
 async function fetchWithNotifier(url, options = {}) {
   const res = await fetch(url, options);
 
@@ -577,10 +593,8 @@ async function fetchWithNotifier(url, options = {}) {
   const quota = res.headers.get("X-RateLimit-Remaining");
   const reset = res.headers.get("X-RateLimit-Reset");
 
-  // update notifier
-  apiNotifier.update({
-    ready: res.ok,
-    deviceId: "device_te1z6mgrx_1755852237973", // replace with real deviceId if stored
+  updateApiNotifier(res.ok ? "ready" : "error", res.ok ? "Request OK" : "Request failed", {
+    deviceId: "device_te1z6mgrx_1755852237973",
     quota: quota !== null ? quota : "?",
     resetTime: reset ? Number(reset) * 1000 : null, // UNIX seconds → ms
     lastRequest: Date.now(),
@@ -588,6 +602,7 @@ async function fetchWithNotifier(url, options = {}) {
 
   return res;
 }
+
 
 
 
@@ -6135,6 +6150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
