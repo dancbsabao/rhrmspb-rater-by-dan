@@ -2018,7 +2018,7 @@ function setupTabNavigation() {
             saveAuthState(gapi.client.getToken(), currentEvaluator);
             switchTab('secretariat');
             showToast('success', 'Success', `Logged in as ${member.name}`);
-            setTimeout(() => location.reload(), 1000);
+            //setTimeout(() => location.reload(), 1000);
         } else {
           showToast('error', 'Error', 'Incorrect credentials');
         }
@@ -6420,6 +6420,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
