@@ -531,54 +531,64 @@ function startUIMonitoring() {
 }
 
 
-// ============================================================================
-// API Readiness Notifier (clean, API-specific)
-// ============================================================================
-
-let apiNotifierEl = null;
-
+// ===========================
+// API NOTIFIER (Enhanced)
+// ===========================
 function createApiNotifier() {
-  apiNotifierEl = document.createElement("div");
-  apiNotifierEl.id = "api-notifier";
-  apiNotifierEl.style.position = "fixed";
-  apiNotifierEl.style.bottom = "10px";
-  apiNotifierEl.style.right = "10px";
-  apiNotifierEl.style.background = "#222";
-  apiNotifierEl.style.color = "#fff";
-  apiNotifierEl.style.padding = "10px 15px";
-  apiNotifierEl.style.borderRadius = "8px";
-  apiNotifierEl.style.fontFamily = "monospace";
-  apiNotifierEl.style.fontSize = "13px";
-  apiNotifierEl.style.zIndex = "9999";
-  document.body.appendChild(apiNotifierEl);
+  let notifier = document.getElementById("apiNotifier");
+  if (!notifier) {
+    notifier = document.createElement("div");
+    notifier.id = "apiNotifier";
+    notifier.style.position = "fixed";
+    notifier.style.bottom = "10px";
+    notifier.style.right = "10px";
+    notifier.style.padding = "12px 16px";
+    notifier.style.background = "#222";
+    notifier.style.color = "white";
+    notifier.style.borderRadius = "12px";
+    notifier.style.boxShadow = "0 4px 8px rgba(0,0,0,0.25)";
+    notifier.style.fontSize = "14px";
+    notifier.style.zIndex = "9999";
+    document.body.appendChild(notifier);
+  }
 
-  updateApiNotifier("pending", "Initializing API monitor…");
+  function update(status) {
+    notifier.innerHTML = `
+      <div style="font-weight:bold; margin-bottom:4px;">🔔 API Status: ${status.ready ? "READY ✅" : "NOT READY ❌"}</div>
+      <div><strong>Device:</strong> ${status.deviceId || "N/A"}</div>
+      <div><strong>Quota Remaining:</strong> ${status.quota ?? "?"}</div>
+      <div><strong>Reset Time:</strong> ${status.resetTime ? new Date(status.resetTime).toLocaleString() : "?"}</div>
+      <div><strong>Last Request:</strong> ${status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?"}</div>
+    `;
+  }
+
+  return { update };
 }
 
-function updateApiNotifier(status, message, extra = {}) {
-  if (!apiNotifierEl) return;
+// ===========================
+// Example hook inside fetch wrapper
+// ===========================
+const apiNotifier = createApiNotifier();
 
-  let color = "#999"; // default = gray
-  if (status === "ready") color = "limegreen";
-  if (status === "error") color = "crimson";
-  if (status === "pending") color = "goldenrod";
+async function fetchWithNotifier(url, options = {}) {
+  const res = await fetch(url, options);
 
-  // Build HTML status block
-  apiNotifierEl.innerHTML = `
-    <div style="font-weight:bold; margin-bottom:4px;">
-      🔔 API Status: <span style="color:${color}">${status.toUpperCase()}</span>
-    </div>
-    <div>${message}</div>
-    <div style="margin-top:6px; font-size:12px; opacity:0.8;">
-      Quota Remaining: ${extra.quota ?? "?"}<br>
-      Reset Time: ${extra.resetTime ?? "?"}<br>
-      Last Request: ${extra.lastRequest ?? "?"}
-    </div>
-  `;
+  // read quota headers if API provides them
+  const quota = res.headers.get("X-RateLimit-Remaining");
+  const reset = res.headers.get("X-RateLimit-Reset");
+
+  // update notifier
+  apiNotifier.update({
+    ready: res.ok,
+    deviceId: "device_te1z6mgrx_1755852237973", // replace with real deviceId if stored
+    quota: quota !== null ? quota : "?",
+    resetTime: reset ? Number(reset) * 1000 : null, // UNIX seconds → ms
+    lastRequest: Date.now(),
+  });
+
+  return res;
 }
 
-// Initialize immediately on load
-createApiNotifier();
 
 
 
@@ -6125,6 +6135,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
