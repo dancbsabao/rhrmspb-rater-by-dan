@@ -1392,24 +1392,199 @@ async function safeFetchSecretariatMembers(options = {}) {
   });
 }
 
+// Enhanced safeFetchVacanciesData with faster fetching and better caching
 async function safeFetchVacanciesData(options = {}) {
+  const cacheKey = 'vacanciesData';
+  
+  // Check cache first with more aggressive caching for vacancies
+  if (!options.forceRefresh) {
+    const maxCacheAge = options.maxAge || 30 * 60 * 1000; // 30 minutes default
+    const cachedData = apiManager.getCachedData(cacheKey, maxCacheAge);
+    if (cachedData) {
+      console.log('📦 Using cached vacancies data');
+      
+      // Set global variable if available
+      if (typeof vacancies !== 'undefined') {
+        window.vacancies = cachedData;
+      }
+      
+      return cachedData;
+    }
+  }
+
+  // Fast fetch function with minimal overhead
   const fetchFunction = async () => {
-    if (!await isTokenValid()) await refreshAccessToken();
+    console.log('🚀 Fetching fresh vacancies data...');
     
+    // Ensure token is valid
+    if (!await isTokenValid()) {
+      console.log('🔑 Refreshing token for vacancies fetch...');
+      await refreshAccessToken();
+    }
+    
+    // Direct fetch without extra processing
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: SHEET_RANGES.VACANCIES,
+      valueRenderOption: 'UNFORMATTED_VALUE', // Faster parsing
+      dateTimeRenderOption: 'FORMATTED_STRING'
     });
     
-    const values = response?.result?.values || [];
-    return parseVacanciesData ? parseVacanciesData(values) : values;
+    const rawValues = response?.result?.values || [];
+    console.log(`📋 Raw vacancies data: ${rawValues.length} rows`);
+    
+    // Parse and process the data
+    let processedData;
+    if (typeof parseVacanciesData === 'function') {
+      processedData = parseVacanciesData(rawValues);
+    } else {
+      // Simple fallback processing
+      processedData = rawValues;
+    }
+    
+    // Set global variable immediately
+    if (typeof vacancies !== 'undefined') {
+      window.vacancies = processedData;
+      console.log('✅ Global vacancies variable updated');
+    }
+    
+    return processedData;
   };
 
-  return await apiManager.bulletproofFetch('vacanciesData', fetchFunction, {
-    maxCacheAge: options.maxAge || 15 * 60 * 1000,  // 15 minutes
-    cacheTTL: 2 * 60 * 60 * 1000,                   // 2 hours
-    forceRefresh: options.forceRefresh
-  });
+  // Use a simplified fetch approach for vacancies (bypass some of the heavier adaptive logic)
+  try {
+    // Check if we can make the request
+    const canMakeRequest = apiManager.adaptiveManager.canMakeRequest();
+    if (!canMakeRequest.allowed && canMakeRequest.reason === 'DAILY_LIMIT') {
+      // For daily limits, try stale cache
+      const staleData = apiManager.getCachedData(cacheKey, 6 * 60 * 60 * 1000); // 6 hours
+      if (staleData) {
+        console.log('📦 Using stale vacancies cache due to daily limit');
+        if (typeof vacancies !== 'undefined') {
+          window.vacancies = staleData;
+        }
+        return staleData;
+      }
+      throw new Error('Daily API limit reached and no cached data available');
+    }
+    
+    // If there's a short rate limit, wait for it
+    if (!canMakeRequest.allowed && canMakeRequest.reason === 'RATE_LIMIT' && canMakeRequest.waitTime < 10000) {
+      console.log(`⏳ Brief wait for vacancies: ${Math.round(canMakeRequest.waitTime/1000)}s`);
+      await new Promise(resolve => setTimeout(resolve, canMakeRequest.waitTime));
+    }
+    
+    // Execute the fetch
+    const startTime = Date.now();
+    const result = await fetchFunction();
+    const fetchTime = Date.now() - startTime;
+    
+    console.log(`✅ Vacancies fetched in ${fetchTime}ms`);
+    
+    // Record success
+    apiManager.adaptiveManager.recordRequest(true);
+    
+    // Cache with longer TTL for vacancies since they change less frequently
+    apiManager.setCachedData(cacheKey, result, options.cacheTTL || 2 * 60 * 60 * 1000); // 2 hours
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Vacancies fetch failed:', error);
+    
+    // Record failure
+    const isQuotaError = error.message.includes('quota') || 
+                        error.message.includes('rate') ||
+                        error.message.includes('limit');
+    apiManager.adaptiveManager.recordRequest(!isQuotaError);
+    
+    // Try to return cached data of any age
+    const emergencyCache = apiManager.getCachedData(cacheKey, 24 * 60 * 60 * 1000); // 24 hours
+    if (emergencyCache) {
+      console.log('🆘 Using emergency cached vacancies data');
+      if (typeof vacancies !== 'undefined') {
+        window.vacancies = emergencyCache;
+      }
+      return emergencyCache;
+    }
+    
+    throw error;
+  }
+}
+
+// ===================
+// FAST INITIALIZATION FOR VACANCIES
+// ===================
+
+async function fastInitializeVacancies(options = {}) {
+  try {
+    console.log('🏃‍♂️ Fast vacancies initialization...');
+    
+    // Try cache first (very aggressive)
+    const cachedVacancies = apiManager.getCachedData('vacanciesData', 60 * 60 * 1000); // 1 hour
+    if (cachedVacancies && !options.forceRefresh) {
+      console.log('⚡ Using cached vacancies for fast init');
+      
+      if (typeof vacancies !== 'undefined') {
+        window.vacancies = cachedVacancies;
+      }
+      
+      // Initialize dropdowns immediately
+      if (typeof initializeDropdowns === 'function') {
+        initializeDropdowns(cachedVacancies);
+      }
+      
+      return cachedVacancies;
+    }
+    
+    // If no cache, fetch with priority
+    console.log('🎯 Cache miss, fetching vacancies with priority...');
+    const freshVacancies = await safeFetchVacanciesData({
+      maxAge: 0, // Force fresh
+      cacheTTL: 2 * 60 * 60 * 1000, // Cache for 2 hours
+      priority: true
+    });
+    
+    // Initialize dropdowns immediately after fetch
+    if (typeof initializeDropdowns === 'function') {
+      initializeDropdowns(freshVacancies);
+    }
+    
+    return freshVacancies;
+    
+  } catch (error) {
+    console.error('❌ Fast vacancies init failed:', error);
+    
+    // Try to get any cached version
+    const anyCachedVacancies = apiManager.getCachedData('vacanciesData', 24 * 60 * 60 * 1000);
+    if (anyCachedVacancies) {
+      console.log('🗃️ Using old cached vacancies as fallback');
+      
+      if (typeof vacancies !== 'undefined') {
+        window.vacancies = anyCachedVacancies;
+      }
+      
+      if (typeof initializeDropdowns === 'function') {
+        initializeDropdowns(anyCachedVacancies);
+      }
+      
+      return anyCachedVacancies;
+    }
+    
+    // Last resort - empty array to prevent crashes
+    console.log('🆘 No vacancies data available, using empty array');
+    const emptyVacancies = [];
+    
+    if (typeof vacancies !== 'undefined') {
+      window.vacancies = emptyVacancies;
+    }
+    
+    if (typeof initializeDropdowns === 'function') {
+      initializeDropdowns(emptyVacancies);
+    }
+    
+    throw new Error('No vacancies data available');
+  }
 }
 
 async function safeLoadSignatories(options = {}) {
@@ -1527,7 +1702,7 @@ async function initializeApp() {
       });
       
       // Try to load from cache first
-      const cacheResults = await tryLoadFromCacheOnly();
+      const cacheResults = await tryLoadFromCacheOnlyOptimized();
       
       if (cacheResults.allLoaded) {
         console.log('🚀 All critical data loaded from cache!');
@@ -1537,33 +1712,7 @@ async function initializeApp() {
       }
       
       // Define required API calls
-      const apiRequests = [
-        {
-          key: 'secretariatMembers',
-          fetchFunction: safeFetchSecretariatMembers,
-          priority: 3,
-          required: true
-        },
-        {
-          key: 'vacanciesData',
-          fetchFunction: safeFetchVacanciesData,
-          priority: 2,
-          required: true
-        },
-        {
-          key: 'signatories',
-          fetchFunction: safeLoadSignatories,
-          priority: 1,
-          required: false
-        }
-      ].filter(req => !cacheResults.loadedKeys.includes(req.key));
-      
-      if (apiRequests.length === 0) {
-        console.log('✅ All data already cached');
-        loadingState.apiDone = true;
-        await finishInitialization();
-        return;
-      }
+      const apiRequests = getOptimizedAPIRequests(cacheResults.loadedKeys);
       
       // Execute API requests
       const batchResult = await apiManager.batchFetch(apiRequests, {
@@ -1597,16 +1746,42 @@ async function initializeApp() {
   });
 }
 
-async function tryLoadFromCacheOnly() {
+// Update the API requests array in initializeApp to use the optimized vacancies fetch
+function getOptimizedAPIRequests(excludeKeys = []) {
+  return [
+    {
+      key: 'vacanciesData',
+      fetchFunction: () => fastInitializeVacancies({ forceRefresh: true }),
+      priority: 3,
+      required: true
+    },
+    {
+      key: 'secretariatMembers',
+      fetchFunction: safeFetchSecretariatMembers,
+      priority: 2,
+      required: true
+    },
+    {
+      key: 'signatories',
+      fetchFunction: safeLoadSignatories,
+      priority: 1,
+      required: false
+    }
+  ].filter(req => !excludeKeys.includes(req.key));
+}
+
+
+async function tryLoadFromCacheOnlyOptimized() {
   const results = {
     loadedKeys: [],
     allLoaded: false
   };
   
+  // Prioritize vacancies with more aggressive caching
   const cacheTests = [
-    { key: 'secretariatMembers', required: true },
-    { key: 'vacanciesData', required: true },
-    { key: 'signatories', required: false }
+    { key: 'vacanciesData', required: true, maxAge: 60 * 60 * 1000, fastInit: fastInitializeVacancies },
+    { key: 'secretariatMembers', required: true, maxAge: 30 * 60 * 1000 },
+    { key: 'signatories', required: false, maxAge: 30 * 60 * 1000 }
   ];
   
   let requiredLoaded = 0;
@@ -1615,13 +1790,29 @@ async function tryLoadFromCacheOnly() {
   for (const test of cacheTests) {
     if (test.required) requiredCount++;
     
-    const cached = apiManager.getCachedData(test.key, 30 * 60 * 1000); // 30min tolerance
+    let cached = null;
+    
+    // Use fast init for vacancies if available
+    if (test.key === 'vacanciesData' && test.fastInit) {
+      try {
+        cached = await test.fastInit();
+        if (cached) {
+          console.log(`⚡ Fast init success for ${test.key}`);
+        }
+      } catch (e) {
+        console.log(`Fast init failed for ${test.key}, trying regular cache...`);
+        cached = apiManager.getCachedData(test.key, test.maxAge);
+      }
+    } else {
+      cached = apiManager.getCachedData(test.key, test.maxAge);
+    }
+    
     if (cached) {
       results.loadedKeys.push(test.key);
       if (test.required) requiredLoaded++;
-      console.log(`✅ ${test.key} loaded from cache`);
+      console.log(`✅ ${test.key} loaded from cache/fast-init`);
       
-      // Set global variables if they exist and parsers are available
+      // Set global variables
       try {
         if (test.key === 'secretariatMembers' && cached) {
           if (typeof SECRETARIAT_MEMBERS !== 'undefined') {
@@ -1630,6 +1821,10 @@ async function tryLoadFromCacheOnly() {
         } else if (test.key === 'vacanciesData' && cached) {
           if (typeof vacancies !== 'undefined') {
             window.vacancies = cached;
+          }
+          // Initialize dropdowns immediately for vacancies
+          if (typeof initializeDropdowns === 'function') {
+            initializeDropdowns(cached);
           }
         } else if (test.key === 'signatories' && cached) {
           if (typeof SIGNATORIES !== 'undefined') {
@@ -1686,7 +1881,7 @@ async function handleInitializationFailure() {
   loadingState.apiDone = true;
   
   // Try to load any cached data
-  await tryLoadFromCacheOnly();
+  await tryLoadFromCacheOnlyOptimized();
   
   if (typeof checkAndHideSpinner === 'function') {
     checkAndHideSpinner();
@@ -1914,6 +2109,47 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('beforeunload', () => {
   apiManager.cleanup();
 });
+
+// Added
+document.addEventListener('DOMContentLoaded', () => {
+  // Preload vacancies from cache immediately if available
+  const preloadVacancies = () => {
+    const cachedVacancies = localStorage.getItem('enhanced_cache_vacanciesData');
+    if (cachedVacancies) {
+      try {
+        const cacheData = JSON.parse(cachedVacancies);
+        const age = Date.now() - cacheData.timestamp;
+        
+        // If cache is less than 2 hours old, use it immediately
+        if (age < 2 * 60 * 60 * 1000) {
+          console.log('⚡ Preloading vacancies from localStorage cache');
+          
+          if (typeof vacancies !== 'undefined') {
+            window.vacancies = cacheData.data;
+          }
+          
+          // Initialize dropdowns early if the function is available
+          if (typeof initializeDropdowns === 'function') {
+            setTimeout(() => {
+              try {
+                initializeDropdowns(cacheData.data);
+                console.log('✅ Early dropdown initialization completed');
+              } catch (e) {
+                console.log('Early dropdown init failed:', e);
+              }
+            }, 100);
+          }
+        }
+      } catch (e) {
+        console.log('Preload from localStorage failed:', e);
+      }
+    }
+  };
+  
+  preloadVacancies();
+});
+
+console.log('✅ Optimized Vacancies Data Fetching loaded successfully!');
 
 // ===================
 // MISSING FUNCTION STUBS (To prevent "not defined" errors)
@@ -6502,5 +6738,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
