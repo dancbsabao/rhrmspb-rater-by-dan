@@ -534,132 +534,68 @@ function startUIMonitoring() {
 
 
 // ===================
-// SMART CACHING - ENHANCED VERSION
+// ENHANCED SMART CACHE SYSTEM (Integrated with existing BulletproofAPIManager)
 // ===================
 
-class SmartCache {
+class EnhancedCache {
   constructor() {
     this.cache = new Map();
-    this.prefetchQueue = new Set();
     this.compressionCache = new Map();
+    this.accessLog = [];
+    this.quotaUsage = this.loadQuotaUsage();
   }
 
-  async smartFetch(key, fetchFunction, options = {}) {
-    // 1. Check cache first with longer TTL
-    const cached = this.getWithFallback(key, options.maxAge || 30 * 60 * 1000); // 30min default
-    if (cached && !options.forceRefresh) {
-      console.log(`💨 Cache hit: ${key}`);
-      return cached;
-    }
-
-    // 2. Check if we can predict and batch this request
-    if (options.predictive && !options.noBatch) {
-      return await this.predictiveBatch(key, fetchFunction, options);
-    }
-
-    // 3. Execute single request
-    const result = await fetchFunction();
-    this.setWithCompression(key, result, options.ttl);
-    
-    // 4. Trigger predictive prefetching
-    this.triggerPrefetch(key, options);
-    
-    return result;
-  }
-
-  async predictiveBatch(key, fetchFunction, options) {
-    const patterns = this.analyzeAccessPattern(key);
-    
-    if (patterns.shouldBatch) {
-      console.log(`🚀 Predictive batch for ${key}:`, patterns.relatedKeys);
-      
-      // For now, just fetch the current item (batching can be added later)
-      const result = await fetchFunction();
-      this.setWithCompression(key, result, options.ttl);
-      
-      return result;
-    }
-    
-    // Fallback to normal fetch
-    const result = await fetchFunction();
-    this.setWithCompression(key, result, options.ttl);
-    return result;
-  }
-
-  analyzeAccessPattern(currentKey) {
-    // Extract evaluator and context from key
-    const match = currentKey.match(/ratings:([^:]+):([^:]+):([^:]+)/);
-    if (!match) return { shouldBatch: false };
-    
-    const [, evaluator, item, name] = match;
-    
-    // Common patterns users follow:
-    const relatedKeys = [];
-    
-    // 1. Same evaluator, same item, different people
-    if (window.currentSecretariatMembers) {
-      window.currentSecretariatMembers.slice(0, 5).forEach(member => {
-        if (member.name !== name) {
-          relatedKeys.push(`ratings:${evaluator}:${item}:${member.name}`);
-        }
-      });
-    }
-    
-    // 2. Same person, same evaluator, different items  
-    const commonItems = ['Leadership', 'Communication', 'Technical', 'Teamwork'];
-    commonItems.forEach(otherItem => {
-      if (otherItem !== item) {
-        relatedKeys.push(`ratings:${evaluator}:${otherItem}:${name}`);
-      }
-    });
-
-    return {
-      shouldBatch: relatedKeys.length > 0,
-      relatedKeys: [currentKey, ...relatedKeys.slice(0, 8)] // Max 9 total
-    };
-  }
-
-  getWithFallback(key, maxAge) {
+  // Intelligent cache retrieval with progressive fallback
+  getWithFallback(key, maxAge = 5 * 60 * 1000) {
     const cached = this.cache.get(key);
     if (!cached) return null;
     
     const age = Date.now() - cached.timestamp;
     
-    // Progressive fallback: newer = fresh, older = stale but usable
+    // Fresh data (use immediately)
     if (age < maxAge) {
-      return cached.data; // Fresh
-    } else if (age < maxAge * 3) {
+      this.logAccess(key, true);
+      return cached.data;
+    } 
+    
+    // Stale but acceptable (up to 3x maxAge)
+    if (age < maxAge * 3) {
       console.log(`⚡ Using stale cache for ${key} (age: ${Math.round(age/60000)}min)`);
-      return cached.data; // Stale but better than nothing
+      this.logAccess(key, true);
+      return cached.data;
     }
     
+    // Too old, remove from cache
     this.cache.delete(key);
     return null;
   }
 
   setWithCompression(key, data, ttl = 60 * 60 * 1000) {
-    // Compress large datasets
+    // Simple compression for large datasets
     let compressedData = data;
-    if (JSON.stringify(data).length > 10000) {
+    const dataSize = JSON.stringify(data).length;
+    
+    if (dataSize > 10000) {
       compressedData = this.compressData(data);
+      console.log(`🗜️ Compressed ${key}: ${dataSize} -> ${JSON.stringify(compressedData).length} bytes`);
     }
 
     this.cache.set(key, {
       data: compressedData,
       timestamp: Date.now(),
       ttl,
-      compressed: compressedData !== data
+      compressed: compressedData !== data,
+      originalSize: dataSize
     });
   }
 
   compressData(data) {
-    // Simple compression for repeated data
+    // Remove empty rows and compress repeated data
     if (data.values && Array.isArray(data.values)) {
-      const compressed = {
+      return {
         ...data,
         values: this.compressRows(data.values)
       };
-      return compressed;
     }
     return data;
   }
@@ -670,169 +606,197 @@ class SmartCache {
     const header = rows[0];
     const dataRows = rows.slice(1);
     
-    // Remove empty rows and duplicates
+    // Filter out completely empty rows
     const cleanRows = dataRows.filter(row => 
-      row && row.some(cell => cell && cell.trim())
+      row && row.some(cell => cell && cell.toString().trim())
     );
     
     return [header, ...cleanRows];
   }
 
-  triggerPrefetch(key, options) {
-    // Simple prefetch trigger - can be expanded
-    console.log(`🔄 Prefetch triggered for ${key}`);
+  logAccess(key, fromCache = false) {
+    this.accessLog.push({
+      key,
+      fromCache,
+      timestamp: Date.now()
+    });
+
+    // Keep only last 500 entries
+    if (this.accessLog.length > 500) {
+      this.accessLog = this.accessLog.slice(-500);
+    }
+
+    if (!fromCache) {
+      this.quotaUsage.daily++;
+      this.saveQuotaUsage();
+    }
+  }
+
+  loadQuotaUsage() {
+    try {
+      const stored = localStorage.getItem('enhanced_quota_usage');
+      if (stored) {
+        const usage = JSON.parse(stored);
+        const today = new Date().toDateString();
+        if (usage.date !== today) {
+          return { daily: 0, date: today, recent: [] };
+        }
+        return usage;
+      }
+    } catch (e) {
+      console.warn('Failed to load quota usage:', e);
+    }
+    return { daily: 0, date: new Date().toDateString(), recent: [] };
+  }
+
+  saveQuotaUsage() {
+    try {
+      // Keep recent requests for rate limiting
+      const now = Date.now();
+      this.quotaUsage.recent = this.quotaUsage.recent.filter(ts => now - ts < 3600000); // Last hour
+      
+      localStorage.setItem('enhanced_quota_usage', JSON.stringify(this.quotaUsage));
+    } catch (e) {
+      console.warn('Failed to save quota usage:', e);
+    }
+  }
+
+  getQuotaStatus() {
+    const now = Date.now();
+    const recentRequests = this.quotaUsage.recent.filter(ts => now - ts < 3600000).length;
+    
+    return {
+      daily: this.quotaUsage.daily,
+      recent: recentRequests,
+      status: this.quotaUsage.daily > 250 ? 'HIGH' : 
+              this.quotaUsage.daily > 200 ? 'MEDIUM' : 'OK',
+      cacheHitRate: this.calculateCacheHitRate()
+    };
+  }
+
+  calculateCacheHitRate() {
+    const recent = this.accessLog.slice(-50);
+    if (recent.length === 0) return 0;
+    
+    const cacheHits = recent.filter(log => log.fromCache).length;
+    return Math.round((cacheHits / recent.length) * 100);
+  }
+
+  clear() {
+    this.cache.clear();
+    console.log('🗑️ Enhanced cache cleared');
   }
 }
 
 // ===================
-// BALANCED CONSERVATIVE API WRAPPER
-// Fixed the overly aggressive limits
+// ADAPTIVE REQUEST MANAGER (Replaces Conservative API)
 // ===================
 
-class ConservativeAPIWrapper {
+class AdaptiveRequestManager {
   constructor() {
-    this.dailyRequestCount = this.loadDailyCount();
-    this.requestTimestamps = [];
-    this.isConservativeMode = false;
-    this.lastRequestTime = 0;
-    
-    // FIXED: Much more reasonable limits
-    this.DAILY_LIMIT = 250;      // Reasonable daily limit
-    this.HOURLY_LIMIT = 40;      // Allow more requests per hour
-    this.MIN_DELAY = 2000;       // REDUCED: 2 seconds between requests
-    this.CONSERVATIVE_DELAY = 8000; // REDUCED: 8 seconds in conservative mode
-    
-    this.startDailyReset();
+    this.requestHistory = this.loadRequestHistory();
+    this.isAdaptiveMode = false;
+    this.baseDelay = 3000; // Start normal
+    this.maxDelay = 15000;  // Reasonable max
+    this.minDelay = 1000;   // Minimum delay
   }
 
-  loadDailyCount() {
+  loadRequestHistory() {
     try {
-      const stored = localStorage.getItem('daily_api_count');
+      const stored = localStorage.getItem('adaptive_request_history');
       if (stored) {
-        const data = JSON.parse(stored);
+        const history = JSON.parse(stored);
         const today = new Date().toDateString();
         
-        if (data.date === today) {
-          return data.count;
+        if (history.date === today) {
+          return history;
         }
       }
     } catch (e) {
-      console.warn('Failed to load daily count:', e);
+      console.warn('Failed to load request history:', e);
     }
-    return 0;
+    
+    return {
+      date: new Date().toDateString(),
+      requests: 0,
+      failures: 0,
+      lastRequest: 0,
+      currentDelay: 3000
+    };
   }
 
-  saveDailyCount() {
+  saveRequestHistory() {
     try {
-      const data = {
-        count: this.dailyRequestCount,
-        date: new Date().toDateString()
-      };
-      localStorage.setItem('daily_api_count', JSON.stringify(data));
+      localStorage.setItem('adaptive_request_history', JSON.stringify(this.requestHistory));
     } catch (e) {
-      console.warn('Failed to save daily count:', e);
+      console.warn('Failed to save request history:', e);
     }
   }
 
-  startDailyReset() {
-    setInterval(() => {
-      const stored = localStorage.getItem('daily_api_count');
-      if (stored) {
-        const data = JSON.parse(stored);
-        const today = new Date().toDateString();
-        
-        if (data.date !== today) {
-          console.log('🌅 Daily quota reset');
-          this.dailyRequestCount = 0;
-          this.isConservativeMode = false;
-          this.saveDailyCount();
-        }
-      }
-    }, 60 * 60 * 1000);
-  }
-
+  // Check if we can make a request (much more permissive)
   canMakeRequest() {
     const now = Date.now();
     
-    // Daily limit check
-    if (this.dailyRequestCount >= this.DAILY_LIMIT) {
-      console.log(`🚫 Daily limit reached: ${this.dailyRequestCount}/${this.DAILY_LIMIT}`);
-      return { allowed: false, reason: 'DAILY_LIMIT', waitTime: this.getTimeUntilReset() };
-    }
-
-    // Hourly rate check
-    const oneHourAgo = now - (60 * 60 * 1000);
-    const recentRequests = this.requestTimestamps.filter(ts => ts > oneHourAgo);
-    
-    if (recentRequests.length >= this.HOURLY_LIMIT) {
-      console.log(`🚫 Hourly limit reached: ${recentRequests.length}/${this.HOURLY_LIMIT}`);
-      this.enterConservativeMode();
-      return { allowed: false, reason: 'HOURLY_LIMIT', waitTime: 60 * 60 * 1000 };
+    // Daily check (very generous)
+    if (this.requestHistory.requests >= 280) {
+      return { 
+        allowed: false, 
+        reason: 'DAILY_LIMIT', 
+        waitTime: this.getTimeUntilReset() 
+      };
     }
 
     // Time-based delay check
-    const timeSinceLastRequest = now - this.lastRequestTime;
-    const requiredDelay = this.isConservativeMode ? this.CONSERVATIVE_DELAY : this.MIN_DELAY;
+    const timeSinceLastRequest = now - this.requestHistory.lastRequest;
+    const currentDelay = this.requestHistory.currentDelay;
     
-    if (timeSinceLastRequest < requiredDelay) {
-      const waitTime = requiredDelay - timeSinceLastRequest;
-      console.log(`⏱️ Rate limiting: wait ${Math.round(waitTime/1000)}s`);
-      return { allowed: false, reason: 'RATE_LIMIT', waitTime };
+    if (timeSinceLastRequest < currentDelay) {
+      const waitTime = currentDelay - timeSinceLastRequest;
+      return { 
+        allowed: false, 
+        reason: 'RATE_LIMIT', 
+        waitTime 
+      };
     }
 
     return { allowed: true };
   }
 
-  enterConservativeMode() {
-    if (!this.isConservativeMode) {
-      console.log('🐌 Entering CONSERVATIVE mode - requests will be slower');
-      this.isConservativeMode = true;
-      this.showConservativeModeNotification();
-    }
-  }
-
-  showConservativeModeNotification() {
-    const notification = document.createElement('div');
-    notification.innerHTML = `
-      <div style="position: fixed; top: 10px; left: 50%; transform: translateX(-50%); 
-                  background: #ff9800; color: white; padding: 15px; border-radius: 8px; 
-                  z-index: 10000; max-width: 400px; text-align: center;">
-        🐌 Conservative Mode Active<br>
-        <small>Slowing down requests to preserve quota. Current usage: ${this.dailyRequestCount}/${this.DAILY_LIMIT}</small>
-        <button onclick="this.parentElement.remove()" style="margin-left: 10px; background: none; border: 1px solid white; color: white; padding: 5px 10px; border-radius: 4px;">OK</button>
-      </div>
-    `;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      if (notification.parentElement) {
-        notification.remove();
-      }
-    }, 10000);
-  }
-
-  recordRequest() {
+  recordRequest(success = true) {
     const now = Date.now();
     
-    this.dailyRequestCount++;
-    this.requestTimestamps.push(now);
-    this.lastRequestTime = now;
+    this.requestHistory.requests++;
+    this.requestHistory.lastRequest = now;
     
-    // Keep only last 2 hours of timestamps
-    const twoHoursAgo = now - (2 * 60 * 60 * 1000);
-    this.requestTimestamps = this.requestTimestamps.filter(ts => ts > twoHoursAgo);
+    if (success) {
+      // Success: gradually reduce delay
+      this.requestHistory.currentDelay = Math.max(
+        this.requestHistory.currentDelay * 0.95, 
+        this.minDelay
+      );
+      
+      // Exit adaptive mode if we've been successful
+      if (this.isAdaptiveMode && this.requestHistory.currentDelay <= 3000) {
+        this.isAdaptiveMode = false;
+        console.log('✅ Exiting adaptive mode - requests normalized');
+      }
+    } else {
+      // Failure: increase delay and enter adaptive mode
+      this.requestHistory.failures++;
+      this.requestHistory.currentDelay = Math.min(
+        this.requestHistory.currentDelay * 1.3,
+        this.maxDelay
+      );
+      
+      if (!this.isAdaptiveMode && this.requestHistory.currentDelay > 5000) {
+        this.isAdaptiveMode = true;
+        console.log('🔄 Entering adaptive mode due to failures');
+      }
+    }
     
-    this.saveDailyCount();
+    this.saveRequestHistory();
     
-    console.log(`📊 API Request recorded. Daily: ${this.dailyRequestCount}/${this.DAILY_LIMIT}, Recent: ${this.requestTimestamps.length}`);
-  }
-
-  getTimeUntilReset() {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    
-    return tomorrow.getTime() - Date.now();
+    console.log(`📊 Request recorded: ${success ? '✅' : '❌'} | Daily: ${this.requestHistory.requests}/280 | Next delay: ${Math.round(this.requestHistory.currentDelay/1000)}s`);
   }
 
   async safeApiCall(apiFunction, fallbackData = null) {
@@ -844,29 +808,27 @@ class ConservativeAPIWrapper {
         return fallbackData;
       }
       
-      if (canMake.reason === 'RATE_LIMIT' && canMake.waitTime < 30000) { // Wait max 30 seconds
-        console.log(`⏳ Waiting ${Math.round(canMake.waitTime/1000)}s for rate limit...`);
+      // Only wait for short delays
+      if (canMake.reason === 'RATE_LIMIT' && canMake.waitTime < 30000) {
+        console.log(`⏳ Brief wait: ${Math.round(canMake.waitTime/1000)}s`);
         await this.sleep(canMake.waitTime);
         return this.safeApiCall(apiFunction, fallbackData);
       }
       
-      throw new Error(`Request blocked: ${canMake.reason}. Try again later.`);
+      throw new Error(`Request blocked: ${canMake.reason}. Wait time: ${Math.round(canMake.waitTime/1000)}s`);
     }
 
-    this.recordRequest();
-    
     try {
       const result = await apiFunction();
-      console.log('✅ Conservative API call succeeded');
+      this.recordRequest(true);
       return result;
     } catch (error) {
-      // Don't count failed requests against quota if they're auth/network errors
-      if (error.message && (error.message.includes('network') || error.message.includes('timeout'))) {
-        this.dailyRequestCount--;
-        this.saveDailyCount();
-        console.log('🔄 Request refunded due to network error');
-      }
+      // Only count as failure if it's actually a quota/rate limit error
+      const isQuotaError = error.message.includes('quota') || 
+                          error.message.includes('rate') ||
+                          error.message.includes('limit');
       
+      this.recordRequest(!isQuotaError);
       throw error;
     }
   }
@@ -875,218 +837,53 @@ class ConservativeAPIWrapper {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  getTimeUntilReset() {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return tomorrow.getTime() - Date.now();
+  }
+
   getStatus() {
     return {
-      dailyUsage: this.dailyRequestCount,
-      dailyLimit: this.DAILY_LIMIT,
-      recentRequests: this.requestTimestamps.length,
-      conservativeMode: this.isConservativeMode,
-      canMakeRequest: this.canMakeRequest().allowed
+      requests: this.requestHistory.requests,
+      failures: this.requestHistory.failures,
+      adaptiveMode: this.isAdaptiveMode,
+      currentDelay: this.requestHistory.currentDelay,
+      canRequest: this.canMakeRequest().allowed
     };
   }
 }
 
 // ===================
-// OFFLINE-FIRST RATING SYSTEM
-// ===================
-
-class OfflineRatingManager {
-  constructor() {
-    this.pendingRatings = new Map();
-    this.syncQueue = [];
-    this.loadPendingRatings();
-    this.startSyncProcess();
-  }
-
-  async saveRatingOfflineFirst(evaluator, item, name, ratingData) {
-    const key = `${evaluator}:${item}:${name}`;
-    const timestamp = Date.now();
-    
-    const offlineRating = {
-      ...ratingData,
-      evaluator,
-      item,
-      name,
-      timestamp,
-      synced: false,
-      id: `offline_${timestamp}_${Math.random().toString(36).substr(2, 9)}`
-    };
-    
-    // Save locally immediately
-    this.pendingRatings.set(key, offlineRating);
-    this.savePendingRatings();
-    
-    console.log('💾 Rating saved offline:', { evaluator, item, name });
-    
-    this.showOfflineSaveNotification(evaluator, item, name);
-    
-    // Try to sync if quota available
-    this.attemptSync(offlineRating);
-    
-    return offlineRating;
-  }
-
-  async attemptSync(rating) {
-    const status = conservativeAPI.getStatus();
-    
-    if (!status.canMakeRequest) {
-      console.log('⏳ Cannot sync now - quota limits active');
-      this.addToSyncQueue(rating);
-      return;
-    }
-
-    try {
-      await this.syncRatingToSheets(rating);
-      
-      rating.synced = true;
-      rating.syncedAt = Date.now();
-      this.savePendingRatings();
-      
-      console.log('✅ Rating synced successfully:', rating.id);
-      
-    } catch (error) {
-      console.error('❌ Sync failed:', error);
-      this.addToSyncQueue(rating);
-    }
-  }
-
-  addToSyncQueue(rating) {
-    if (!this.syncQueue.find(r => r.id === rating.id)) {
-      this.syncQueue.push(rating);
-      console.log(`📤 Added to sync queue: ${rating.id}`);
-    }
-  }
-
-  async syncRatingToSheets(rating) {
-    // This would integrate with your existing sheet append function
-    console.log('🔄 Syncing rating to sheets:', rating);
-    // Implementation depends on your existing appendRatingToSheet function
-    return Promise.resolve(); // Placeholder
-  }
-
-  startSyncProcess() {
-    setInterval(async () => {
-      if (this.syncQueue.length === 0) return;
-      
-      const status = conservativeAPI.getStatus();
-      if (!status.canMakeRequest) {
-        console.log('⏳ Sync delayed - quota limits active');
-        return;
-      }
-
-      console.log(`🔄 Attempting to sync ${this.syncQueue.length} pending ratings...`);
-      
-      const toSync = this.syncQueue.splice(0, 2); // Sync max 2 at a time
-      
-      for (const rating of toSync) {
-        try {
-          await this.attemptSync(rating);
-          await new Promise(resolve => setTimeout(resolve, 3000)); // 3s delay between syncs
-        } catch (error) {
-          console.error('Sync failed for:', rating.id, error);
-          this.syncQueue.push(rating);
-        }
-      }
-    }, 10 * 60 * 1000); // Every 10 minutes
-  }
-
-  loadPendingRatings() {
-    try {
-      const stored = localStorage.getItem('offline_ratings');
-      if (stored) {
-        const data = JSON.parse(stored);
-        this.pendingRatings = new Map(data.ratings || []);
-        this.syncQueue = data.syncQueue || [];
-        
-        console.log(`📂 Loaded ${this.pendingRatings.size} offline ratings, ${this.syncQueue.length} in sync queue`);
-      }
-    } catch (error) {
-      console.error('Failed to load offline ratings:', error);
-    }
-  }
-
-  savePendingRatings() {
-    try {
-      const data = {
-        ratings: Array.from(this.pendingRatings.entries()),
-        syncQueue: this.syncQueue,
-        timestamp: Date.now()
-      };
-      localStorage.setItem('offline_ratings', JSON.stringify(data));
-    } catch (error) {
-      console.error('Failed to save offline ratings:', error);
-    }
-  }
-
-  showOfflineSaveNotification(evaluator, item, name) {
-    const notification = document.createElement('div');
-    notification.innerHTML = `
-      <div style="position: fixed; top: 20px; right: 20px; 
-                  background: #4CAF50; color: white; padding: 15px; 
-                  border-radius: 8px; z-index: 10000; max-width: 300px;
-                  box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-        ✅ <strong>Rating Saved</strong><br>
-        <small>${item} for ${name}<br>
-        ${conservativeAPI.getStatus().canMakeRequest ? 'Syncing...' : 'Will sync when quota resets'}</small>
-      </div>
-    `;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      if (notification.parentElement) {
-        notification.remove();
-      }
-    }, 4000);
-  }
-
-  getAllRatingsIncludingOffline(evaluator, item, name) {
-    const key = `${evaluator}:${item}:${name}`;
-    const offline = this.pendingRatings.get(key);
-    
-    return {
-      offline: offline || null,
-      hasUnsyncedChanges: offline && !offline.synced
-    };
-  }
-
-  getSyncStatus() {
-    const totalPending = this.pendingRatings.size;
-    const unsynced = Array.from(this.pendingRatings.values()).filter(r => !r.synced).length;
-    const queueLength = this.syncQueue.length;
-    
-    return {
-      totalPending,
-      unsynced,
-      queueLength,
-      canSync: conservativeAPI.getStatus().canMakeRequest
-    };
-  }
-}
-
-// ===================
-// ENHANCED BULLETPROOF API MANAGER
+// ENHANCED BULLETPROOF API MANAGER (Integrating with existing code)
 // ===================
 
 class BulletproofAPIManager {
   constructor(options = {}) {
-    // FIXED: More reasonable configuration
-    this.baseDelay = options.baseDelay || 2000; // 2 second base delay
-    this.maxDelay = options.maxDelay || 60000;  // 1 minute max delay
-    this.maxRetries = options.maxRetries || 5;   // Reasonable retry count
+    // Configuration
+    this.baseDelay = options.baseDelay || 3000;
+    this.maxDelay = options.maxDelay || 30000; // Reduced from 300000
+    this.maxRetries = options.maxRetries || 6;  // Reduced from 10
     this.quotaResetTime = options.quotaResetTime || 24 * 60 * 60 * 1000;
     
+    // Enhanced components
+    this.enhancedCache = new EnhancedCache();
+    this.adaptiveManager = new AdaptiveRequestManager();
+    
+    // Multi-device coordination
     this.deviceId = this.generateDeviceId();
     this.globalQuotaKey = 'global_api_quota_tracker';
-    this.deviceQuotaKey = `device_quota_${this.deviceId}`;
     
-    this.cache = new Map();
+    // State management
     this.requestQueue = new Map();
     this.rateLimitInfo = new Map();
     this.circuitBreaker = new Map();
     
+    // Global quota tracking (simplified)
     this.globalQuotaState = this.loadGlobalQuotaState();
     
+    // Metrics
     this.metrics = {
       totalRequests: 0,
       successfulRequests: 0,
@@ -1095,8 +892,6 @@ class BulletproofAPIManager {
       quotaExceeded: 0,
       deviceId: this.deviceId
     };
-    
-    this.startQuotaMonitoring();
   }
 
   generateDeviceId() {
@@ -1113,8 +908,9 @@ class BulletproofAPIManager {
       const stored = localStorage.getItem(this.globalQuotaKey);
       if (stored) {
         const state = JSON.parse(stored);
-        state.activeDevices = new Set(state.activeDevices);
-        if (Date.now() - state.lastReset > this.quotaResetTime) {
+        
+        // Reset if it's a new day
+        if (Date.now() - (state.lastReset || 0) > this.quotaResetTime) {
           return this.resetGlobalQuotaState();
         }
         return state;
@@ -1130,7 +926,6 @@ class BulletproofAPIManager {
       requestsToday: 0,
       quotaExceededAt: null,
       lastReset: Date.now(),
-      activeDevices: new Set([this.deviceId]),
       lastQuotaError: null
     };
     this.saveGlobalQuotaState(state);
@@ -1140,95 +935,77 @@ class BulletproofAPIManager {
   saveGlobalQuotaState(state = null) {
     const stateToSave = state || this.globalQuotaState;
     try {
-      const serializable = {
-        ...stateToSave,
-        activeDevices: Array.from(stateToSave.activeDevices)
-      };
-      localStorage.setItem(this.globalQuotaKey, JSON.stringify(serializable));
+      localStorage.setItem(this.globalQuotaKey, JSON.stringify(stateToSave));
     } catch (e) {
       console.warn('Failed to save global quota state:', e);
     }
   }
 
-  startQuotaMonitoring() {
-    this.globalQuotaState.activeDevices.add(this.deviceId);
-    this.saveGlobalQuotaState();
-    
-    this.quotaMonitor = setInterval(() => {
-      this.syncGlobalQuotaState();
-    }, 30000); // Check every 30 seconds
-  }
-
-  syncGlobalQuotaState() {
-    try {
-      const stored = localStorage.getItem(this.globalQuotaKey);
-      if (stored) {
-        const state = JSON.parse(stored);
-        state.activeDevices = new Set(state.activeDevices);
-        
-        if (state.quotaExceededAt && !this.globalQuotaState.quotaExceededAt) {
-          console.log('🚨 Another device hit quota limit. Entering conservative mode.');
-          this.globalQuotaState = state;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to sync global quota state:', e);
-    }
-  }
-
+  // Simplified quota check
   isGlobalQuotaExceeded() {
     if (!this.globalQuotaState.quotaExceededAt) return false;
     
     const timeSinceQuotaError = Date.now() - this.globalQuotaState.quotaExceededAt;
-    const cooldownTime = Math.min(60000 + (timeSinceQuotaError * 0.1), 600000); // 1min to 10min
     
-    if (timeSinceQuotaError < cooldownTime) {
-      console.log(`🛑 Global quota exceeded. Cooling down for ${Math.round((cooldownTime - timeSinceQuotaError)/1000)}s more`);
+    // Only block for 10 minutes after quota error, then try again
+    if (timeSinceQuotaError < 10 * 60 * 1000) {
       return true;
     }
     
+    // Reset quota exceeded state
     this.globalQuotaState.quotaExceededAt = null;
     this.saveGlobalQuotaState();
     return false;
   }
 
+  // Enhanced cache getter (integrating with existing cache method)
   getCachedData(key, maxAge = 5 * 60 * 1000) {
-    const cached = this.cache.get(key);
-    if (!cached) return null;
-    
-    const age = Date.now() - cached.timestamp;
-    if (age > maxAge) {
-      this.cache.delete(key);
-      return null;
+    // Try enhanced cache first
+    const enhanced = this.enhancedCache.getWithFallback(key, maxAge);
+    if (enhanced) {
+      this.metrics.cacheHits++;
+      return enhanced;
     }
     
-    this.metrics.cacheHits++;
-    console.log(`📦 Cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
-    return cached.data;
+    // Fallback to original cache if available
+    const originalCached = this.cache?.get(key);
+    if (originalCached) {
+      const age = Date.now() - originalCached.timestamp;
+      if (age < maxAge * 2) { // More lenient for fallback
+        this.metrics.cacheHits++;
+        console.log(`📦 Original cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
+        return originalCached.data;
+      }
+    }
+    
+    return null;
   }
 
   setCachedData(key, data, customTTL = null) {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now(),
-      ttl: customTTL
-    });
+    // Set in enhanced cache
+    this.enhancedCache.setWithCompression(key, data, customTTL || 60 * 60 * 1000);
+    
+    // Also set in original cache if it exists
+    if (this.cache) {
+      this.cache.set(key, {
+        data,
+        timestamp: Date.now(),
+        ttl: customTTL
+      });
+    }
   }
 
-  calculateBackoffDelay(attempt, baseDelay = this.baseDelay) {
-    const exponentialDelay = baseDelay * Math.pow(1.5, attempt); // Less aggressive
-    const jitter = Math.random() * 0.1 * exponentialDelay;
-    return Math.min(exponentialDelay + jitter, this.maxDelay);
-  }
-
+  // Simplified error classification
   classifyError(error) {
     const errorMessage = error.message || error.toString();
     const errorCode = error.code || error.status;
     
-    if (errorCode === 403 || (errorMessage && (errorMessage.includes('quotaExceeded') || 
+    // Quota exceeded errors
+    if (errorCode === 403 || 
+        errorMessage.includes('quotaExceeded') || 
         errorMessage.includes('userRateLimitExceeded') ||
         errorMessage.includes('dailyLimitExceeded') ||
-        errorMessage.includes('Quota exceeded')))) {
+        errorMessage.includes('Quota exceeded')) {
       
       this.globalQuotaState.quotaExceededAt = Date.now();
       this.globalQuotaState.lastQuotaError = errorMessage;
@@ -1237,51 +1014,52 @@ class BulletproofAPIManager {
       return { 
         type: 'quota', 
         retryable: true, 
-        backoffMultiplier: 3,
-        isGlobal: true 
+        backoffMultiplier: 3
       };
     }
     
-    if (errorCode === 429 || (errorMessage && errorMessage.includes('rateLimitExceeded'))) {
+    // Rate limit errors
+    if (errorCode === 429 || errorMessage.includes('rateLimitExceeded')) {
       return { type: 'rateLimit', retryable: true, backoffMultiplier: 2 };
     }
     
-    if ((errorMessage && (errorMessage.includes('network') || errorMessage.includes('timeout'))) ||
+    // Network errors
+    if (errorMessage.includes('network') || 
+        errorMessage.includes('timeout') ||
         errorCode >= 500) {
       return { type: 'network', retryable: true, backoffMultiplier: 1.5 };
     }
     
-    if (errorCode === 401 || (errorMessage && errorMessage.includes('unauthorized'))) {
+    // Authentication errors
+    if (errorCode === 401 || errorMessage.includes('unauthorized')) {
       return { type: 'auth', retryable: false, backoffMultiplier: 1 };
     }
     
     return { type: 'unknown', retryable: false, backoffMultiplier: 1 };
   }
 
+  // Simplified main fetch with adaptive management
   async bulletproofFetch(key, fetchFunction, options = {}) {
     this.metrics.totalRequests++;
     
-    if (this.isGlobalQuotaExceeded()) {
-      const staleData = this.cache.get(key);
-      if (staleData) {
-        console.log(`🗃️ Using stale cache for ${key} due to global quota exceeded`);
-        return staleData.data;
-      }
-      throw new Error(`Global quota exceeded for ${key}. Try again later.`);
-    }
-    
+    // Check cache first with enhanced system
     const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
     const cachedData = this.getCachedData(key, maxCacheAge);
     if (cachedData && !options.forceRefresh) {
       return cachedData;
     }
 
+    // Check if request is already in flight
     if (this.requestQueue.has(key)) {
       console.log(`⏳ Waiting for existing request: ${key}`);
       return await this.requestQueue.get(key);
     }
 
-    const requestPromise = this.executeWithRetry(key, fetchFunction, options);
+    // Use adaptive request management instead of conservative wrapper
+    const requestPromise = this.adaptiveManager.safeApiCall(async () => {
+      return await this.executeWithRetry(key, fetchFunction, options);
+    }, this.getCachedData(key, 30 * 60 * 1000)); // 30min fallback
+
     this.requestQueue.set(key, requestPromise);
 
     try {
@@ -1297,22 +1075,11 @@ class BulletproofAPIManager {
     
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
-        if (this.isGlobalQuotaExceeded()) {
-          throw new Error('Global quota exceeded - using cache fallback');
-        }
-        
         console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key}`);
-        
-        if (attempt > 0) {
-          const delay = this.calculateBackoffDelay(attempt);
-          console.log(`⏱️ Waiting ${Math.round(delay/1000)}s before retry...`);
-          await this.wait(delay);
-        }
         
         const result = await fetchFunction();
         
-        this.recordGlobalSuccess(key);
-        this.metrics.successfulRequests++;
+        this.recordSuccess(key);
         this.setCachedData(key, result, options.cacheTTL);
         
         console.log(`✅ Successfully fetched ${key}`);
@@ -1329,95 +1096,62 @@ class BulletproofAPIManager {
           message: error.message
         });
         
-        if (errorInfo.isGlobal) {
-          this.recordGlobalQuotaFailure(error);
-        }
-        
         if (!errorInfo.retryable || attempt === this.maxRetries) {
           break;
         }
+        
+        // Simple exponential backoff
+        const delay = Math.min(
+          this.baseDelay * Math.pow(1.5, attempt) * errorInfo.backoffMultiplier,
+          this.maxDelay
+        );
+        
+        console.log(`⏱️ Waiting ${Math.round(delay/1000)}s before retry...`);
+        await this.wait(delay);
       }
     }
     
-    const staleData = this.cache.get(key);
+    // Try to return stale cache on final failure
+    const staleData = this.getCachedData(key, 2 * 60 * 60 * 1000); // 2 hour fallback
     if (staleData) {
-      console.log(`🗃️ All retries failed for ${key}. Using stale cache`);
-      return staleData.data;
+      console.log(`🗃️ All retries failed for ${key}. Using stale cache.`);
+      return staleData;
     }
     
     throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
   }
 
-  recordGlobalSuccess(key) {
+  recordSuccess(key) {
+    this.circuitBreaker.delete(key);
+    this.metrics.successfulRequests++;
     this.globalQuotaState.requestsToday++;
     this.saveGlobalQuotaState();
   }
 
-  recordGlobalQuotaFailure(error) {
-    this.globalQuotaState.quotaExceededAt = Date.now();
-    this.globalQuotaState.lastQuotaError = error.message;
-    this.saveGlobalQuotaState();
-    
-    console.log(`🚨 GLOBAL QUOTA EXCEEDED recorded by device ${this.deviceId}`);
-  }
-
+  // Simplified batch processing
   async batchFetch(requests, options = {}) {
     const {
       concurrency = 1,
-      adaptiveDelay = true,
-      priorityOrder = true,
-      emergencyMode = false
+      adaptiveDelay = true
     } = options;
     
-    const isEmergency = emergencyMode || this.isGlobalQuotaExceeded();
-    
-    console.log(`🎯 Starting ${isEmergency ? 'EMERGENCY' : 'NORMAL'} batch fetch:`, {
+    console.log(`🎯 Starting batch fetch:`, {
       requests: requests.length,
-      deviceId: this.deviceId
+      deviceId: this.deviceId,
+      adaptiveMode: this.adaptiveManager.isAdaptiveMode
     });
-    
-    let cacheResults = [];
-    if (isEmergency) {
-      const missedRequests = [];
-      
-      for (const request of requests) {
-        const cached = this.getCachedData(request.key, 30 * 60 * 1000);
-        if (cached) {
-          cacheResults.push({ key: request.key, data: cached, success: true, fromCache: true });
-        } else {
-          missedRequests.push(request);
-        }
-      }
-      
-      console.log(`🗄️ Emergency cache results: ${cacheResults.length} hits, ${missedRequests.length} misses`);
-      
-      if (missedRequests.length === 0) {
-        return {
-          results: cacheResults,
-          errors: [],
-          metrics: this.getMetrics()
-        };
-      }
-      
-      requests = missedRequests;
-    }
-    
-    if (priorityOrder) {
-      requests.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-    }
     
     const results = [];
     const errors = [];
-    let adaptiveDelayMs = isEmergency ? 5000 : 2000;
+    let currentDelay = 2000;
     
     for (let i = 0; i < requests.length; i++) {
       const request = requests[i];
       
       try {
-        if (i > 0) {
-          const progressiveDelay = adaptiveDelayMs + (i * 500);
-          console.log(`⏳ Progressive delay: ${progressiveDelay}ms (request ${i + 1}/${requests.length})`);
-          await this.wait(progressiveDelay);
+        if (i > 0 && adaptiveDelay) {
+          console.log(`⏳ Progressive delay: ${currentDelay}ms (request ${i + 1}/${requests.length})`);
+          await this.wait(currentDelay);
         }
         
         const result = await this.bulletproofFetch(
@@ -1428,19 +1162,22 @@ class BulletproofAPIManager {
         
         results.push({ key: request.key, data: result, success: true });
         
-        if (adaptiveDelay && adaptiveDelayMs > 1000) {
-          adaptiveDelayMs = Math.max(adaptiveDelayMs * 0.9, 1000);
+        // Success reduces delay
+        if (adaptiveDelay && currentDelay > 1500) {
+          currentDelay = Math.max(currentDelay * 0.9, 1500);
         }
         
       } catch (error) {
         errors.push({ key: request.key, error: error.message, success: false });
         
+        // Failure increases delay
         if (adaptiveDelay) {
-          adaptiveDelayMs = Math.min(adaptiveDelayMs * 1.3, 15000);
-          console.log(`📈 Request failed. Increasing delay to ${adaptiveDelayMs}ms`);
+          currentDelay = Math.min(currentDelay * 1.3, 10000);
+          console.log(`📈 Request failed. Increasing delay to ${currentDelay}ms`);
         }
         
-        if (error.message && (error.message.includes('quota') || error.message.includes('Quota'))) {
+        // If quota error, stop trying
+        if (error.message.includes('quota') || error.message.includes('Quota')) {
           console.log(`🛑 Quota error detected. Aborting remaining ${requests.length - i - 1} requests.`);
           break;
         }
@@ -1454,7 +1191,7 @@ class BulletproofAPIManager {
     });
     
     return {
-      results: isEmergency ? [...cacheResults, ...results] : results,
+      results,
       errors,
       metrics: this.getMetrics()
     };
@@ -1465,37 +1202,157 @@ class BulletproofAPIManager {
   }
 
   getMetrics() {
-    const cacheSize = this.cache.size;
-    const queueSize = this.requestQueue.size;
+    const enhancedStatus = this.enhancedCache.getQuotaStatus();
+    const adaptiveStatus = this.adaptiveManager.getStatus();
     
     return {
       ...this.metrics,
-      cacheSize,
-      queueSize,
+      cacheSize: this.enhancedCache.cache.size,
+      queueSize: this.requestQueue.size,
       successRate: this.metrics.totalRequests > 0 ? 
         (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0,
+      enhancedCache: enhancedStatus,
+      adaptiveManager: adaptiveStatus,
       globalQuotaState: {
         requestsToday: this.globalQuotaState.requestsToday,
-        quotaExceeded: !!this.globalQuotaState.quotaExceededAt,
-        activeDevices: this.globalQuotaState.activeDevices.size
+        quotaExceeded: !!this.globalQuotaState.quotaExceededAt
       }
     };
   }
 
   clearCache() {
-    this.cache.clear();
-    console.log('🗑️ Cache cleared');
+    this.enhancedCache.clear();
+    if (this.cache) this.cache.clear();
+    console.log('🗑️ All caches cleared');
   }
 
   cleanup() {
-    if (this.quotaMonitor) {
-      clearInterval(this.quotaMonitor);
-    }
-    
-    this.globalQuotaState.activeDevices.delete(this.deviceId);
-    this.saveGlobalQuotaState();
-    
+    // Minimal cleanup
     console.log(`🧹 Device ${this.deviceId} cleaned up`);
+  }
+}
+
+// ===================
+// SIMPLE OFFLINE RATING SYSTEM (Replacing complex version)
+// ===================
+
+class SimpleOfflineRatingManager {
+  constructor() {
+    this.pendingRatings = new Map();
+    this.loadPendingRatings();
+  }
+
+  savePendingRating(evaluator, item, name, ratingData) {
+    const key = `${evaluator}:${item}:${name}`;
+    
+    const pendingData = {
+      ...ratingData,
+      evaluator,
+      item,
+      name,
+      timestamp: Date.now(),
+      synced: false
+    };
+    
+    this.pendingRatings.set(key, pendingData);
+    this.savePendingRatings();
+    
+    console.log('💾 Saved pending rating:', { evaluator, item, name });
+    
+    // Show user notification
+    this.showSaveNotification();
+    
+    // Try to sync immediately (but don't block)
+    this.attemptSync(key, pendingData).catch(e => 
+      console.log('Background sync failed:', e.message)
+    );
+    
+    return pendingData;
+  }
+
+  getPendingRating(evaluator, item, name) {
+    const key = `${evaluator}:${item}:${name}`;
+    return this.pendingRatings.get(key) || null;
+  }
+
+  clearPendingRating(evaluator, item, name) {
+    const key = `${evaluator}:${item}:${name}`;
+    this.pendingRatings.delete(key);
+    this.savePendingRatings();
+  }
+
+  async attemptSync(key, rating) {
+    try {
+      // Use your existing appendRatingToSheet function if available
+      if (typeof appendRatingToSheet === 'function') {
+        await appendRatingToSheet(rating);
+        
+        rating.synced = true;
+        rating.syncedAt = Date.now();
+        this.savePendingRatings();
+        
+        console.log('✅ Rating synced successfully:', key);
+      }
+    } catch (error) {
+      console.log('Sync failed, will retry later:', error.message);
+    }
+  }
+
+  loadPendingRatings() {
+    try {
+      const stored = localStorage.getItem('simple_offline_ratings');
+      if (stored) {
+        const data = JSON.parse(stored);
+        this.pendingRatings = new Map(data.ratings || []);
+        console.log(`📂 Loaded ${this.pendingRatings.size} offline ratings`);
+      }
+    } catch (error) {
+      console.error('Failed to load offline ratings:', error);
+    }
+  }
+
+  savePendingRatings() {
+    try {
+      const data = {
+        ratings: Array.from(this.pendingRatings.entries()),
+        timestamp: Date.now()
+      };
+      localStorage.setItem('simple_offline_ratings', JSON.stringify(data));
+    } catch (error) {
+      console.error('Failed to save offline ratings:', error);
+    }
+  }
+
+  showSaveNotification() {
+    // Simple notification
+    const notification = document.createElement('div');
+    notification.innerHTML = `
+      <div style="position: fixed; top: 20px; right: 20px; 
+                  background: #4CAF50; color: white; padding: 12px; 
+                  border-radius: 6px; z-index: 10000;
+                  font-size: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+        ✅ Rating saved successfully
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.remove();
+      }
+    }, 3000);
+  }
+
+  getSyncStatus() {
+    const totalPending = this.pendingRatings.size;
+    const unsynced = Array.from(this.pendingRatings.values()).filter(r => !r.synced).length;
+    
+    return {
+      totalPending,
+      unsynced,
+      allSynced: unsynced === 0
+    };
   }
 }
 
@@ -1503,20 +1360,74 @@ class BulletproofAPIManager {
 // GLOBAL INSTANCES
 // ===================
 
-const smartCache = new SmartCache();
-const conservativeAPI = new ConservativeAPIWrapper();
-const offlineRatingManager = new OfflineRatingManager();
-
-// Enhanced API manager with more reasonable settings
 const apiManager = new BulletproofAPIManager({
-  baseDelay: 2000,     // 2 second base delay
-  maxDelay: 60000,     // 1 minute max delay
-  maxRetries: 5        // Reasonable retry count
+  baseDelay: 3000,
+  maxDelay: 30000,
+  maxRetries: 6
 });
+
+const simpleOfflineManager = new SimpleOfflineRatingManager();
 
 // ===================
 // ENHANCED WRAPPER FUNCTIONS
 // ===================
+
+async function safeFetchSecretariatMembers(options = {}) {
+  const fetchFunction = async () => {
+    if (!await isTokenValid()) await refreshAccessToken();
+    
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.MEMBERS || SHEET_RANGES.RATELOG, // Fallback if MEMBERS not defined
+    });
+    
+    const values = response?.result?.values || [];
+    return parseSecretariatMembers ? parseSecretariatMembers(values) : values;
+  };
+
+  return await apiManager.bulletproofFetch('secretariatMembers', fetchFunction, {
+    maxCacheAge: options.maxAge || 15 * 60 * 1000,  // 15 minutes
+    cacheTTL: 60 * 60 * 1000,                       // 1 hour
+    forceRefresh: options.forceRefresh
+  });
+}
+
+async function safeFetchVacanciesData(options = {}) {
+  const fetchFunction = async () => {
+    if (!await isTokenValid()) await refreshAccessToken();
+    
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.VACANCIES,
+    });
+    
+    const values = response?.result?.values || [];
+    return parseVacanciesData ? parseVacanciesData(values) : values;
+  };
+
+  return await apiManager.bulletproofFetch('vacanciesData', fetchFunction, {
+    maxCacheAge: options.maxAge || 15 * 60 * 1000,  // 15 minutes
+    cacheTTL: 2 * 60 * 60 * 1000,                   // 2 hours
+    forceRefresh: options.forceRefresh
+  });
+}
+
+async function safeLoadSignatories(options = {}) {
+  if (!loadSignatories || typeof loadSignatories !== 'function') {
+    console.log('loadSignatories function not available');
+    return [];
+  }
+  
+  const fetchFunction = async () => {
+    return await loadSignatories();
+  };
+  
+  return await apiManager.bulletproofFetch('signatories', fetchFunction, {
+    maxCacheAge: options.maxAge || 20 * 60 * 1000,  // 20 minutes
+    cacheTTL: 2 * 60 * 60 * 1000,                   // 2 hours
+    forceRefresh: options.forceRefresh
+  });
+}
 
 async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
   if (!name || !item || !evaluator) {
@@ -1525,358 +1436,64 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
 
   const key = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
 
-  console.log(`🎯 Smart fetch ratings:`, { evaluator, item, name, key });
+  console.log(`🎯 Fetching ratings:`, { evaluator, item, name });
 
-  // Enhanced fetch function
   const fetchFunction = async () => {
-    // Check conservative API wrapper first
-    return await conservativeAPI.safeApiCall(async () => {
-      if (!await isTokenValid()) await refreshAccessToken();
+    if (!await isTokenValid()) await refreshAccessToken();
 
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-      });
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
 
-      const values = response?.result?.values || [];
-      const filteredValues = [];
+    const values = response?.result?.values || [];
+    const filteredValues = [];
+    
+    if (values.length > 0) {
+      filteredValues.push(values[0]); // Header
       
-      if (values.length > 0) {
-        filteredValues.push(values[0]); // Header
-        
-        const dataRows = values.slice(1);
-        const matchingRows = dataRows.filter(row => {
-          return matchesRatingRow(row, item, name, evaluator);
-        });
-        
-        filteredValues.push(...matchingRows);
-      }
-      
-      return { 
-        values: filteredValues, 
-        ts: Date.now(),
-        evaluator,
-        item,
-        name
-      };
-    }, null); // No fallback data for first attempt
-  };
-
-  // Use smart cache with predictive batching
-  return await smartCache.smartFetch(key, fetchFunction, {
-    maxAge: forceRefresh ? 0 : 2 * 60 * 1000,  // 2 minutes fresh
-    ttl: 15 * 60 * 1000,                        // 15 minutes total
-    predictive: true,                           // Enable smart batching
-    noBatch: forceRefresh                       // Skip batching if force refresh
-  });
-}
-
-async function safeFetchSecretariatMembers(options = {}) {
-  const fetchFunction = async () => {
-    return await conservativeAPI.safeApiCall(async () => {
-      if (!await isTokenValid()) await refreshAccessToken();
-      
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.MEMBERS,
+      const dataRows = values.slice(1);
+      const matchingRows = dataRows.filter(row => {
+        return matchesRatingRow ? matchesRatingRow(row, item, name, evaluator) : false;
       });
       
-      const members = parseSecretariatMembers(response.result.values);
-      
-      // Store globally for predictive batching
-      window.currentSecretariatMembers = members;
-      
-      return members;
-    });
+      filteredValues.push(...matchingRows);
+    }
+    
+    return { 
+      values: filteredValues, 
+      ts: Date.now(),
+      evaluator,
+      item,
+      name
+    };
   };
 
-  return await smartCache.smartFetch('secretariatMembers', fetchFunction, {
-    maxAge: options.maxAge || 10 * 60 * 1000,  // 10 minutes
-    ttl: 60 * 60 * 1000,                       // 1 hour
-    forceRefresh: options.forceRefresh
-  });
-}
-
-async function safeFetchVacanciesData(options = {}) {
-  const fetchFunction = async () => {
-    return await conservativeAPI.safeApiCall(async () => {
-      if (!await isTokenValid()) await refreshAccessToken();
-      
-      const response = await gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.VACANCIES,
-      });
-      
-      return parseVacanciesData(response.result.values);
-    });
-  };
-
-  return await smartCache.smartFetch('vacanciesData', fetchFunction, {
-    maxAge: options.maxAge || 15 * 60 * 1000,  // 15 minutes
-    ttl: 2 * 60 * 60 * 1000,                   // 2 hours
-    forceRefresh: options.forceRefresh
-  });
-}
-
-async function safeLoadSignatories(options = {}) {
-  if (!loadSignatories || typeof loadSignatories !== 'function') {
-    console.log('loadSignatories function not available');
-    return null;
-  }
-  
-  const fetchFunction = async () => {
-    return await conservativeAPI.safeApiCall(async () => {
-      return await loadSignatories();
-    });
-  };
-
-  return await smartCache.smartFetch('signatories', fetchFunction, {
-    maxAge: options.maxAge || 20 * 60 * 1000,  // 20 minutes
-    ttl: 2 * 60 * 60 * 1000,                   // 2 hours
-    forceRefresh: options.forceRefresh
+  return await apiManager.bulletproofFetch(key, fetchFunction, {
+    maxCacheAge: forceRefresh ? 0 : 2 * 60 * 1000,  // 2 minutes
+    cacheTTL: 15 * 60 * 1000,                        // 15 minutes
+    forceRefresh
   });
 }
 
 // ===================
-// PENDING RATING MANAGEMENT - FIXED
+// PENDING RATING MANAGEMENT (Simplified)
 // ===================
-
-const pendingRatings = new Map();
 
 function savePendingRating(evaluator, item, name, ratingData) {
-  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  
-  const pendingData = {
-    ...ratingData,
-    evaluator,
-    item,
-    name,
-    deviceId: apiManager.deviceId,
-    timestamp: Date.now()
-  };
-  
-  pendingRatings.set(key, pendingData);
-  
-  try {
-    localStorage.setItem(key, JSON.stringify(pendingData));
-    console.log(`💾 Saved pending rating:`, { evaluator, item, name });
-  } catch (e) {
-    console.warn('Failed to save pending rating to localStorage:', e);
-  }
+  return simpleOfflineManager.savePendingRating(evaluator, item, name, ratingData);
 }
 
 function getPendingRating(evaluator, item, name) {
-  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  
-  let pending = pendingRatings.get(key);
-  
-  if (!pending) {
-    try {
-      const stored = localStorage.getItem(key);
-      if (stored) {
-        pending = JSON.parse(stored);
-        if (pending.evaluator === evaluator && 
-            pending.item === item && 
-            pending.name === name &&
-            pending.deviceId === apiManager.deviceId) {
-          
-          if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
-            pendingRatings.set(key, pending);
-            console.log(`📤 Restored pending rating:`, { evaluator, item, name });
-          } else {
-            localStorage.removeItem(key);
-            pending = null;
-          }
-        } else {
-          pending = null;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to restore pending rating:', e);
-      pending = null;
-    }
-  }
-  
-  return pending;
+  return simpleOfflineManager.getPendingRating(evaluator, item, name);
 }
 
 function clearPendingRating(evaluator, item, name) {
-  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  
-  pendingRatings.delete(key);
-  
-  try {
-    localStorage.removeItem(key);
-    console.log(`🧹 Cleared pending rating:`, { evaluator, item, name });
-  } catch (e) {
-    console.warn('Failed to clear pending rating from localStorage:', e);
-  }
+  simpleOfflineManager.clearPendingRating(evaluator, item, name);
 }
 
 // ===================
-// ENHANCED INTEGRATION FOR saveRatingWithOfflineSupport
-// ===================
-
-async function saveRatingWithOfflineSupport(evaluator, item, name, ratingData) {
-  try {
-    // Save offline first
-    const offlineRating = await offlineRatingManager.saveRatingOfflineFirst(
-      evaluator, item, name, ratingData
-    );
-    
-    // Also save to pending ratings for immediate UI updates
-    savePendingRating(evaluator, item, name, ratingData);
-    
-    return offlineRating;
-    
-  } catch (error) {
-    console.error('Failed to save rating:', error);
-    throw error;
-  }
-}
-
-// ===================
-// PRELOADING STRATEGY - FIXED
-// ===================
-
-async function preloadCriticalData() {
-  console.log('🚀 Preloading critical data...');
-  
-  try {
-    await safeFetchSecretariatMembers();
-    await safeFetchVacanciesData();
-    
-    const currentEvaluator = getCurrentEvaluator && getCurrentEvaluator();
-    if (currentEvaluator && window.currentSecretariatMembers) {
-      const commonItems = ['Leadership', 'Communication'];
-      const topMembers = window.currentSecretariatMembers.slice(0, 2);
-      
-      for (const item of commonItems) {
-        for (const member of topMembers) {
-          try {
-            await safeFetchRatings({
-              evaluator: currentEvaluator,
-              item,
-              name: member.name
-            });
-            
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          } catch (e) {
-            console.log('Preload failed:', e.message);
-          }
-        }
-      }
-    }
-    
-    console.log('✅ Critical data preloaded');
-  } catch (error) {
-    console.log('⚠️ Preload failed:', error.message);
-  }
-}
-
-// ===================
-// STATUS MONITORING
-// ===================
-
-function createStatusDashboard() {
-  const dashboard = document.createElement('div');
-  dashboard.id = 'api-status-dashboard';
-  dashboard.style.cssText = `
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    background: rgba(0,0,0,0.8);
-    color: white;
-    padding: 10px;
-    border-radius: 8px;
-    font-family: monospace;
-    font-size: 12px;
-    z-index: 1000;
-    min-width: 200px;
-  `;
-  
-  document.body.appendChild(dashboard);
-  
-  function updateDashboard() {
-    const status = conservativeAPI.getStatus();
-    const cacheSize = smartCache.cache.size;
-    
-    dashboard.innerHTML = `
-      <div><strong>📊 API Status</strong></div>
-      <div>Daily: ${status.dailyUsage}/${status.dailyLimit}</div>
-      <div>Mode: ${status.conservativeMode ? '🐌 Conservative' : '🏃 Normal'}</div>
-      <div>Cache: ${cacheSize} items</div>
-      <div>Next: ${status.canMakeRequest ? '✅ Ready' : '⏳ Waiting'}</div>
-      <button onclick="document.getElementById('api-status-dashboard').remove()" 
-              style="margin-top: 5px; background: #333; color: white; border: none; padding: 2px 6px; border-radius: 4px; cursor: pointer;">
-        Hide
-      </button>
-    `;
-  }
-  
-  updateDashboard();
-  setInterval(updateDashboard, 10000);
-}
-
-function createSyncStatusIndicator() {
-  const indicator = document.createElement('div');
-  indicator.id = 'sync-status-indicator';
-  indicator.style.cssText = `
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    background: rgba(0,0,0,0.8);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    z-index: 1000;
-    cursor: pointer;
-  `;
-  
-  document.body.appendChild(indicator);
-  
-  function updateIndicator() {
-    const syncStatus = offlineRatingManager.getSyncStatus();
-    const apiStatus = conservativeAPI.getStatus();
-    
-    let text = '✅ Synced';
-    let color = '#4CAF50';
-    
-    if (syncStatus.unsynced > 0) {
-      text = `📤 ${syncStatus.unsynced} pending`;
-      color = '#ff9800';
-    }
-    
-    if (!apiStatus.canMakeRequest) {
-      text = '⏳ Quota limit';
-      color = '#f44336';
-    }
-    
-    indicator.textContent = text;
-    indicator.style.background = color;
-  }
-  
-  setInterval(updateIndicator, 10000);
-  updateIndicator();
-  
-  indicator.addEventListener('click', () => {
-    const syncStatus = offlineRatingManager.getSyncStatus();
-    const apiStatus = conservativeAPI.getStatus();
-    
-    alert(`
-📊 Detailed Status:
-• API Usage: ${apiStatus.dailyUsage}/${apiStatus.dailyLimit} requests today
-• Pending Sync: ${syncStatus.unsynced} ratings
-• Cache: ${smartCache.cache.size} items
-• Mode: ${apiStatus.conservativeMode ? 'Conservative' : 'Normal'}
-• Next API Call: ${apiStatus.canMakeRequest ? 'Ready' : 'Waiting for quota'}
-    `);
-  });
-}
-
-// ===================
-// ENHANCED INITIALIZATION - ULTRA-SAFE
+// ENHANCED INITIALIZATION WITH BETTER ERROR HANDLING
 // ===================
 
 async function initializeApp() {
@@ -1896,28 +1513,30 @@ async function initializeApp() {
       await initializeGapiClient();
       gapiInitialized = true;
       console.log('✅ GAPI client initialized');
+      
       loadingState.gapi = true;
-      maybeEnableButtons();
-      createEvaluatorSelector();
-      setupTabNavigation();
+      
+      if (typeof maybeEnableButtons === 'function') maybeEnableButtons();
+      if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
+      if (typeof setupTabNavigation === 'function') setupTabNavigation();
 
       console.log('🎯 Starting enhanced multi-device API calls...');
       console.log('📱 Device Info:', {
         deviceId: apiManager.deviceId,
-        conservativeMode: conservativeAPI.isConservativeMode
+        conservativeMode: apiManager.adaptiveManager.isAdaptiveMode
       });
       
-      // Try cache-first approach
-      const cacheOnlyResults = await tryLoadFromCacheOnly();
+      // Try to load from cache first
+      const cacheResults = await tryLoadFromCacheOnly();
       
-      if (cacheOnlyResults.allLoaded) {
-        console.log('🚀 All data loaded from cache! Skipping API calls.');
+      if (cacheResults.allLoaded) {
+        console.log('🚀 All critical data loaded from cache!');
         loadingState.apiDone = true;
-        finishInitialization();
+        await finishInitialization();
         return;
       }
       
-      // Define API requests with reasonable settings
+      // Define required API calls
       const apiRequests = [
         {
           key: 'secretariatMembers',
@@ -1926,7 +1545,7 @@ async function initializeApp() {
           required: true
         },
         {
-          key: 'vacanciesData', 
+          key: 'vacanciesData',
           fetchFunction: safeFetchVacanciesData,
           priority: 2,
           required: true
@@ -1937,23 +1556,22 @@ async function initializeApp() {
           priority: 1,
           required: false
         }
-      ].filter(req => !cacheOnlyResults.loadedKeys.includes(req.key));
+      ].filter(req => !cacheResults.loadedKeys.includes(req.key));
       
       if (apiRequests.length === 0) {
-        console.log('✅ All required data already cached');
+        console.log('✅ All data already cached');
         loadingState.apiDone = true;
-        finishInitialization();
+        await finishInitialization();
         return;
       }
       
-      // Execute with enhanced settings
+      // Execute API requests
       const batchResult = await apiManager.batchFetch(apiRequests, {
         concurrency: 1,
-        adaptiveDelay: true,
-        priorityOrder: true,
-        emergencyMode: conservativeAPI.isConservativeMode
+        adaptiveDelay: true
       });
       
+      // Handle results
       const criticalErrors = batchResult.errors.filter(err => 
         apiRequests.find(req => req.key === err.key)?.required
       );
@@ -1963,14 +1581,14 @@ async function initializeApp() {
         await handleCriticalAPIFailure(criticalErrors);
       }
       
-      console.log('📊 Enhanced API Results:', {
+      console.log('📊 API Results:', {
         successful: batchResult.results.length,
         failed: batchResult.errors.length,
         metrics: batchResult.metrics
       });
       
       loadingState.apiDone = true;
-      finishInitialization();
+      await finishInitialization();
       
     } catch (error) {
       console.error('❌ Critical initialization error:', error);
@@ -1979,7 +1597,6 @@ async function initializeApp() {
   });
 }
 
-// Cache-only loading attempt
 async function tryLoadFromCacheOnly() {
   const results = {
     loadedKeys: [],
@@ -1998,11 +1615,30 @@ async function tryLoadFromCacheOnly() {
   for (const test of cacheTests) {
     if (test.required) requiredCount++;
     
-    const cached = apiManager.getCachedData(test.key, 30 * 60 * 1000);
+    const cached = apiManager.getCachedData(test.key, 30 * 60 * 1000); // 30min tolerance
     if (cached) {
       results.loadedKeys.push(test.key);
       if (test.required) requiredLoaded++;
       console.log(`✅ ${test.key} loaded from cache`);
+      
+      // Set global variables if they exist and parsers are available
+      try {
+        if (test.key === 'secretariatMembers' && cached) {
+          if (typeof SECRETARIAT_MEMBERS !== 'undefined') {
+            window.SECRETARIAT_MEMBERS = cached;
+          }
+        } else if (test.key === 'vacanciesData' && cached) {
+          if (typeof vacancies !== 'undefined') {
+            window.vacancies = cached;
+          }
+        } else if (test.key === 'signatories' && cached) {
+          if (typeof SIGNATORIES !== 'undefined') {
+            window.SIGNATORIES = cached;
+          }
+        }
+      } catch (e) {
+        console.warn(`Warning setting global for ${test.key}:`, e);
+      }
     }
   }
   
@@ -2014,57 +1650,94 @@ async function handleCriticalAPIFailure(criticalErrors) {
   console.log('🆘 Handling critical API failures...');
   
   for (const error of criticalErrors) {
-    const staleData = apiManager.cache.get(error.key);
+    const staleData = apiManager.getCachedData(error.key, 24 * 60 * 60 * 1000); // Accept 24h old
     if (staleData) {
       console.log(`🗃️ Using stale cache for critical data: ${error.key}`);
+      
+      // Try to populate global variables
+      try {
+        if (error.key === 'secretariatMembers') {
+          if (typeof SECRETARIAT_MEMBERS !== 'undefined') {
+            window.SECRETARIAT_MEMBERS = staleData;
+          }
+        } else if (error.key === 'vacanciesData') {
+          if (typeof vacancies !== 'undefined') {
+            window.vacancies = staleData;
+          }
+        }
+      } catch (e) {
+        console.warn(`Warning setting global for ${error.key}:`, e);
+      }
     }
   }
   
   showErrorNotification(
-    'Some data is temporarily unavailable due to high server load. ' +
-    'The app is using cached data where possible. Please try refreshing in a few minutes.'
+    'Some data is temporarily unavailable due to server load. Using cached data where possible.'
   );
 }
 
 async function handleInitializationFailure() {
   console.log('🆘 Handling complete initialization failure...');
   
+  // Force everything as ready
   loadingState.gapi = true;
   loadingState.uiReady = true;
   loadingState.dom = true;
   loadingState.apiDone = true;
   
+  // Try to load any cached data
   await tryLoadFromCacheOnly();
   
-  checkAndHideSpinner();
+  if (typeof checkAndHideSpinner === 'function') {
+    checkAndHideSpinner();
+  }
   
   showErrorNotification(
-    'Unable to load fresh data. The app is running in offline mode with cached data. ' +
-    'Please check your internet connection and try refreshing.'
+    'Unable to load fresh data. Running with cached data. Please refresh to try again.'
   );
 }
 
-function finishInitialization() {
-  startUIMonitoring();
-  restoreState();
-  
-  // Event listeners
-  if (elements.generatePdfBtn) elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
-  if (elements.manageSignatoriesBtn) elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
-  if (elements.closeSignatoriesModalBtns) {
-    elements.closeSignatoriesModalBtns.forEach(button =>
-      button.addEventListener('click', () => {
-        elements.signatoriesModal.classList.remove('active');
-      })
-    );
+async function finishInitialization() {
+  if (typeof startUIMonitoring === 'function') {
+    startUIMonitoring();
   }
-  if (elements.addSignatoryBtn) elements.addSignatoryBtn.addEventListener('click', addSignatory);
+  
+  if (typeof restoreState === 'function') {
+    await restoreState();
+  }
+  
+  // Setup event listeners
+  try {
+    if (elements.generatePdfBtn && typeof generatePdfSummary === 'function') {
+      elements.generatePdfBtn.addEventListener('click', generatePdfSummary);
+    }
+    
+    if (elements.manageSignatoriesBtn && typeof manageSignatories === 'function') {
+      elements.manageSignatoriesBtn.addEventListener('click', manageSignatories);
+    }
+    
+    if (elements.closeSignatoriesModalBtns) {
+      elements.closeSignatoriesModalBtns.forEach(button =>
+        button.addEventListener('click', () => {
+          if (elements.signatoriesModal) {
+            elements.signatoriesModal.classList.remove('active');
+          }
+        })
+      );
+    }
+    
+    if (elements.addSignatoryBtn && typeof addSignatory === 'function') {
+      elements.addSignatoryBtn.addEventListener('click', addSignatory);
+    }
+  } catch (e) {
+    console.warn('Some event listeners could not be set up:', e);
+  }
   
   loadingState.dom = true;
-  checkAndHideSpinner();
   
-  // Create status indicators
-  createSyncStatusIndicator();
+  if (typeof checkAndHideSpinner === 'function') {
+    checkAndHideSpinner();
+  }
   
   console.log('✅ App initialization complete');
   console.log('📊 Final metrics:', apiManager.getMetrics());
@@ -2074,34 +1747,35 @@ function showErrorNotification(message, options = {}) {
   console.error('🚨 User notification:', message);
   
   const notification = document.createElement('div');
-  notification.className = 'api-error-notification';
   notification.innerHTML = `
-    <div class="notification-content">
-      <div class="notification-icon">⚠️</div>
-      <div class="notification-text">${message}</div>
-      ${options.showRetry ? `
-        <button class="notification-retry-btn" onclick="retryFailedAPIRequests()">
-          🔄 Retry Now
+    <div style="position: fixed; top: 20px; right: 20px; 
+                background: #ff4444; color: white; padding: 15px; 
+                border-radius: 8px; z-index: 10000; max-width: 400px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                font-family: system-ui, -apple-system, sans-serif;">
+      <div style="display: flex; align-items: flex-start; gap: 10px;">
+        <div style="font-size: 18px;">⚠️</div>
+        <div style="flex: 1;">
+          <div style="font-weight: bold; margin-bottom: 5px;">Notice</div>
+          <div style="font-size: 14px; line-height: 1.4;">${message}</div>
+          ${options.showRetry ? `
+            <button onclick="retryFailedAPIRequests()" 
+                    style="margin-top: 10px; background: rgba(255,255,255,0.2); 
+                           color: white; border: 1px solid rgba(255,255,255,0.3); 
+                           padding: 8px 12px; border-radius: 4px; cursor: pointer;">
+              🔄 Retry
+            </button>
+          ` : ''}
+        </div>
+        <button onclick="this.parentElement.parentElement.remove()" 
+                style="background: none; border: none; color: white; 
+                       font-size: 18px; cursor: pointer; padding: 0; 
+                       width: 20px; height: 20px; display: flex; 
+                       align-items: center; justify-content: center;">
+          ×
         </button>
-      ` : ''}
-      <button class="notification-close-btn" onclick="this.parentElement.parentElement.remove()">
-        ✕
-      </button>
+      </div>
     </div>
-  `;
-  
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: #ff4444;
-    color: white;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    z-index: 10000;
-    max-width: 400px;
-    font-family: system-ui, -apple-system, sans-serif;
   `;
   
   document.body.appendChild(notification);
@@ -2110,95 +1784,186 @@ function showErrorNotification(message, options = {}) {
     if (notification.parentElement) {
       notification.remove();
     }
-  }, 30000);
+  }, 15000);
 }
 
 async function retryFailedAPIRequests() {
   console.log('🔄 Manual retry triggered...');
   
-  if (conservativeAPI.isConservativeMode) {
-    conservativeAPI.isConservativeMode = false;
-    console.log('🏃 Exited conservative mode for manual retry');
+  // Clear quota exceeded state if it's old
+  if (apiManager.globalQuotaState.quotaExceededAt) {
+    const timeSince = Date.now() - apiManager.globalQuotaState.quotaExceededAt;
+    if (timeSince > 5 * 60 * 1000) { // 5 minutes
+      apiManager.globalQuotaState.quotaExceededAt = null;
+      apiManager.saveGlobalQuotaState();
+    }
   }
   
   const apiRequests = [
     {
       key: 'secretariatMembers',
       fetchFunction: safeFetchSecretariatMembers,
-      priority: 3,
       options: { forceRefresh: true }
     },
     {
       key: 'vacanciesData',
-      fetchFunction: safeFetchVacanciesData, 
-      priority: 2,
+      fetchFunction: safeFetchVacanciesData,
       options: { forceRefresh: true }
     },
     {
       key: 'signatories',
       fetchFunction: safeLoadSignatories,
-      priority: 1,
       options: { forceRefresh: true }
     }
   ];
   
   const result = await apiManager.batchFetch(apiRequests, {
     concurrency: 1,
-    adaptiveDelay: true,
-    priorityOrder: true
+    adaptiveDelay: true
   });
   
   if (result.errors.length === 0) {
     showErrorNotification('✅ All data refreshed successfully!');
     setTimeout(() => window.location.reload(), 2000);
   } else {
-    showErrorNotification('Some requests still failing. Please wait longer before retrying.');
+    showErrorNotification(
+      `Some requests still failing (${result.errors.length}/${apiRequests.length}). Please wait before retrying.`,
+      { showRetry: true }
+    );
   }
 }
 
 // ===================
-// EVENT LISTENERS AND CLEANUP
+// STATUS MONITORING
+// ===================
+
+function createSimpleStatusIndicator() {
+  const indicator = document.createElement('div');
+  indicator.id = 'simple-status-indicator';
+  indicator.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    z-index: 1000;
+    cursor: pointer;
+    font-family: monospace;
+  `;
+  
+  document.body.appendChild(indicator);
+  
+  function updateIndicator() {
+    const metrics = apiManager.getMetrics();
+    const syncStatus = simpleOfflineManager.getSyncStatus();
+    
+    let text = '✅ OK';
+    let color = 'rgba(76, 175, 80, 0.9)';
+    
+    if (syncStatus.unsynced > 0) {
+      text = `📤 ${syncStatus.unsynced} pending`;
+      color = 'rgba(255, 152, 0, 0.9)';
+    }
+    
+    if (metrics.adaptiveManager.adaptiveMode) {
+      text = '🔄 Adaptive';
+      color = 'rgba(33, 150, 243, 0.9)';
+    }
+    
+    if (metrics.globalQuotaState.quotaExceeded) {
+      text = '⏳ Quota limit';
+      color = 'rgba(244, 67, 54, 0.9)';
+    }
+    
+    indicator.textContent = text;
+    indicator.style.background = color;
+  }
+  
+  // Update every 10 seconds
+  setInterval(updateIndicator, 10000);
+  updateIndicator();
+  
+  // Click for details
+  indicator.addEventListener('click', () => {
+    const metrics = apiManager.getMetrics();
+    const syncStatus = simpleOfflineManager.getSyncStatus();
+    
+    alert(`📊 Status Details:
+• API Requests: ${metrics.enhancedCache.daily}/280 today
+• Cache Hit Rate: ${metrics.enhancedCache.cacheHitRate}%
+• Pending Ratings: ${syncStatus.unsynced}
+• Adaptive Mode: ${metrics.adaptiveManager.adaptiveMode ? 'ON' : 'OFF'}
+• Success Rate: ${Math.round(metrics.successRate)}%`);
+  });
+}
+
+// ===================
+// AUTO-INITIALIZE STATUS INDICATOR
 // ===================
 
 document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(preloadCriticalData, 3000);
+  setTimeout(() => {
+    createSimpleStatusIndicator();
+  }, 5000);
 });
 
-document.addEventListener('dblclick', (e) => {
-  if (e.ctrlKey) {
-    createStatusDashboard();
-  }
-});
-
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    console.log('📱 Tab hidden - pausing API requests');
-  } else {
-    console.log('📱 Tab visible - resuming API requests');
-    apiManager.syncGlobalQuotaState();
-  }
-});
-
+// Cleanup on page unload
 window.addEventListener('beforeunload', () => {
   apiManager.cleanup();
 });
 
-// Periodic monitoring
-setInterval(() => {
-  const status = conservativeAPI.getStatus();
-  const syncStatus = offlineRatingManager.getSyncStatus();
-  
-  console.log('📊 System Status:', {
-    apiQuota: `${status.dailyUsage}/${status.dailyLimit}`,
-    cacheSize: smartCache.cache.size,
-    pendingSync: syncStatus.unsynced,
-    mode: status.conservativeMode ? 'Conservative' : 'Normal'
-  });
-  
-  if (syncStatus.unsynced > 10) {
-    console.warn(`⚠️ ${syncStatus.unsynced} ratings waiting to sync`);
-  }
-}, 2 * 60 * 1000);
+// ===================
+// MISSING FUNCTION STUBS (To prevent "not defined" errors)
+// ===================
+
+// These are stubs for functions that might not be defined in your existing code
+if (typeof parseSecretariatMembers === 'undefined') {
+  window.parseSecretariatMembers = function(values) {
+    console.log('parseSecretariatMembers stub called');
+    if (!values || values.length <= 1) return [];
+    
+    const members = [];
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      if (row && row[0]) {
+        members.push({
+          id: row[0],
+          name: row[1] || '',
+          position: row[2] || '',
+          vacancies: (row[3] || '').split(',').map(v => v.trim()).filter(Boolean)
+        });
+      }
+    }
+    return members;
+  };
+}
+
+if (typeof parseVacanciesData === 'undefined') {
+  window.parseVacanciesData = function(values) {
+    console.log('parseVacanciesData stub called');
+    return values || [];
+  };
+}
+
+if (typeof matchesRatingRow === 'undefined') {
+  window.matchesRatingRow = function(row, item, name, evaluator) {
+    if (!row || row.length < 4) return false;
+    
+    // Adjust these indices based on your actual sheet structure
+    const rowEvaluator = row[0];
+    const rowItem = row[1]; 
+    const rowName = row[2];
+    
+    return rowEvaluator === evaluator && 
+           rowItem === item && 
+           rowName === name;
+  };
+}
+
+console.log('✅ Enhanced API Manager with Smart Caching loaded successfully!');
 
 
 
@@ -6737,4 +6502,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
