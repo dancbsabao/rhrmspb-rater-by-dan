@@ -605,31 +605,32 @@ class BulletproofAPIManager {
 
 
 
-  // ============================================================================
-// API READINESS NOTIFIER
 // ============================================================================
+// API Readiness Notifier (UI Overlay)
+// ============================================================================
+
 function createApiNotifier() {
-  let notifier = document.getElementById("api-notifier");
-  if (!notifier) {
-    notifier = document.createElement("div");
-    notifier.id = "api-notifier";
-    Object.assign(notifier.style, {
+  let el = document.getElementById("api-notifier");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "api-notifier";
+    Object.assign(el.style, {
       position: "fixed",
       bottom: "15px",
       right: "15px",
-      padding: "10px 15px",
-      borderRadius: "12px",
-      fontFamily: "Arial, sans-serif",
-      fontSize: "14px",
+      padding: "10px 16px",
+      borderRadius: "8px",
       color: "#fff",
-      background: "#666",
-      boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-      zIndex: 9999,
-      transition: "background 0.3s ease, opacity 0.3s ease"
+      fontSize: "14px",
+      fontFamily: "Arial, sans-serif",
+      zIndex: "9999",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+      transition: "opacity 0.3s ease, transform 0.3s ease",
+      opacity: "0.95"
     });
-    document.body.appendChild(notifier);
+    document.body.appendChild(el);
   }
-  return notifier;
+  return el;
 }
 
 function updateApiNotifier(status, message) {
@@ -645,9 +646,13 @@ function updateApiNotifier(status, message) {
     el.textContent = `❌ API Error: ${message || "Check connection/quota"}`;
   } else if (status === "warning") {
     el.style.background = "#fd7e14"; // orange
-    el.textContent = `⚠️ ${message}`;
+    el.textContent = `⚠️ ${message || "Potential issue detected"}`;
+  } else {
+    el.style.background = "#6c757d"; // gray fallback
+    el.textContent = message || "ℹ️ Status unknown";
   }
 }
+
 
   // ========================================================================
   // PUBLIC API METHODS
@@ -6101,6 +6106,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
