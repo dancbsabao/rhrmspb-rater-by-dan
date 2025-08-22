@@ -861,29 +861,18 @@ class AdaptiveRequestManager {
 
 class BulletproofAPIManager {
   constructor(options = {}) {
-    // Configuration
     this.baseDelay = options.baseDelay || 3000;
-    this.maxDelay = options.maxDelay || 30000; // Reduced from 300000
-    this.maxRetries = options.maxRetries || 6;  // Reduced from 10
+    this.maxDelay = options.maxDelay || 30000;
+    this.maxRetries = options.maxRetries || 6;
     this.quotaResetTime = options.quotaResetTime || 24 * 60 * 60 * 1000;
-    
-    // Enhanced components
     this.enhancedCache = new EnhancedCache();
     this.adaptiveManager = new AdaptiveRequestManager();
-    
-    // Multi-device coordination
     this.deviceId = this.generateDeviceId();
     this.globalQuotaKey = 'global_api_quota_tracker';
-    
-    // State management
     this.requestQueue = new Map();
     this.rateLimitInfo = new Map();
     this.circuitBreaker = new Map();
-    
-    // Global quota tracking (simplified)
     this.globalQuotaState = this.loadGlobalQuotaState();
-    
-    // Metrics
     this.metrics = {
       totalRequests: 0,
       successfulRequests: 0,
@@ -1041,21 +1030,35 @@ class BulletproofAPIManager {
   // Simplified main fetch with adaptive management
   async bulletproofFetch(key, fetchFunction, options = {}) {
     this.metrics.totalRequests++;
-    
-    // Check cache first with enhanced system
+
+    // Check cache first
     const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
     const cachedData = this.getCachedData(key, maxCacheAge);
     if (cachedData && !options.forceRefresh) {
+      console.log(`📦 Cache hit for ${key}`);
       return cachedData;
     }
 
     // Check if request is already in flight
     if (this.requestQueue.has(key)) {
       console.log(`⏳ Waiting for existing request: ${key}`);
-      return await this.requestQueue.get(key);
+      const requestPromise = this.requestQueue.get(key);
+
+      // Add timeout to prevent indefinite waiting
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Request timeout for ${key} after 10s`)), 10000)
+        );
+        const result = await Promise.race([requestPromise, timeoutPromise]);
+        return result;
+      } catch (error) {
+        console.warn(`⚠️ Request for ${key} timed out or failed, removing from queue:`, error.message);
+        this.requestQueue.delete(key); // Clear stuck request
+        // Retry as a new request
+      }
     }
 
-    // Use adaptive request management instead of conservative wrapper
+    // Create new request
     const requestPromise = this.adaptiveManager.safeApiCall(async () => {
       return await this.executeWithRetry(key, fetchFunction, options);
     }, this.getCachedData(key, 30 * 60 * 1000)); // 30min fallback
@@ -1064,132 +1067,119 @@ class BulletproofAPIManager {
 
     try {
       const result = await requestPromise;
+      this.requestQueue.delete(key); // Ensure request is removed
       return result;
-    } finally {
-      this.requestQueue.delete(key);
+    } catch (error) {
+      this.requestQueue.delete(key); // Clear on error
+      throw error;
     }
   }
 
   async executeWithRetry(key, fetchFunction, options) {
     let lastError = null;
-    
+
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
         console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key}`);
-        
         const result = await fetchFunction();
-        
+
         this.recordSuccess(key);
         this.setCachedData(key, result, options.cacheTTL);
-        
         console.log(`✅ Successfully fetched ${key}`);
         return result;
-        
       } catch (error) {
         lastError = error;
         this.metrics.failedRequests++;
-        
         const errorInfo = this.classifyError(error);
         console.log(`❌ Attempt ${attempt + 1} failed for ${key}:`, {
           type: errorInfo.type,
           retryable: errorInfo.retryable,
           message: error.message
         });
-        
+
         if (!errorInfo.retryable || attempt === this.maxRetries) {
           break;
         }
-        
-        // Simple exponential backoff
+
         const delay = Math.min(
           this.baseDelay * Math.pow(1.5, attempt) * errorInfo.backoffMultiplier,
           this.maxDelay
         );
-        
         console.log(`⏱️ Waiting ${Math.round(delay/1000)}s before retry...`);
         await this.wait(delay);
       }
     }
-    
-    // Try to return stale cache on final failure
+
+    // Try stale cache as last resort
     const staleData = this.getCachedData(key, 2 * 60 * 60 * 1000); // 2 hour fallback
     if (staleData) {
       console.log(`🗃️ All retries failed for ${key}. Using stale cache.`);
       return staleData;
     }
-    
-    throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
-  }
 
-  recordSuccess(key) {
-    this.circuitBreaker.delete(key);
-    this.metrics.successfulRequests++;
-    this.globalQuotaState.requestsToday++;
-    this.saveGlobalQuotaState();
+    throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
   }
 
   // Simplified batch processing
   async batchFetch(requests, options = {}) {
-    const {
-      concurrency = 1,
-      adaptiveDelay = true
-    } = options;
-    
+    const { concurrency = 1, adaptiveDelay = true } = options;
     console.log(`🎯 Starting batch fetch:`, {
       requests: requests.length,
       deviceId: this.deviceId,
       adaptiveMode: this.adaptiveManager.isAdaptiveMode
     });
-    
+
     const results = [];
     const errors = [];
     let currentDelay = 2000;
-    
-    for (let i = 0; i < requests.length; i++) {
-      const request = requests[i];
-      
+
+    for (const request of requests) {
+      // Skip if already loaded from cache
+      const cachedData = this.getCachedData(request.key, request.options?.maxCacheAge || 5 * 60 * 1000);
+      if (cachedData && !request.options?.forceRefresh) {
+        console.log(`📦 Skipping ${request.key} - using cached data`);
+        results.push({ key: request.key, data: cachedData, success: true });
+        continue;
+      }
+
       try {
-        if (i > 0 && adaptiveDelay) {
-          console.log(`⏳ Progressive delay: ${currentDelay}ms (request ${i + 1}/${requests.length})`);
+        if (results.length > 0 && adaptiveDelay) {
+          console.log(`⏳ Progressive delay: ${currentDelay}ms for ${request.key}`);
           await this.wait(currentDelay);
         }
-        
+
         const result = await this.bulletproofFetch(
           request.key,
           request.fetchFunction,
           request.options || {}
         );
-        
+
         results.push({ key: request.key, data: result, success: true });
-        
-        // Success reduces delay
+
         if (adaptiveDelay && currentDelay > 1500) {
           currentDelay = Math.max(currentDelay * 0.9, 1500);
         }
-        
       } catch (error) {
         errors.push({ key: request.key, error: error.message, success: false });
-        
-        // Failure increases delay
+
         if (adaptiveDelay) {
           currentDelay = Math.min(currentDelay * 1.3, 10000);
           console.log(`📈 Request failed. Increasing delay to ${currentDelay}ms`);
         }
-        
-        // If quota error, stop trying
+
         if (error.message.includes('quota') || error.message.includes('Quota')) {
-          console.log(`🛑 Quota error detected. Aborting remaining ${requests.length - i - 1} requests.`);
+          console.log(`🛑 Quota error detected. Aborting remaining requests.`);
           break;
         }
       }
     }
-    
+
     console.log(`🏁 Batch complete:`, {
       successful: results.length,
       failed: errors.length,
       deviceId: this.deviceId
     });
-    
+
     return {
       results,
       errors,
@@ -1674,7 +1664,7 @@ function clearPendingRating(evaluator, item, name) {
 async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-  
+
   if (spinner) {
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
@@ -1683,62 +1673,65 @@ async function initializeApp() {
     pageWrapper.style.opacity = '0.3';
   }
 
+  // Force hide spinner after 10 seconds to prevent hanging
+  setTimeout(() => {
+    if (spinner && spinner.style.display !== 'none') {
+      console.warn('🕒 Forcing spinner hide due to timeout');
+      spinner.style.display = 'none';
+      if (pageWrapper) pageWrapper.style.opacity = '1';
+    }
+  }, 10000);
+
   gapi.load('client', async () => {
     try {
       await initializeGapiClient();
       gapiInitialized = true;
       console.log('✅ GAPI client initialized');
-      
       loadingState.gapi = true;
-      
+
       if (typeof maybeEnableButtons === 'function') maybeEnableButtons();
       if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
       if (typeof setupTabNavigation === 'function') setupTabNavigation();
 
-      console.log('🎯 Starting enhanced multi-device API calls...');
-      console.log('📱 Device Info:', {
+      console.log('🎯 Starting enhanced multi-device API calls...', {
         deviceId: apiManager.deviceId,
-        conservativeMode: apiManager.adaptiveManager.isAdaptiveMode
+        adaptiveMode: apiManager.adaptiveManager.isAdaptiveMode
       });
-      
-      // Try to load from cache first
+
+      // Try cache first
       const cacheResults = await tryLoadFromCacheOnlyOptimized();
-      
+
       if (cacheResults.allLoaded) {
         console.log('🚀 All critical data loaded from cache!');
         loadingState.apiDone = true;
         await finishInitialization();
         return;
       }
-      
-      // Define required API calls
+
+      // Fetch only what's needed
       const apiRequests = getOptimizedAPIRequests(cacheResults.loadedKeys);
-      
-      // Execute API requests
       const batchResult = await apiManager.batchFetch(apiRequests, {
         concurrency: 1,
         adaptiveDelay: true
       });
-      
-      // Handle results
-      const criticalErrors = batchResult.errors.filter(err => 
+
+      const criticalErrors = batchResult.errors.filter(err =>
         apiRequests.find(req => req.key === err.key)?.required
       );
-      
+
       if (criticalErrors.length > 0) {
         console.error('🚨 Critical API failures detected:', criticalErrors);
         await handleCriticalAPIFailure(criticalErrors);
       }
-      
+
       console.log('📊 API Results:', {
         successful: batchResult.results.length,
         failed: batchResult.errors.length,
         metrics: batchResult.metrics
       });
-      
+
       loadingState.apiDone = true;
       await finishInitialization();
-      
     } catch (error) {
       console.error('❌ Critical initialization error:', error);
       await handleInitializationFailure();
@@ -1776,29 +1769,23 @@ async function tryLoadFromCacheOnlyOptimized() {
     loadedKeys: [],
     allLoaded: false
   };
-  
-  // Prioritize vacancies with more aggressive caching
+
   const cacheTests = [
     { key: 'vacanciesData', required: true, maxAge: 60 * 60 * 1000, fastInit: fastInitializeVacancies },
     { key: 'secretariatMembers', required: true, maxAge: 30 * 60 * 1000 },
     { key: 'signatories', required: false, maxAge: 30 * 60 * 1000 }
   ];
-  
+
   let requiredLoaded = 0;
-  let requiredCount = 0;
-  
+  let requiredCount = cacheTests.filter(test => test.required).length;
+
   for (const test of cacheTests) {
-    if (test.required) requiredCount++;
-    
     let cached = null;
-    
-    // Use fast init for vacancies if available
+
     if (test.key === 'vacanciesData' && test.fastInit) {
       try {
-        cached = await test.fastInit();
-        if (cached) {
-          console.log(`⚡ Fast init success for ${test.key}`);
-        }
+        cached = await test.fastInit({ maxAge: test.maxAge });
+        if (cached) console.log(`⚡ Fast init success for ${test.key}`);
       } catch (e) {
         console.log(`Fast init failed for ${test.key}, trying regular cache...`);
         cached = apiManager.getCachedData(test.key, test.maxAge);
@@ -1806,13 +1793,12 @@ async function tryLoadFromCacheOnlyOptimized() {
     } else {
       cached = apiManager.getCachedData(test.key, test.maxAge);
     }
-    
+
     if (cached) {
       results.loadedKeys.push(test.key);
       if (test.required) requiredLoaded++;
       console.log(`✅ ${test.key} loaded from cache/fast-init`);
-      
-      // Set global variables
+
       try {
         if (test.key === 'secretariatMembers' && cached) {
           if (typeof SECRETARIAT_MEMBERS !== 'undefined') {
@@ -1822,7 +1808,6 @@ async function tryLoadFromCacheOnlyOptimized() {
           if (typeof vacancies !== 'undefined') {
             window.vacancies = cached;
           }
-          // Initialize dropdowns immediately for vacancies
           if (typeof initializeDropdowns === 'function') {
             initializeDropdowns(cached);
           }
@@ -1836,7 +1821,7 @@ async function tryLoadFromCacheOnlyOptimized() {
       }
     }
   }
-  
+
   results.allLoaded = (requiredLoaded === requiredCount);
   return results;
 }
@@ -6738,6 +6723,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
