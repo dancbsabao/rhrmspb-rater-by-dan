@@ -536,13 +536,14 @@ function startUIMonitoring() {
 // ============================================================================
 //
 //      PROFESSIONALLY REFACTORED BULLETPROOF API & STATE MANAGER
-//      (Version 2.1 - OPTIMIZED FOR IMMEDIATE INITIAL LOAD)
+//      (Version 2.2 - GOOGLE API RATE LIMIT AWARE)
 //
 //      - Singleton design for unified state management.
 //      - Efficient, event-driven multi-tab state synchronization.
 //      - Asynchronous initialization for robust startup.
 //      - Enhanced caching with automated TTL and cleanup.
 //      - Improved code structure for clarity and maintainability.
+//      - **Specific handling for Google API daily quota resets.**
 //
 // ============================================================================
 
@@ -558,7 +559,9 @@ class BulletproofAPIManager {
    * @param {number} [options.baseDelay=3000] Base delay in ms for retries.
    * @param {number} [options.maxDelay=300000] Maximum delay in ms.
    * @param {number} [options.maxRetries=8] Default maximum number of retries.
-   * @param {number} [options.quotaResetTime=86400000] 24 hours in ms.
+   * @param {number} [options.quotaResetTime=86400000] 24 hours in ms (generic).
+   * @param {string} [options.googleQuotaResetTimezone='America/Los_Angeles'] Timezone for Google API daily quota reset (PST).
+   * @param {number} [options.googleQuotaResetHour=0] Hour (0-23) for Google API daily quota reset (midnight PST).
    */
   constructor(options = {}) {
     // --- Configuration ---
@@ -566,8 +569,10 @@ class BulletproofAPIManager {
       baseDelay: options.baseDelay || 3000,
       maxDelay: options.maxDelay || 300000,
       maxRetries: options.maxRetries || 8,
-      quotaResetTime: options.quotaResetTime || 24 * 60 * 60 * 1000, // 24 hours
+      quotaResetTime: options.quotaResetTime || 24 * 60 * 60 * 1000, // Generic 24 hours
       cacheCleanupInterval: 5 * 60 * 1000, // 5 minutes
+      googleQuotaResetTimezone: options.googleQuotaResetTimezone || 'America/Los_Angeles', // PST
+      googleQuotaResetHour: options.googleQuotaResetHour || 0, // Midnight
     };
 
     // --- State Management ---
@@ -620,7 +625,8 @@ class BulletproofAPIManager {
         console.warn(`🗃️ Using stale cache for "${key}" due to global quota limit.`);
         return staleData;
       }
-      throw new Error(`Global quota exceeded for "${key}". No cache available. Try again later.`);
+      // Throw a specific error that can be caught by the UI for better messaging
+      throw new Error(`Global quota exceeded for "${key}". Quota resets at ${new Date(this.globalQuotaState.quotaResetTime).toLocaleTimeString()} ${this.config.googleQuotaResetTimezone}. No cache available. Try again later.`);
     }
 
     // 2. Return fresh cache if available
@@ -774,6 +780,8 @@ class BulletproofAPIManager {
         requestsToday: this.globalQuotaState.requestsToday,
         isExceeded: !!this.globalQuotaState.quotaExceededAt,
         activeDevices: this.globalQuotaState.activeDevices.size,
+        quotaResetTime: this.globalQuotaState.quotaResetTime, // Expose reset time
+        lastQuotaError: this.globalQuotaState.lastQuotaError,
       },
     };
   }
@@ -819,7 +827,10 @@ class BulletproofAPIManager {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        if (this._isGlobalQuotaExceeded()) throw new Error('Global quota exceeded');
+        if (this._isGlobalQuotaExceeded()) {
+            // If global quota is exceeded, throw immediately to respect the global cooldown
+            throw new Error(`Global quota exceeded. Quota resets at ${new Date(this.globalQuotaState.quotaResetTime).toLocaleTimeString()} ${this.config.googleQuotaResetTimezone}.`);
+        }
 
         if (attempt > 0) {
             const deviceCount = this.globalQuotaState.activeDevices.size || 1;
@@ -844,7 +855,11 @@ class BulletproofAPIManager {
         console.error(`❌ Attempt ${attempt + 1} failed for "${key}": ${errorInfo.type} - ${error.message}`);
         this._recordFailure(key, errorInfo);
         
-        if (!errorInfo.retryable || attempt === maxRetries) break;
+        // If it's a quota error, and we've already set the global quota exceeded flag,
+        // we should not retry this specific request further, but let the global cooldown handle it.
+        if (errorInfo.type === 'quota' || !errorInfo.retryable || attempt === maxRetries) {
+            break;
+        }
 
         const delay = this._calculateBackoffDelay(attempt, errorInfo);
         console.log(`⏱️ Waiting ${Math.round(delay/1000)}s before retry for "${key}"...`);
@@ -872,8 +887,9 @@ class BulletproofAPIManager {
       const stored = localStorage.getItem(this.globalQuotaKey);
       if (stored) {
         const state = JSON.parse(stored);
-        // Reset if it's a new day
-        if (Date.now() - state.lastReset > this.config.quotaResetTime) {
+        // Reset if it's a new day based on Google's reset time
+        if (state.quotaResetTime && Date.now() > state.quotaResetTime) {
+          console.log('🗓️ Google API daily quota reset time passed. Resetting quota state.');
           this.globalQuotaState = this._getDefaultQuotaState();
         } else {
           this.globalQuotaState = { ...state, activeDevices: new Set(state.activeDevices) };
@@ -911,10 +927,15 @@ class BulletproofAPIManager {
     if (event.key === this.globalQuotaKey && event.newValue) {
       try {
         const newState = JSON.parse(event.newValue);
-        // Another device might have hit the quota limit.
-        if (newState.quotaExceededAt && !this.globalQuotaState.quotaExceededAt) {
+        // Another device might have hit the quota limit or reset.
+        // Only update if the new state is more "critical" or has a newer reset time.
+        if (newState.quotaExceededAt && (!this.globalQuotaState.quotaExceededAt || newState.quotaExceededAt > this.globalQuotaState.quotaExceededAt)) {
           console.log('🚨 Another tab/device hit quota limit. Syncing state.');
           this.globalQuotaState = { ...newState, activeDevices: new Set(newState.activeDevices) };
+        } else if (newState.quotaResetTime && newState.quotaResetTime > this.globalQuotaState.quotaResetTime) {
+            // Sync a future reset time if another tab calculated it
+            this.globalQuotaState.quotaResetTime = newState.quotaResetTime;
+            this._saveGlobalQuotaState();
         }
       } catch (e) {
         console.warn('Failed to sync global quota state from storage event:', e);
@@ -939,24 +960,25 @@ class BulletproofAPIManager {
 
   /**
    * Checks if the global quota has been marked as exceeded.
+   * If so, it determines if the Google API daily reset time has passed.
    * @private
    */
   _isGlobalQuotaExceeded() {
-    const { quotaExceededAt } = this.globalQuotaState;
-    if (!quotaExceededAt) return false;
+    const { quotaExceededAt, quotaResetTime } = this.globalQuotaState;
+    if (!quotaExceededAt) return false; // Not currently marked as exceeded
 
-    // Implement a cooldown period. Start with 5 mins, extending up to 1 hour.
-    const timeSinceError = Date.now() - quotaExceededAt;
-    const cooldownTime = Math.min(300000 + (timeSinceError * 0.1), 3600000);
+    const now = Date.now();
 
-    if (timeSinceError < cooldownTime) {
-      return true;
+    // If a specific reset time is set and it's in the future, we are exceeded.
+    if (quotaResetTime && now < quotaResetTime) {
+        return true;
     }
 
-    // Cooldown has passed, reset the flag.
+    // If no specific reset time, or reset time has passed, clear the flag.
     this.globalQuotaState.quotaExceededAt = null;
+    this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset(); // Recalculate for next day
     this._saveGlobalQuotaState();
-    console.log('🔓 Global quota cooldown period ended. Resuming requests.');
+    console.log('🔓 Global quota cooldown period ended or reset time passed. Resuming requests.');
     return false;
   }
 
@@ -1028,7 +1050,7 @@ class BulletproofAPIManager {
     breaker.lastFailure = now;
     
     // Increase cooldown exponentially based on failures
-    const baseCooldown = (errorInfo.type === 'quota') ? 30000 : 5000;
+    const baseCooldown = (errorInfo.type === 'quota') ? 30000 : 5000; // Quota errors get a longer base cooldown
     breaker.cooldownTime = Math.min(baseCooldown * Math.pow(2, breaker.failures - 1), this.config.maxDelay);
     
     this.circuitBreaker.set(key, breaker);
@@ -1043,8 +1065,11 @@ class BulletproofAPIManager {
       // Mark global quota as exceeded immediately
       this.globalQuotaState.quotaExceededAt = Date.now();
       this.globalQuotaState.lastQuotaError = error.message;
+      // Calculate the next Google API daily reset time
+      this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
       this._saveGlobalQuotaState();
       this.metrics.quotaExceeded++;
+      console.error(`🚨 Google API Quota Exceeded! Will resume after ${new Date(this.globalQuotaState.quotaResetTime).toLocaleString()}.`);
       return { type: 'quota', retryable: true };
     }
     if (status >= 500 || msg.includes('network') || msg.includes('timeout')) {
@@ -1085,13 +1110,35 @@ class BulletproofAPIManager {
     return deviceIndex > 0 ? deviceIndex * 500 : 0; 
   }
 
+  /**
+   * Calculates the next midnight PST (Pacific Standard Time) for Google API quota reset.
+   * @private
+   * @returns {number} Timestamp of the next quota reset.
+   */
+  _calculateNextGoogleQuotaReset() {
+    const now = new Date();
+    const nextReset = new Date(now.toLocaleString('en-US', { timeZone: this.config.googleQuotaResetTimezone }));
+    
+    // Set to midnight of the current day in PST
+    nextReset.setHours(this.config.googleQuotaResetHour, 0, 0, 0);
+
+    // If this time has already passed today, set it for tomorrow
+    if (nextReset.getTime() <= now.getTime()) {
+      nextReset.setDate(nextReset.getDate() + 1);
+    }
+    
+    // Convert back to UTC timestamp for consistent storage
+    return nextReset.getTime();
+  }
+
   _getDefaultQuotaState() {
     return {
       requestsToday: 0,
       quotaExceededAt: null,
-      lastReset: Date.now(),
+      lastReset: Date.now(), // This is for internal tracking, not Google's reset
       activeDevices: new Set([this.deviceId]),
       lastQuotaError: null,
+      quotaResetTime: this._calculateNextGoogleQuotaReset(), // Initialize with next Google reset
     };
   }
 
@@ -1130,6 +1177,9 @@ const apiManager = new BulletproofAPIManager({
   baseDelay: 5000,
   maxDelay: 300000,
   maxRetries: 10,
+  // Specific Google API quota reset configuration
+  googleQuotaResetTimezone: 'America/Los_Angeles', // PST
+  googleQuotaResetHour: 0, // Midnight
 });
 
 // ============================================================================
@@ -1596,6 +1646,7 @@ function handleTokenCallback(tokenResponse) {
       });
   }
 }
+
 
 
 
@@ -5997,6 +6048,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
