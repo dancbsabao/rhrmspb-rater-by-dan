@@ -534,1123 +534,1029 @@ function startUIMonitoring() {
 
 
 // ===================
-// BULLETPROOF API RATE LIMITER
+// BULLETPROOF API RATE LIMITER - ENHANCED
 // ===================
 
 class BulletproofAPIManager {
   constructor(options = {}) {
-    // Configuration
-    this.baseDelay = options.baseDelay || 3000; // 3 second base delay for multi-device
-    this.maxDelay = options.maxDelay || 300000; // 5 minute max delay
-    this.maxRetries = options.maxRetries || 8;
-    this.quotaResetTime = options.quotaResetTime || 24 * 60 * 60 * 1000; // 24 hours
+    // Configuration with smart defaults
+    this.config = {
+      baseDelay: options.baseDelay || 3000,
+      maxDelay: options.maxDelay || 300000,
+      maxRetries: options.maxRetries || 8,
+      quotaResetTime: options.quotaResetTime || 86400000, // 24 hours
+      cacheMaxAge: options.cacheMaxAge || 300000, // 5 minutes
+      deviceCoordination: options.deviceCoordination !== false
+    };
     
-    // Multi-device coordination (note: localStorage is per-device, so coordination is limited to same-device sessions)
-    this.deviceId = this.generateDeviceId();
-    this.globalQuotaKey = 'global_api_quota_tracker';
-    this.deviceQuotaKey = `device_quota_${this.deviceId}`;
-    
-    // State management
+    // Core state - optimized for performance
+    this.deviceId = this._getDeviceId();
     this.cache = new Map();
     this.requestQueue = new Map();
-    this.rateLimitInfo = new Map();
-    this.circuitBreaker = new Map();
+    this.circuitBreakers = new Map();
+    this.quotaState = this._loadQuotaState();
     
-    // Global quota tracking
-    this.globalQuotaState = this.loadGlobalQuotaState();
-    
-    // Metrics
+    // Performance metrics
     this.metrics = {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
+      requests: 0,
+      successes: 0,
+      failures: 0,
       cacheHits: 0,
-      quotaExceeded: 0,
-      deviceId: this.deviceId
+      quotaErrors: 0,
+      deviceId: this.deviceId,
+      startTime: Date.now()
     };
     
-    // Start quota monitoring
-    this.startQuotaMonitoring();
-  }
-
-  generateDeviceId() {
-    const stored = localStorage.getItem('device_id');
-    if (stored) return stored;
+    // Start background processes
+    this._startMonitoring();
     
-    const deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
-    localStorage.setItem('device_id', deviceId);
-    return deviceId;
+    // Bind cleanup
+    this._bindCleanup();
   }
 
-  loadGlobalQuotaState() {
+  // ===================
+  // CORE PUBLIC API
+  // ===================
+  
+  async fetch(key, fetchFn, options = {}) {
+    this.metrics.requests++;
+    const startTime = Date.now();
+    
     try {
-      const stored = localStorage.getItem(this.globalQuotaKey);
-      if (stored) {
-        const state = JSON.parse(stored);
-        state.activeDevices = new Set(state.activeDevices); // Ensure it's a Set
-        // Reset if it's a new day
-        if (Date.now() - state.lastReset > this.quotaResetTime) {
-          return this.resetGlobalQuotaState();
-        }
-        return state;
+      // Fast path: check cache first
+      const cached = this._getCache(key, options.maxAge);
+      if (cached && !options.forceRefresh) {
+        this.metrics.cacheHits++;
+        return cached;
       }
-    } catch (e) {
-      console.warn('Failed to load global quota state:', e);
-    }
-    return this.resetGlobalQuotaState();
-  }
 
-  resetGlobalQuotaState() {
-    const state = {
-      requestsToday: 0,
-      quotaExceededAt: null,
-      lastReset: Date.now(),
-      activeDevices: new Set([this.deviceId]),
-      lastQuotaError: null
-    };
-    this.saveGlobalQuotaState(state);
-    return state;
-  }
-
-  saveGlobalQuotaState(state = null) {
-    const stateToSave = state || this.globalQuotaState;
-    try {
-      // Convert Set to Array for JSON serialization
-      const serializable = {
-        ...stateToSave,
-        activeDevices: Array.from(stateToSave.activeDevices)
-      };
-      localStorage.setItem(this.globalQuotaKey, JSON.stringify(serializable));
-    } catch (e) {
-      console.warn('Failed to save global quota state:', e);
-    }
-  }
-
-  startQuotaMonitoring() {
-    // Register this device
-    this.globalQuotaState.activeDevices.add(this.deviceId);
-    this.saveGlobalQuotaState();
-    
-    // Monitor other devices' quota usage
-    this.quotaMonitor = setInterval(() => {
-      this.syncGlobalQuotaState();
-    }, 10000); // Check every 10 seconds
-  }
-
-  syncGlobalQuotaState() {
-    try {
-      const stored = localStorage.getItem(this.globalQuotaKey);
-      if (stored) {
-        const state = JSON.parse(stored);
-        state.activeDevices = new Set(state.activeDevices);
-        
-        // If quota was exceeded by another device, respect it
-        if (state.quotaExceededAt && !this.globalQuotaState.quotaExceededAt) {
-          console.log('🚨 Another device hit quota limit. Entering conservative mode.');
-          this.globalQuotaState = state;
-        }
+      // Check global constraints
+      if (this._isBlocked(key)) {
+        return this._getFallbackData(key) || this._throwBlockedError(key);
       }
-    } catch (e) {
-      console.warn('Failed to sync global quota state:', e);
-    }
-  }
 
-  // Check if we're in quota exceeded state globally
-  isGlobalQuotaExceeded() {
-    if (!this.globalQuotaState.quotaExceededAt) return false;
-    
-    const timeSinceQuotaError = Date.now() - this.globalQuotaState.quotaExceededAt;
-    const cooldownTime = Math.min(300000 + (timeSinceQuotaError * 0.1), 3600000); // 5min to 1hour
-    
-    if (timeSinceQuotaError < cooldownTime) {
-      console.log(`🛑 Global quota exceeded. Cooling down for ${Math.round((cooldownTime - timeSinceQuotaError)/1000)}s more`);
-      return true;
-    }
-    
-    // Reset quota exceeded state
-    this.globalQuotaState.quotaExceededAt = null;
-    this.saveGlobalQuotaState();
-    return false;
-  }
+      // Ensure single request per key
+      if (this.requestQueue.has(key)) {
+        return await this.requestQueue.get(key);
+      }
 
-  // Smart device coordination delay
-  calculateDeviceDelay() {
-    const deviceCount = this.globalQuotaState.activeDevices.size;
-    const deviceIndex = Array.from(this.globalQuotaState.activeDevices).indexOf(this.deviceId);
-    
-    // Stagger requests across devices
-    const baseStagger = 2000; // 2 seconds base
-    const deviceDelay = deviceIndex * baseStagger;
-    
-    console.log(`📱 Device ${deviceIndex + 1}/${deviceCount}: Adding ${deviceDelay}ms stagger delay`);
-    return deviceDelay;
-  }
-
-  // Enhanced cache with TTL and versioning
-  getCachedData(key, maxAge = 5 * 60 * 1000) { // 5 minutes default
-    const cached = this.cache.get(key);
-    if (!cached) return null;
-    
-    const age = Date.now() - cached.timestamp;
-    if (age > maxAge) {
-      this.cache.delete(key);
-      return null;
-    }
-    
-    this.metrics.cacheHits++;
-    console.log(`📦 Cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
-    return cached.data;
-  }
-
-  setCachedData(key, data, customTTL = null) {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now(),
-      ttl: customTTL
-    });
-  }
-
-  // Exponential backoff with jitter
-  calculateBackoffDelay(attempt, baseDelay = this.baseDelay) {
-    const exponentialDelay = baseDelay * Math.pow(2, attempt);
-    const jitter = Math.random() * 0.1 * exponentialDelay; // 10% jitter
-    return Math.min(exponentialDelay + jitter, this.maxDelay);
-  }
-
-  // Circuit breaker pattern
-  isCircuitOpen(key) {
-    const breaker = this.circuitBreaker.get(key);
-    if (!breaker) return false;
-    
-    const now = Date.now();
-    if (now - breaker.lastFailure < breaker.cooldownTime) {
-      console.log(`🚫 Circuit breaker OPEN for ${key}. Cooling down...`);
-      return true;
-    }
-    
-    // Reset circuit breaker
-    this.circuitBreaker.delete(key);
-    return false;
-  }
-
-  recordFailure(key, isQuotaError = false) {
-    const now = Date.now();
-    const current = this.circuitBreaker.get(key) || { failures: 0, lastFailure: 0 };
-    
-    current.failures++;
-    current.lastFailure = now;
-    
-    if (isQuotaError) {
-      // Longer cooldown for quota errors
-      current.cooldownTime = Math.min(30000 * current.failures, 300000); // 30s to 5min
-      this.metrics.quotaExceeded++;
-    } else {
-      current.cooldownTime = Math.min(5000 * current.failures, 60000); // 5s to 1min
-    }
-    
-    this.circuitBreaker.set(key, current);
-    console.log(`🔥 Circuit breaker recorded failure for ${key}. Failures: ${current.failures}, Cooldown: ${current.cooldownTime}ms`);
-  }
-
-  recordSuccess(key) {
-    // Reset circuit breaker on success
-    this.circuitBreaker.delete(key);
-    this.metrics.successfulRequests++;
-  }
-
-  // Advanced error classification with quota awareness
-  classifyError(error) {
-    const errorMessage = error.message || error.toString();
-    const errorCode = error.code || error.status;
-    
-    // Quota exceeded errors - CRITICAL for multi-device
-    if (errorCode === 403 || errorMessage.includes('quotaExceeded') || 
-        errorMessage.includes('userRateLimitExceeded') ||
-        errorMessage.includes('dailyLimitExceeded') ||
-        errorMessage.includes('Quota exceeded')) {
+      // Execute with retry logic
+      const promise = this._executeWithRetry(key, fetchFn, options);
+      this.requestQueue.set(key, promise);
       
-      // Mark global quota as exceeded
-      this.globalQuotaState.quotaExceededAt = Date.now();
-      this.globalQuotaState.lastQuotaError = errorMessage;
-      this.saveGlobalQuotaState();
+      const result = await promise;
       
-      return { 
-        type: 'quota', 
-        retryable: true, 
-        backoffMultiplier: 5, // Much longer backoff
-        isGlobal: true 
-      };
-    }
-    
-    // Rate limit errors
-    if (errorCode === 429 || errorMessage.includes('rateLimitExceeded')) {
-      return { type: 'rateLimit', retryable: true, backoffMultiplier: 3 };
-    }
-    
-    // Network errors
-    if (errorMessage.includes('network') || errorMessage.includes('timeout') ||
-        errorCode >= 500) {
-      return { type: 'network', retryable: true, backoffMultiplier: 2 };
-    }
-    
-    // Authentication errors
-    if (errorCode === 401 || errorMessage.includes('unauthorized')) {
-      return { type: 'auth', retryable: false, backoffMultiplier: 1 };
-    }
-    
-    // Default to non-retryable
-    return { type: 'unknown', retryable: false, backoffMultiplier: 1 };
-  }
-
-  // Enhanced main fetch with multi-device awareness
-  async bulletproofFetch(key, fetchFunction, options = {}) {
-    this.metrics.totalRequests++;
-    
-    // Check global quota first
-    if (this.isGlobalQuotaExceeded()) {
-      const staleData = this.cache.get(key);
-      if (staleData) {
-        console.log(`🗃️  Using stale cache for ${key} due to global quota exceeded`);
-        return staleData.data;
-      }
-      throw new Error(`Global quota exceeded for ${key}. Try again later.`);
-    }
-    
-    // Check cache first
-    const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
-    const cachedData = this.getCachedData(key, maxCacheAge);
-    if (cachedData && !options.forceRefresh) {
-      return cachedData;
-    }
-
-    // Check circuit breaker
-    if (this.isCircuitOpen(key)) {
-      const staleData = this.cache.get(key);
-      if (staleData) {
-        console.log(`⚡ Using stale cache for ${key} due to circuit breaker`);
-        return staleData.data;
-      }
-      throw new Error(`Circuit breaker is open for ${key}. No cached data available.`);
-    }
-
-    // Ensure only one request per key is in flight
-    if (this.requestQueue.has(key)) {
-      console.log(`⏳ Waiting for existing request: ${key}`);
-      return await this.requestQueue.get(key);
-    }
-
-    // Add device coordination delay
-    const deviceDelay = this.calculateDeviceDelay();
-    if (deviceDelay > 0) {
-      console.log(`⏱️  Device coordination delay: ${deviceDelay}ms`);
-      await this.wait(deviceDelay);
-    }
-
-    // Create the request promise
-    const requestPromise = this.executeWithRetry(key, fetchFunction, options);
-    this.requestQueue.set(key, requestPromise);
-
-    try {
-      const result = await requestPromise;
+      // Cache successful result
+      this._setCache(key, result, options.ttl);
+      this.metrics.successes++;
+      
       return result;
+      
+    } catch (error) {
+      this.metrics.failures++;
+      throw error;
     } finally {
       this.requestQueue.delete(key);
+      this._updateMetrics('requestDuration', Date.now() - startTime);
     }
   }
 
-  async executeWithRetry(key, fetchFunction, options) {
-    let lastError = null;
-    
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        // Check global quota before each attempt
-        if (this.isGlobalQuotaExceeded()) {
-          throw new Error('Global quota exceeded - using cache fallback');
-        }
-        
-        console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key} (Device: ${this.deviceId})`);
-        
-        // Pre-request delay increases with attempts and device count
-        if (attempt > 0) {
-          const deviceCount = this.globalQuotaState.activeDevices.size;
-          const extraDelay = attempt * 1000 * deviceCount; // Progressively longer delays
-          await this.wait(extraDelay);
-        }
-        
-        const result = await fetchFunction();
-        
-        // Success! Update global counters
-        this.recordGlobalSuccess(key);
-        this.recordSuccess(key);
-        this.setCachedData(key, result, options.cacheTTL);
-        
-        console.log(`✅ Successfully fetched ${key}`);
-        return result;
-        
-      } catch (error) {
-        lastError = error;
-        this.metrics.failedRequests++;
-        
-        const errorInfo = this.classifyError(error);
-        console.log(`❌ Attempt ${attempt + 1} failed for ${key}:`, {
-          type: errorInfo.type,
-          retryable: errorInfo.retryable,
-          message: error.message,
-          deviceId: this.deviceId
-        });
-        
-        // Record failure for circuit breaker
-        this.recordFailure(key, errorInfo.type === 'quota');
-        
-        // If it's a global quota issue, mark it globally
-        if (errorInfo.isGlobal) {
-          this.recordGlobalQuotaFailure(error);
-        }
-        
-        // Don't retry if not retryable or max retries reached
-        if (!errorInfo.retryable || attempt === this.maxRetries) {
-          break;
-        }
-        
-        // Calculate smart backoff delay
-        const baseDelay = this.baseDelay * errorInfo.backoffMultiplier;
-        const deviceMultiplier = this.globalQuotaState.activeDevices.size;
-        const delay = this.calculateBackoffDelay(attempt, baseDelay) * deviceMultiplier;
-        
-        console.log(`⏱️  Waiting ${Math.round(delay/1000)}s before retry (${deviceMultiplier} devices active)...`);
-        await this.wait(delay);
-      }
-    }
-    
-    // All retries failed - try to return stale cache
-    const staleData = this.cache.get(key);
-    if (staleData) {
-      console.log(`🗃️  All retries failed for ${key}. Using stale cache (age: ${Math.round((Date.now() - staleData.timestamp)/1000)}s)`);
-      return staleData.data;
-    }
-    
-    throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
-  }
-
-  recordGlobalSuccess(key) {
-    this.globalQuotaState.requestsToday++;
-    this.saveGlobalQuotaState();
-  }
-
-  recordGlobalQuotaFailure(error) {
-    this.globalQuotaState.quotaExceededAt = Date.now();
-    this.globalQuotaState.lastQuotaError = error.message;
-    this.saveGlobalQuotaState();
-    
-    console.log(`🚨 GLOBAL QUOTA EXCEEDED recorded by device ${this.deviceId}`);
-  }
-
-  // Multi-device aware batch processing
   async batchFetch(requests, options = {}) {
-    const {
-      concurrency = 1, // Always 1 for multi-device safety
-      adaptiveDelay = true,
-      priorityOrder = true,
-      emergencyMode = false
+    const { 
+      concurrency = 1, 
+      failFast = false,
+      emergencyMode = this._isQuotaExceeded()
     } = options;
     
-    // Check if we're in emergency mode (quota exceeded recently)
-    const isEmergency = emergencyMode || this.isGlobalQuotaExceeded();
+    console.log(`🎯 Batch fetch: ${requests.length} requests (${emergencyMode ? 'EMERGENCY' : 'NORMAL'} mode)`);
     
-    console.log(`🎯 Starting ${isEmergency ? 'EMERGENCY' : 'NORMAL'} batch fetch:`, {
-      requests: requests.length,
-      deviceId: this.deviceId,
-      activeDevices: this.globalQuotaState.activeDevices.size,
-      quotaExceeded: !!this.globalQuotaState.quotaExceededAt
-    });
-    
-    let cacheResults = [];
-    if (isEmergency) {
-      const missedRequests = [];
-      
-      for (const request of requests) {
-        const cached = this.getCachedData(request.key, 30 * 60 * 1000); // Accept 30min old cache
-        if (cached) {
-          cacheResults.push({ key: request.key, data: cached, success: true, fromCache: true });
-        } else {
-          missedRequests.push(request);
-        }
-      }
-      
-      console.log(`🗄️  Emergency cache results: ${cacheResults.length} hits, ${missedRequests.length} misses`);
-      
-      // If we got everything from cache, return early
-      if (missedRequests.length === 0) {
-        return {
-          results: cacheResults,
-          errors: [],
-          metrics: this.getMetrics()
-        };
-      }
-      
-      // For cache misses in emergency mode, use much longer delays
-      requests = missedRequests;
+    // Emergency mode: try cache-only first
+    if (emergencyMode) {
+      const cacheResults = this._tryEmergencyCache(requests);
+      if (cacheResults.complete) return cacheResults;
+      requests = cacheResults.remaining;
     }
     
-    // Sort by priority if specified
-    if (priorityOrder) {
-      requests.sort((a, b) => (b.priority || 0) - (a.priority || 0));
-    }
-    
+    // Process requests with adaptive concurrency
     const results = [];
     const errors = [];
-    let adaptiveDelayMs = isEmergency ? 10000 : 3000; // Start higher in emergency
+    let delay = emergencyMode ? 10000 : 3000;
     
-    // Process requests one by one (safest for multi-device)
-    for (let i = 0; i < requests.length; i++) {
-      const request = requests[i];
+    // Sort by priority
+    requests.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    
+    for (let i = 0; i < requests.length; i += concurrency) {
+      const batch = requests.slice(i, i + concurrency);
       
-      try {
-        // Add progressive delay between requests
-        if (i > 0) {
-          const progressiveDelay = adaptiveDelayMs + (i * 1000); // Each request waits longer
-          console.log(`⏳ Progressive delay: ${progressiveDelay}ms (request ${i + 1}/${requests.length})`);
-          await this.wait(progressiveDelay);
+      // Add progressive delay
+      if (i > 0) {
+        await this._wait(delay + (i * 500));
+      }
+      
+      const batchPromises = batch.map(async (req) => {
+        try {
+          const result = await this.fetch(req.key, req.fetchFn, req.options);
+          return { key: req.key, data: result, success: true };
+        } catch (error) {
+          const errorResult = { key: req.key, error: error.message, success: false };
+          
+          // Handle quota errors
+          if (this._isQuotaError(error)) {
+            this._recordGlobalQuotaError(error);
+            if (failFast) throw error;
+          }
+          
+          return errorResult;
         }
-        
-        const result = await this.bulletproofFetch(
-          request.key,
-          request.fetchFunction,
-          request.options || {}
-        );
-        
-        results.push({ key: request.key, data: result, success: true });
-        
-        // Success reduces delay slightly
-        if (adaptiveDelay && adaptiveDelayMs > 2000) {
-          adaptiveDelayMs = Math.max(adaptiveDelayMs * 0.9, 2000);
+      });
+      
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      // Process batch results
+      for (const result of batchResults) {
+        if (result.status === 'fulfilled') {
+          if (result.value.success) {
+            results.push(result.value);
+            delay = Math.max(delay * 0.9, 2000); // Reduce delay on success
+          } else {
+            errors.push(result.value);
+            delay = Math.min(delay * 1.5, 30000); // Increase delay on failure
+          }
+        } else {
+          errors.push({ error: result.reason.message, success: false });
         }
-        
-      } catch (error) {
-        errors.push({ key: request.key, error: error.message, success: false });
-        
-        // Failure increases delay significantly
-        if (adaptiveDelay) {
-          adaptiveDelayMs = Math.min(adaptiveDelayMs * 1.5, 30000);
-          console.log(`📈 Request failed. Increasing delay to ${adaptiveDelayMs}ms`);
-        }
-        
-        // If this was a quota error, abort remaining requests
-        if (error.message.includes('quota') || error.message.includes('Quota')) {
-          console.log(`🛑 Quota error detected. Aborting remaining ${requests.length - i - 1} requests.`);
-          break;
+      }
+      
+      // Stop on quota errors in emergency mode
+      if (emergencyMode && errors.some(e => e.error.includes('quota'))) {
+        console.log('🛑 Quota error in emergency mode - stopping batch');
+        break;
+      }
+    }
+    
+    return { results, errors, metrics: this.getMetrics() };
+  }
+
+  // ===================
+  // ENHANCED RATING FETCH
+  // ===================
+  
+  async fetchRatings({ name, item, evaluator, forceRefresh = false }) {
+    if (!name || !item || !evaluator) {
+      throw new Error('Missing required parameters: name, item, evaluator');
+    }
+
+    const key = `ratings:${evaluator}:${item}:${name}`;
+    
+    const fetchFn = async () => {
+      // Ensure fresh token
+      if (window.isTokenValid && !(await window.isTokenValid())) {
+        await window.refreshAccessToken();
+      }
+
+      const response = await gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: window.SHEET_ID,
+        range: window.SHEET_RANGES.RATELOG,
+      });
+
+      const values = response?.result?.values || [];
+      if (values.length === 0) return { values: [], evaluator, item, name };
+
+      // Filter using existing logic
+      const header = values[0];
+      const dataRows = values.slice(1);
+      const matchingRows = dataRows.filter(row => 
+        window.matchesRatingRow && window.matchesRatingRow(row, item, name, evaluator)
+      );
+
+      console.log(`✅ Found ${matchingRows.length} matching ratings for ${evaluator}:${item}:${name}`);
+
+      return {
+        values: [header, ...matchingRows],
+        evaluator,
+        item,
+        name,
+        timestamp: Date.now()
+      };
+    };
+
+    return await this.fetch(key, fetchFn, {
+      maxAge: 30000,    // 30 seconds for ratings
+      ttl: 120000,      // 2 minute fallback
+      forceRefresh
+    });
+  }
+
+  // ===================
+  // PENDING RATINGS MANAGEMENT
+  // ===================
+  
+  savePendingRating(evaluator, item, name, ratingData) {
+    const key = `pending:${evaluator}:${item}:${name}:${this.deviceId}`;
+    const data = {
+      ...ratingData,
+      evaluator,
+      item,
+      name,
+      deviceId: this.deviceId,
+      timestamp: Date.now()
+    };
+    
+    this._pendingRatings = this._pendingRatings || new Map();
+    this._pendingRatings.set(key, data);
+    
+    this._safeStorageSet(key, JSON.stringify(data));
+    console.log(`💾 Saved pending rating: ${key}`);
+  }
+
+  getPendingRating(evaluator, item, name) {
+    const key = `pending:${evaluator}:${item}:${name}:${this.deviceId}`;
+    
+    // Check memory first
+    if (!this._pendingRatings) this._pendingRatings = new Map();
+    let pending = this._pendingRatings.get(key);
+    
+    // Check storage if not in memory
+    if (!pending) {
+      const stored = this._safeStorageGet(key);
+      if (stored) {
+        try {
+          pending = JSON.parse(stored);
+          // Validate and check age (5 minutes max)
+          if (pending.evaluator === evaluator && 
+              pending.item === item && 
+              pending.name === name &&
+              pending.deviceId === this.deviceId &&
+              Date.now() - pending.timestamp < 300000) {
+            
+            this._pendingRatings.set(key, pending);
+            console.log(`📤 Restored pending rating: ${key}`);
+          } else {
+            this._safeStorageRemove(key);
+            pending = null;
+          }
+        } catch (e) {
+          this._safeStorageRemove(key);
+          pending = null;
         }
       }
     }
     
-    console.log(`🏁 Multi-device batch complete:`, {
-      successful: results.length,
-      failed: errors.length,
-      deviceId: this.deviceId,
-      totalDevices: this.globalQuotaState.activeDevices.size
-    });
+    return pending;
+  }
+
+  clearPendingRating(evaluator, item, name) {
+    const key = `pending:${evaluator}:${item}:${name}:${this.deviceId}`;
     
-    return {
-      results: isEmergency ? [...cacheResults, ...results] : results,
-      errors,
-      metrics: this.getMetrics()
-    };
+    if (this._pendingRatings) {
+      this._pendingRatings.delete(key);
+    }
+    this._safeStorageRemove(key);
+    console.log(`🧹 Cleared pending rating: ${key}`);
   }
 
-  // Utility methods
-  wait(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
+  // ===================
+  // UTILITY METHODS
+  // ===================
+  
   getMetrics() {
-    const cacheSize = this.cache.size;
-    const queueSize = this.requestQueue.size;
-    const circuitBreakers = this.circuitBreaker.size;
-    
+    const uptime = Date.now() - this.metrics.startTime;
     return {
       ...this.metrics,
-      cacheSize,
-      queueSize,
-      circuitBreakers,
-      successRate: this.metrics.totalRequests > 0 ? 
-        (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0,
-      globalQuotaState: {
-        requestsToday: this.globalQuotaState.requestsToday,
-        quotaExceeded: !!this.globalQuotaState.quotaExceededAt,
-        activeDevices: this.globalQuotaState.activeDevices.size
-      }
+      uptime,
+      successRate: this.metrics.requests > 0 ? 
+        Math.round((this.metrics.successes / this.metrics.requests) * 100) : 0,
+      cacheSize: this.cache.size,
+      queueSize: this.requestQueue.size,
+      quotaStatus: this._isQuotaExceeded() ? 'EXCEEDED' : 'OK',
+      activeDevices: this.quotaState.activeDevices.size
     };
   }
 
   clearCache() {
     this.cache.clear();
-    console.log('🗑️  Cache cleared');
+    console.log('🗑️ Cache cleared');
   }
 
   resetMetrics() {
-    this.metrics = {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
+    Object.assign(this.metrics, {
+      requests: 0,
+      successes: 0,
+      failures: 0,
       cacheHits: 0,
-      quotaExceeded: 0,
-      deviceId: this.deviceId
-    };
-    console.log('📊 Metrics reset');
+      quotaErrors: 0,
+      startTime: Date.now()
+    });
   }
 
-  // Cleanup method for when device goes offline
   cleanup() {
-    if (this.quotaMonitor) {
-      clearInterval(this.quotaMonitor);
+    if (this._monitor) clearInterval(this._monitor);
+    this.quotaState.activeDevices.delete(this.deviceId);
+    this._saveQuotaState();
+    console.log(`🧹 Device ${this.deviceId} cleaned up`);
+  }
+
+  // ===================
+  // PRIVATE METHODS - OPTIMIZED FOR PERFORMANCE
+  // ===================
+  
+  _getDeviceId() {
+    let stored = this._safeStorageGet('device_id');
+    if (!stored) {
+      stored = `device_${Math.random().toString(36).substr(2, 9)}_${Date.now()}`;
+      this._safeStorageSet('device_id', stored);
+    }
+    return stored;
+  }
+
+  _loadQuotaState() {
+    const stored = this._safeStorageGet('global_api_quota');
+    if (stored) {
+      try {
+        const state = JSON.parse(stored);
+        state.activeDevices = new Set(state.activeDevices || []);
+        
+        // Reset if new day
+        if (Date.now() - (state.lastReset || 0) > this.config.quotaResetTime) {
+          return this._resetQuotaState();
+        }
+        
+        return state;
+      } catch (e) {
+        console.warn('Failed to load quota state:', e);
+      }
+    }
+    return this._resetQuotaState();
+  }
+
+  _resetQuotaState() {
+    const state = {
+      requestsToday: 0,
+      quotaExceededAt: null,
+      lastReset: Date.now(),
+      activeDevices: new Set([this.deviceId])
+    };
+    this._saveQuotaState(state);
+    return state;
+  }
+
+  _saveQuotaState(state = null) {
+    const stateToSave = state || this.quotaState;
+    try {
+      const serializable = {
+        ...stateToSave,
+        activeDevices: Array.from(stateToSave.activeDevices)
+      };
+      this._safeStorageSet('global_api_quota', JSON.stringify(serializable));
+    } catch (e) {
+      console.warn('Failed to save quota state:', e);
+    }
+  }
+
+  _getCache(key, maxAge = this.config.cacheMaxAge) {
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+    
+    if (Date.now() - cached.timestamp > maxAge) {
+      this.cache.delete(key);
+      return null;
     }
     
-    // Remove this device from active devices
-    this.globalQuotaState.activeDevices.delete(this.deviceId);
-    this.saveGlobalQuotaState();
+    return cached.data;
+  }
+
+  _setCache(key, data, ttl = null) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl: ttl || this.config.cacheMaxAge
+    });
+  }
+
+  _isBlocked(key) {
+    return this._isQuotaExceeded() || this._isCircuitOpen(key);
+  }
+
+  _isQuotaExceeded() {
+    if (!this.quotaState.quotaExceededAt) return false;
     
-    console.log(`🧹 Device ${this.deviceId} cleaned up`);
+    const elapsed = Date.now() - this.quotaState.quotaExceededAt;
+    const cooldown = Math.min(300000 + (elapsed * 0.1), 3600000);
+    
+    if (elapsed < cooldown) return true;
+    
+    // Reset quota state
+    this.quotaState.quotaExceededAt = null;
+    this._saveQuotaState();
+    return false;
+  }
+
+  _isCircuitOpen(key) {
+    const breaker = this.circuitBreakers.get(key);
+    if (!breaker) return false;
+    
+    if (Date.now() - breaker.lastFailure < breaker.cooldown) {
+      return true;
+    }
+    
+    this.circuitBreakers.delete(key);
+    return false;
+  }
+
+  _recordFailure(key, isQuotaError = false) {
+    const breaker = this.circuitBreakers.get(key) || { failures: 0 };
+    breaker.failures++;
+    breaker.lastFailure = Date.now();
+    breaker.cooldown = isQuotaError ? 
+      Math.min(30000 * breaker.failures, 300000) : 
+      Math.min(5000 * breaker.failures, 60000);
+    
+    this.circuitBreakers.set(key, breaker);
+    
+    if (isQuotaError) {
+      this.metrics.quotaErrors++;
+    }
+  }
+
+  _isQuotaError(error) {
+    const msg = (error.message || '').toLowerCase();
+    const code = error.code || error.status;
+    
+    return code === 403 || 
+           msg.includes('quota') || 
+           msg.includes('limit') || 
+           msg.includes('exceeded');
+  }
+
+  _recordGlobalQuotaError(error) {
+    this.quotaState.quotaExceededAt = Date.now();
+    this._saveQuotaState();
+    console.log('🚨 Global quota error recorded');
+  }
+
+  async _executeWithRetry(key, fetchFn, options) {
+    let lastError;
+    
+    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+      try {
+        // Add device coordination delay
+        if (attempt > 0 || this.config.deviceCoordination) {
+          const delay = this._calculateDelay(attempt);
+          await this._wait(delay);
+        }
+        
+        const result = await fetchFn();
+        
+        // Success - reset circuit breaker
+        this.circuitBreakers.delete(key);
+        this.quotaState.requestsToday++;
+        this._saveQuotaState();
+        
+        return result;
+        
+      } catch (error) {
+        lastError = error;
+        const isQuotaError = this._isQuotaError(error);
+        
+        this._recordFailure(key, isQuotaError);
+        
+        if (isQuotaError) {
+          this._recordGlobalQuotaError(error);
+        }
+        
+        // Don't retry on certain errors
+        if (error.code === 401 || attempt === this.config.maxRetries) {
+          break;
+        }
+        
+        console.log(`⚠️ Attempt ${attempt + 1} failed for ${key}: ${error.message}`);
+      }
+    }
+    
+    // All retries failed - try fallback
+    const fallback = this._getFallbackData(key);
+    if (fallback) {
+      console.log(`🗃️ Using fallback data for ${key}`);
+      return fallback;
+    }
+    
+    throw lastError;
+  }
+
+  _calculateDelay(attempt) {
+    const deviceCount = this.quotaState.activeDevices.size;
+    const deviceIndex = Array.from(this.quotaState.activeDevices).indexOf(this.deviceId);
+    
+    // Base delay with exponential backoff
+    const base = this.config.baseDelay * Math.pow(2, attempt);
+    
+    // Device staggering
+    const stagger = deviceIndex * 2000;
+    
+    // Jitter
+    const jitter = Math.random() * base * 0.1;
+    
+    return Math.min(base + stagger + jitter, this.config.maxDelay);
+  }
+
+  _getFallbackData(key) {
+    // Try stale cache
+    const stale = this.cache.get(key);
+    return stale?.data || null;
+  }
+
+  _throwBlockedError(key) {
+    const reason = this._isQuotaExceeded() ? 'quota exceeded' : 'circuit breaker open';
+    throw new Error(`Request blocked for ${key}: ${reason}`);
+  }
+
+  _tryEmergencyCache(requests) {
+    const results = [];
+    const remaining = [];
+    
+    for (const req of requests) {
+      const cached = this._getCache(req.key, 1800000); // 30min tolerance
+      if (cached) {
+        results.push({ key: req.key, data: cached, success: true, fromCache: true });
+      } else {
+        remaining.push(req);
+      }
+    }
+    
+    console.log(`🗄️ Emergency cache: ${results.length} hits, ${remaining.length} misses`);
+    
+    return {
+      results,
+      remaining,
+      complete: remaining.length === 0,
+      errors: []
+    };
+  }
+
+  _startMonitoring() {
+    this.quotaState.activeDevices.add(this.deviceId);
+    this._saveQuotaState();
+    
+    this._monitor = setInterval(() => {
+      this._syncQuotaState();
+      this._cleanupCache();
+    }, 10000);
+  }
+
+  _syncQuotaState() {
+    const stored = this._safeStorageGet('global_api_quota');
+    if (stored) {
+      try {
+        const state = JSON.parse(stored);
+        if (state.quotaExceededAt && !this.quotaState.quotaExceededAt) {
+          this.quotaState.quotaExceededAt = state.quotaExceededAt;
+          console.log('🚨 Synced quota exceeded state from other device');
+        }
+      } catch (e) {
+        // Ignore sync errors
+      }
+    }
+  }
+
+  _cleanupCache() {
+    const now = Date.now();
+    let cleaned = 0;
+    
+    for (const [key, entry] of this.cache.entries()) {
+      const maxAge = entry.ttl || this.config.cacheMaxAge;
+      if (now - entry.timestamp > maxAge * 2) { // 2x TTL for cleanup
+        this.cache.delete(key);
+        cleaned++;
+      }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`🧹 Cleaned ${cleaned} stale cache entries`);
+    }
+  }
+
+  _bindCleanup() {
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => this.cleanup());
+      
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+          this._syncQuotaState();
+        }
+      });
+    }
+  }
+
+  _wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  _updateMetrics(key, value) {
+    if (!this.metrics[key]) this.metrics[key] = [];
+    this.metrics[key].push(value);
+    
+    // Keep only last 100 entries
+    if (this.metrics[key].length > 100) {
+      this.metrics[key] = this.metrics[key].slice(-100);
+    }
+  }
+
+  // Safe localStorage wrappers
+  _safeStorageGet(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  _safeStorageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn(`Storage failed for ${key}:`, e);
+    }
+  }
+
+  _safeStorageRemove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      // Ignore removal errors
+    }
   }
 }
 
 // ===================
-// ENHANCED IMPLEMENTATION FOR MULTI-DEVICE ENVIRONMENTS
+// GLOBAL INSTANCE & WRAPPER FUNCTIONS
 // ===================
 
-// Create global instance with multi-device settings
 const apiManager = new BulletproofAPIManager({
-  baseDelay: 5000,     // 5 second base delay for multi-device
-  maxDelay: 300000,    // 5 minute max delay
-  maxRetries: 10       // More retries for critical data
+  baseDelay: 4000,
+  maxDelay: 300000,
+  maxRetries: 10,
+  deviceCoordination: true
 });
 
-// Enhanced wrapper functions for your existing API calls
+// Enhanced wrapper functions
 async function safeFetchSecretariatMembers() {
-  return await apiManager.bulletproofFetch('secretariatMembers', fetchSecretariatMembers, {
-    maxCacheAge: 15 * 60 * 1000,  // 15 minutes cache
-    cacheTTL: 60 * 60 * 1000      // 1 hour TTL
+  return await apiManager.fetch('secretariatMembers', window.fetchSecretariatMembers, {
+    maxAge: 900000,  // 15 minutes
+    ttl: 3600000     // 1 hour
   });
 }
 
 async function safeFetchVacanciesData() {
-  return await apiManager.bulletproofFetch('vacanciesData', fetchVacanciesData, {
-    maxCacheAge: 10 * 60 * 1000,  // 10 minutes cache
-    cacheTTL: 30 * 60 * 1000      // 30 minutes TTL
+  return await apiManager.fetch('vacanciesData', window.fetchVacanciesData, {
+    maxAge: 600000,  // 10 minutes
+    ttl: 1800000     // 30 minutes
   });
 }
 
 async function safeLoadSignatories() {
-  if (!loadSignatories || typeof loadSignatories !== 'function') {
+  if (!window.loadSignatories || typeof window.loadSignatories !== 'function') {
     console.log('loadSignatories function not available');
     return null;
   }
   
-  return await apiManager.bulletproofFetch('signatories', loadSignatories, {
-    maxCacheAge: 20 * 60 * 1000,  // 20 minutes cache
-    cacheTTL: 2 * 60 * 60 * 1000  // 2 hour TTL
+  return await apiManager.fetch('signatories', window.loadSignatories, {
+    maxAge: 1200000, // 20 minutes
+    ttl: 7200000     // 2 hours
   });
 }
-
-// ===================
-// CORRECTED safeFetchRatings - MATCHES YOUR SHEET STRUCTURE
-// ===================
 
 async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
-  if (!name || !item || !evaluator) {
-    throw new Error('Missing required parameters: name, item, evaluator are all required');
-  }
-
-  // Make the cache key hyper-specific to prevent cross-contamination
-  const key = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
-
-  console.log(`🔍 Fetching ratings with precise key:`, {
-    key,
-    evaluator,
-    item, 
-    name,
-    deviceId: apiManager.deviceId
-  });
-
-  // The actual function that hits GAPI
-  const fetchFunction = async () => {
-    // Always ensure token is fresh right before the call
-    if (!await isTokenValid()) await refreshAccessToken();
-
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const values = response?.result?.values || [];
-    
-    // CORRECTED: Filter using your existing matchesRatingRow logic
-    const filteredValues = [];
-    
-    // Add header row if it exists
-    if (values.length > 0) {
-      filteredValues.push(values[0]); // Keep header
-      
-      // Filter data rows using your existing logic
-      const dataRows = values.slice(1);
-      const matchingRows = dataRows.filter(row => {
-        return matchesRatingRow(row, item, name, evaluator);
-      });
-      
-      filteredValues.push(...matchingRows);
-      
-      console.log(`✅ Found ${matchingRows.length} matching rating rows for:`, {
-        evaluator, item, name,
-        totalRows: dataRows.length,
-        matchingRows: matchingRows.length
-      });
-    }
-    
-    console.log(`📊 Rating fetch results:`, {
-      totalRows: values.length,
-      filteredRows: filteredValues.length - 1, // -1 for header
-      searchCriteria: { evaluator, item, name },
-      deviceId: apiManager.deviceId
-    });
-
-    // Return the filtered data for THIS specific combination
-    return { 
-      values: filteredValues, 
-      ts: Date.now(),
-      evaluator,  // Include for validation
-      item,       // Include for validation  
-      name        // Include for validation
-    };
-  };
-
-  // Cache with shorter duration for ratings since they change frequently
-  return await apiManager.bulletproofFetch(key, fetchFunction, {
-    maxCacheAge: 30 * 1000,      // Only 30 seconds fresh cache
-    cacheTTL: 2 * 60 * 1000,     // 2 minutes TTL for fallback
-    forceRefresh
-  });
+  return await apiManager.fetchRatings({ name, item, evaluator, forceRefresh });
 }
 
-
-
-
-// ===================
-// IMPROVED PENDING RATING MANAGEMENT
-// ===================
-
-const pendingRatings = new Map(); // Store pending ratings by specific key
-
+// Pending ratings helpers
 function savePendingRating(evaluator, item, name, ratingData) {
-  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  
-  const pendingData = {
-    ...ratingData,
-    evaluator,
-    item,
-    name,
-    deviceId: apiManager.deviceId,
-    timestamp: Date.now()
-  };
-  
-  pendingRatings.set(key, pendingData);
-  
-  // Store in localStorage with device-specific key
-  try {
-    localStorage.setItem(key, JSON.stringify(pendingData));
-    console.log(`💾 Saved pending rating:`, { evaluator, item, name, deviceId: apiManager.deviceId });
-  } catch (e) {
-    console.warn('Failed to save pending rating to localStorage:', e);
-  }
+  return apiManager.savePendingRating(evaluator, item, name, ratingData);
 }
 
 function getPendingRating(evaluator, item, name) {
-  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  
-  // First check memory
-  let pending = pendingRatings.get(key);
-  
-  // If not in memory, try localStorage
-  if (!pending) {
-    try {
-      const stored = localStorage.getItem(key);
-      if (stored) {
-        pending = JSON.parse(stored);
-        // Validate it matches exactly
-        if (pending.evaluator === evaluator && 
-            pending.item === item && 
-            pending.name === name &&
-            pending.deviceId === apiManager.deviceId) {
-          
-          // Check if not too old (5 minutes)
-          if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
-            pendingRatings.set(key, pending);
-            console.log(`📤 Restored pending rating:`, { evaluator, item, name });
-          } else {
-            // Too old, remove it
-            localStorage.removeItem(key);
-            pending = null;
-          }
-        } else {
-          pending = null;
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to restore pending rating:', e);
-      pending = null;
-    }
-  }
-  
-  return pending;
+  return apiManager.getPendingRating(evaluator, item, name);
 }
 
 function clearPendingRating(evaluator, item, name) {
-  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
-  
-  pendingRatings.delete(key);
-  
-  try {
-    localStorage.removeItem(key);
-    console.log(`🧹 Cleared pending rating:`, { evaluator, item, name });
-  } catch (e) {
-    console.warn('Failed to clear pending rating from localStorage:', e);
-  }
+  return apiManager.clearPendingRating(evaluator, item, name);
 }
 
+// ===================
+// ENHANCED INITIALIZATION
+// ===================
 
-
-
-
-
-
-
-
-
-
-// Ultra-safe initialization with fallback UI loading
 async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
   
-  if (spinner) {
-    spinner.style.display = 'flex';
-    spinner.style.opacity = '1';
-  }
-  if (pageWrapper) {
-    pageWrapper.style.opacity = '0.3';
-  }
+  // Show loading
+  if (spinner) spinner.style.display = 'flex';
+  if (pageWrapper) pageWrapper.style.opacity = '0.3';
 
-  gapi.load('client', async () => {
-    try {
-      await initializeGapiClient();
-      gapiInitialized = true;
-      console.log('✅ GAPI client initialized');
-      loadingState.gapi = true;
-      maybeEnableButtons();
-      createEvaluatorSelector();
-      setupTabNavigation();
-
-      // ===================
-      // BULLETPROOF MULTI-DEVICE API STRATEGY
-      // ===================
-      
-      console.log('🎯 Starting bulletproof multi-device API calls...');
-      console.log('📱 Device Info:', {
-        deviceId: apiManager.deviceId,
-        activeDevices: apiManager.globalQuotaState.activeDevices.size,
-        globalQuotaStatus: apiManager.isGlobalQuotaExceeded() ? 'EXCEEDED' : 'OK'
-      });
-      
-      // Try cache-first approach
-      const cacheOnlyResults = await tryLoadFromCacheOnly();
-      
-      if (cacheOnlyResults.allLoaded) {
-        console.log('🚀 All data loaded from cache! Skipping API calls.');
-        loadingState.apiDone = true;
-        finishInitialization();
-        return;
-      }
-      
-      // Define API requests with conservative settings
-      const apiRequests = [
-        {
-          key: 'secretariatMembers',
-          fetchFunction: safeFetchSecretariatMembers,
-          priority: 3,
-          required: true
-        },
-        {
-          key: 'vacanciesData', 
-          fetchFunction: safeFetchVacanciesData,
-          priority: 2,
-          required: true
-        },
-        {
-          key: 'signatories',
-          fetchFunction: safeLoadSignatories,
-          priority: 1,
-          required: false
-        }
-      ].filter(req => !cacheOnlyResults.loadedKeys.includes(req.key));
-      
-      if (apiRequests.length === 0) {
-        console.log('✅ All required data already cached');
-        loadingState.apiDone = true;
-        finishInitialization();
-        return;
-      }
-      
-      // Execute with ultra-conservative settings
-      const batchResult = await apiManager.batchFetch(apiRequests, {
-        concurrency: 1,
-        adaptiveDelay: true,
-        priorityOrder: true,
-        emergencyMode: apiManager.isGlobalQuotaExceeded()
-      });
-      
-      // Enhanced error handling
-      const criticalErrors = batchResult.errors.filter(err => 
-        apiRequests.find(req => req.key === err.key)?.required
-      );
-      
-      if (criticalErrors.length > 0) {
-        console.error('🚨 Critical API failures detected:', criticalErrors);
+  return new Promise((resolve, reject) => {
+    gapi.load('client', async () => {
+      try {
+        await window.initializeGapiClient();
+        window.gapiInitialized = true;
+        console.log('✅ GAPI initialized');
         
-        // Try emergency fallback
-        await handleCriticalAPIFailure(criticalErrors);
+        // Setup UI components
+        window.loadingState.gapi = true;
+        window.maybeEnableButtons?.();
+        window.createEvaluatorSelector?.();
+        window.setupTabNavigation?.();
+
+        console.log('🎯 Starting optimized API loading...');
+        console.log('📱 Device:', apiManager.deviceId, 'Quota:', apiManager.getMetrics().quotaStatus);
+        
+        // Try cache-first approach
+        const cacheResults = await tryLoadFromCacheOnly();
+        
+        if (cacheResults.allRequired) {
+          console.log('🚀 All required data from cache');
+          window.loadingState.apiDone = true;
+          finishInitialization();
+          resolve();
+          return;
+        }
+        
+        // Load missing data
+        const requests = [
+          { key: 'secretariatMembers', fetchFn: safeFetchSecretariatMembers, priority: 3, required: true },
+          { key: 'vacanciesData', fetchFn: safeFetchVacanciesData, priority: 2, required: true },
+          { key: 'signatories', fetchFn: safeLoadSignatories, priority: 1, required: false }
+        ].filter(req => !cacheResults.loaded.includes(req.key));
+        
+        if (requests.length === 0) {
+          window.loadingState.apiDone = true;
+          finishInitialization();
+          resolve();
+          return;
+        }
+        
+        // Execute batch with smart settings
+        const result = await apiManager.batchFetch(requests, {
+          concurrency: 1,
+          failFast: false,
+          emergencyMode: apiManager._isQuotaExceeded()
+        });
+        
+        // Handle results
+        const criticalErrors = result.errors.filter(err => 
+          requests.find(req => req.key === err.key)?.required
+        );
+        
+        if (criticalErrors.length > 0) {
+          await handleCriticalFailure(criticalErrors);
+        }
+        
+        console.log('📊 API Results:', {
+          success: result.results.length,
+          failed: result.errors.length,
+          metrics: result.metrics
+        });
+        
+        window.loadingState.apiDone = true;
+        finishInitialization();
+        resolve();
+        
+      } catch (error) {
+        console.error('❌ Init failed:', error);
+        await handleInitFailure();
+        reject(error);
       }
-      
-      // Log comprehensive results
-      console.log('📊 Multi-device API Results:', {
-        successful: batchResult.results.length,
-        failed: batchResult.errors.length,
-        metrics: batchResult.metrics,
-        quotaStatus: apiManager.globalQuotaState.quotaExceededAt ? 'EXCEEDED' : 'OK'
-      });
-      
-      loadingState.apiDone = true;
-      finishInitialization();
-      
-    } catch (error) {
-      console.error('❌ Critical initialization error:', error);
-      await handleInitializationFailure();
-    }
+    });
   });
 }
 
-// Cache-only loading attempt
 async function tryLoadFromCacheOnly() {
-  const results = {
-    loadedKeys: [],
-    allLoaded: false
-  };
-  
-  const cacheTests = [
+  const tests = [
     { key: 'secretariatMembers', required: true },
     { key: 'vacanciesData', required: true },
     { key: 'signatories', required: false }
   ];
   
+  const loaded = [];
   let requiredLoaded = 0;
-  let requiredCount = 0;
   
-  for (const test of cacheTests) {
-    if (test.required) requiredCount++;
-    
-    const cached = apiManager.getCachedData(test.key, 30 * 60 * 1000); // 30min tolerance
-    if (cached) {
-      results.loadedKeys.push(test.key);
+  for (const test of tests) {
+    if (apiManager._getCache(test.key, 1800000)) { // 30min tolerance
+      loaded.push(test.key);
       if (test.required) requiredLoaded++;
-      console.log(`✅ ${test.key} loaded from cache`);
+      console.log(`✅ ${test.key} cached`);
     }
   }
   
-  results.allLoaded = (requiredLoaded === requiredCount);
-  return results;
+  return {
+    loaded,
+    allRequired: requiredLoaded === 2 // secretariat + vacancies
+  };
 }
 
-// Handle critical API failures with graceful degradation
-async function handleCriticalAPIFailure(criticalErrors) {
-  console.log('🆘 Handling critical API failures...');
+async function handleCriticalFailure(errors) {
+  console.log('🆘 Handling critical failures...');
   
-  // Try to load any available stale cache
-  for (const error of criticalErrors) {
-    const staleData = apiManager.cache.get(error.key);
-    if (staleData) {
-      console.log(`🗃️  Using stale cache for critical data: ${error.key}`);
-      // You might want to populate your UI with this stale data
+  for (const error of errors) {
+    const fallback = apiManager._getFallbackData(error.key);
+    if (fallback) {
+      console.log(`🗃️ Using stale data for ${error.key}`);
     }
   }
   
-  // Show user notification
-  showErrorNotification(
-    'Some data is temporarily unavailable due to high server load. ' +
-    'The app is using cached data where possible. Please try refreshing in a few minutes.'
+  showEnhancedNotification(
+    'Some data is temporarily unavailable. Using cached data where possible.',
+    { type: 'warning', showRetry: true }
   );
 }
 
-// Handle complete initialization failure
-async function handleInitializationFailure() {
-  console.log('🆘 Handling complete initialization failure...');
+async function handleInitFailure() {
+  console.log('🆘 Complete init failure - enabling offline mode');
   
-  // Force mark everything as ready to show UI
-  loadingState.gapi = true;
-  loadingState.uiReady = true;
-  loadingState.dom = true;
-  loadingState.apiDone = true;
+  // Force enable UI
+  Object.assign(window.loadingState, {
+    gapi: true,
+    uiReady: true,
+    dom: true,
+    apiDone: true
+  });
   
-  // Try to load any cached data
   await tryLoadFromCacheOnly();
+  window.checkAndHideSpinner?.();
   
-  checkAndHideSpinner();
-  
-  showErrorNotification(
-    'Unable to load fresh data. The app is running in offline mode with cached data. ' +
-    'Please check your internet connection and try refreshing.'
+  showEnhancedNotification(
+    'App running in offline mode with cached data.',
+    { type: 'error', persistent: true }
   );
 }
 
-// Finish initialization process
 function finishInitialization() {
-  startUIMonitoring();
-  restoreState();
+  window.startUIMonitoring?.();
+  window.restoreState?.();
   
-  // Event listeners
-  elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-  elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-  elements.closeSignatoriesModalBtns.forEach(button =>
-    button.addEventListener('click', () => {
-      elements.signatoriesModal.classList.remove('active');
+  // Bind event listeners
+  const elements = window.elements || {};
+  elements.generatePdfBtn?.addEventListener('click', window.generatePdfSummary);
+  elements.manageSignatoriesBtn?.addEventListener('click', window.manageSignatories);
+  elements.closeSignatoriesModalBtns?.forEach(btn =>
+    btn.addEventListener('click', () => {
+      elements.signatoriesModal?.classList.remove('active');
     })
   );
-  elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+  elements.addSignatoryBtn?.addEventListener('click', window.addSignatory);
   
-  loadingState.dom = true;
-  checkAndHideSpinner();
+  window.loadingState.dom = true;
+  window.checkAndHideSpinner?.();
   
-  console.log('✅ App initialization complete');
-  console.log('📊 Final metrics:', apiManager.getMetrics());
+  console.log('✅ Init complete:', apiManager.getMetrics());
 }
 
-// Enhanced error notification with retry option
-function showErrorNotification(message, options = {}) {
-  console.error('🚨 User notification:', message);
+function showEnhancedNotification(message, options = {}) {
+  const { type = 'info', showRetry = false, persistent = false } = options;
   
-  // Create enhanced notification UI
+  const colors = {
+    info: '#2196F3',
+    warning: '#FF9800', 
+    error: '#F44336',
+    success: '#4CAF50'
+  };
+  
   const notification = document.createElement('div');
-  notification.className = 'api-error-notification';
   notification.innerHTML = `
-    <div class="notification-content">
-      <div class="notification-icon">⚠️</div>
-      <div class="notification-text">${message}</div>
-      ${options.showRetry ? `
-        <button class="notification-retry-btn" onclick="retryFailedAPIRequests()">
-          🔄 Retry Now
-        </button>
+    <div style="
+      position: fixed; top: 20px; right: 20px; z-index: 10000;
+      background: ${colors[type]}; color: white; padding: 16px;
+      border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      max-width: 400px; font-family: system-ui, sans-serif;
+      display: flex; align-items: center; gap: 12px;
+    ">
+      <div>⚠️</div>
+      <div style="flex: 1">${message}</div>
+      ${showRetry ? `
+        <button onclick="retryFailedRequests()" style="
+          background: rgba(255,255,255,0.2); border: none; color: white;
+          padding: 8px 12px; border-radius: 4px; cursor: pointer;
+          font-size: 12px; font-weight: bold;
+        ">🔄 Retry</button>
       ` : ''}
-      <button class="notification-close-btn" onclick="this.parentElement.parentElement.remove()">
-        ✕
-      </button>
+      ${!persistent ? `
+        <button onclick="this.parentElement.parentElement.remove()" style="
+          background: rgba(255,255,255,0.2); border: none; color: white;
+          padding: 4px 8px; border-radius: 4px; cursor: pointer;
+          font-size: 14px; line-height: 1;
+        ">✕</button>
+      ` : ''}
     </div>
-  `;
-  
-  // Add styles
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: #ff4444;
-    color: white;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    z-index: 10000;
-    max-width: 400px;
-    font-family: system-ui, -apple-system, sans-serif;
   `;
   
   document.body.appendChild(notification);
   
-  // Auto-remove after 30 seconds
-  setTimeout(() => {
-    if (notification.parentElement) {
-      notification.remove();
-    }
-  }, 30000);
+  // Auto-remove after 15 seconds unless persistent
+  if (!persistent) {
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.remove();
+      }
+    }, 15000);
+  }
 }
 
-// Retry mechanism for failed requests
-async function retryFailedAPIRequests() {
-  console.log('🔄 Manual retry triggered...');
+async function retryFailedRequests() {
+  console.log('🔄 Manual retry initiated...');
   
-  // Clear any quota exceeded state older than 5 minutes
-  if (apiManager.globalQuotaState.quotaExceededAt) {
-    const timeSince = Date.now() - apiManager.globalQuotaState.quotaExceededAt;
-    if (timeSince > 300000) { // 5 minutes
-      apiManager.globalQuotaState.quotaExceededAt = null;
-      apiManager.saveGlobalQuotaState();
-      console.log('🔓 Reset quota exceeded state for manual retry');
+  // Clear quota exceeded if older than 5 minutes
+  if (apiManager.quotaState.quotaExceededAt) {
+    const elapsed = Date.now() - apiManager.quotaState.quotaExceededAt;
+    if (elapsed > 300000) {
+      apiManager.quotaState.quotaExceededAt = null;
+      apiManager._saveQuotaState();
+      console.log('🔓 Reset quota state for retry');
     }
   }
   
-  // Try the initialization again
-  const apiRequests = [
-    {
-      key: 'secretariatMembers',
-      fetchFunction: safeFetchSecretariatMembers,
-      priority: 3,
-      options: { forceRefresh: true }
-    },
-    {
-      key: 'vacanciesData',
-      fetchFunction: safeFetchVacanciesData, 
-      priority: 2,
-      options: { forceRefresh: true }
-    },
-    {
-      key: 'signatories',
-      fetchFunction: safeLoadSignatories,
-      priority: 1,
-      options: { forceRefresh: true }
-    }
+  const requests = [
+    { key: 'secretariatMembers', fetchFn: safeFetchSecretariatMembers, priority: 3, options: { forceRefresh: true }},
+    { key: 'vacanciesData', fetchFn: safeFetchVacanciesData, priority: 2, options: { forceRefresh: true }},
+    { key: 'signatories', fetchFn: safeLoadSignatories, priority: 1, options: { forceRefresh: true }}
   ];
   
-  const result = await apiManager.batchFetch(apiRequests, {
-    concurrency: 1,
-    adaptiveDelay: true,
-    priorityOrder: true
-  });
-  
-  if (result.errors.length === 0) {
-    showErrorNotification('✅ All data refreshed successfully!');
-    window.location.reload(); // Refresh to apply new data
-  } else {
-    showErrorNotification('Some requests still failing. Please wait longer before retrying.');
+  try {
+    const result = await apiManager.batchFetch(requests, {
+      concurrency: 1,
+      failFast: false
+    });
+    
+    if (result.errors.length === 0) {
+      showEnhancedNotification('✅ All data refreshed successfully!', { type: 'success' });
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      showEnhancedNotification(
+        `Partial success: ${result.results.length} loaded, ${result.errors.length} failed`,
+        { type: 'warning' }
+      );
+    }
+  } catch (error) {
+    showEnhancedNotification('Retry failed. Please wait longer before trying again.', { type: 'error' });
   }
 }
 
-// Monitor page visibility to pause requests when tab is hidden
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    console.log('📱 Tab hidden - pausing API requests');
-    // The queue system will naturally pause when tab is hidden
-  } else {
-    console.log('📱 Tab visible - resuming API requests');
-    apiManager.syncGlobalQuotaState(); // Sync state when coming back
-  }
-});
+// ===================
+// PERFORMANCE MONITORING
+// ===================
 
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-  apiManager.cleanup();
-});
-
-// Optional: Add periodic cache cleanup
+// Monitor performance and adapt behavior
 setInterval(() => {
   const metrics = apiManager.getMetrics();
-  if (metrics.cacheSize > 100) { // Arbitrary limit
-    console.log('🧹 Cleaning up old cache entries...');
-    // You could implement smarter cache eviction here
+  
+  // Log performance stats every 5 minutes
+  if (metrics.requests > 0) {
+    console.log('📊 Performance Summary:', {
+      successRate: `${metrics.successRate}%`,
+      totalRequests: metrics.requests,
+      cacheHitRate: `${Math.round((metrics.cacheHits / metrics.requests) * 100)}%`,
+      quotaErrors: metrics.quotaErrors,
+      uptime: `${Math.round(metrics.uptime / 60000)}min`
+    });
   }
-}, 5 * 60 * 1000); // Every 5 minutes
+  
+  // Auto-cleanup if cache gets too large
+  if (metrics.cacheSize > 50) {
+    console.log('🧹 Auto-cleanup triggered - cache size:', metrics.cacheSize);
+    apiManager._cleanupCache();
+  }
+  
+  // Adaptive quota monitoring
+  if (metrics.quotaErrors > 5) {
+    console.log('⚠️ High quota error rate - entering conservative mode');
+    apiManager.config.baseDelay = Math.min(apiManager.config.baseDelay * 1.5, 10000);
+  }
+  
+}, 300000); // Every 5 minutes
+
+// ===================
+// EXPORT FOR GLOBAL USE
+// ===================
+
+// Make functions globally available
+if (typeof window !== 'undefined') {
+  Object.assign(window, {
+    apiManager,
+    safeFetchSecretariatMembers,
+    safeFetchVacanciesData, 
+    safeLoadSignatories,
+    safeFetchRatings,
+    savePendingRating,
+    getPendingRating,
+    clearPendingRating,
+    initializeApp,
+    retryFailedRequests,
+    showEnhancedNotification
+  });
+}
+
+console.log('🚀 Bulletproof API Manager v2.0 loaded');
+console.log('📈 Optimizations: Smart caching, adaptive delays, circuit breakers, quota coordination');
+console.log('🔧 Features: Pending ratings, batch processing, performance monitoring, graceful fallbacks');
 
 
 
@@ -6189,3 +6095,4 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
