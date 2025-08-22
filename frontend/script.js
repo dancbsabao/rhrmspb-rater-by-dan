@@ -1652,9 +1652,7 @@ async function initializeApp() {
   appInitializationPromise = (async () => {
     showSpinner(true);
 
-    // -----------------------------
     // Retry wrapper for Sheets API with notifier updates
-    // -----------------------------
     async function sheetsApiRequestWithRetry(apiCallFn, maxRetries = 5, initialDelay = 500) {
       let attempt = 0;
       let delay = initialDelay;
@@ -1667,34 +1665,17 @@ async function initializeApp() {
             attempt++;
             const msg = `⚠️ API rate limit hit. Retry ${attempt}/${maxRetries} in ${delay}ms...`;
             console.warn(msg);
-
-            // Update API notifier if running
             if (window.apiNotifierControl?.isRunning()) {
               updateApiNotifier("warning", msg, { deviceId: "init_retry", hasError: false });
             }
-
             await new Promise(res => setTimeout(res, delay));
-            delay *= 2; // exponential backoff
+            delay *= 2;
           } else {
             throw error;
           }
         }
       }
     }
-
-    // -----------------------------
-    // Patch GAPI Sheets methods for retry during initialization
-    // -----------------------------
-    const originalGet = gapi.client.sheets.spreadsheets.values.get;
-    const originalBatchGet = gapi.client.sheets.spreadsheets.values.batchGet;
-
-    gapi.client.sheets.spreadsheets.values.get = function(params) {
-      return sheetsApiRequestWithRetry(() => originalGet.call(this, params));
-    };
-
-    gapi.client.sheets.spreadsheets.values.batchGet = function(params) {
-      return sheetsApiRequestWithRetry(() => originalBatchGet.call(this, params));
-    };
 
     try {
       // 1. Initialize API Manager
@@ -1716,17 +1697,34 @@ async function initializeApp() {
         });
       });
 
+      // -----------------------------
+      // Patch Sheets API methods AFTER gapi.client is ready
+      // -----------------------------
+      if (gapi.client?.sheets?.spreadsheets?.values) {
+        const originalGet = gapi.client.sheets.spreadsheets.values.get;
+        const originalBatchGet = gapi.client.sheets.spreadsheets.values.batchGet;
+
+        gapi.client.sheets.spreadsheets.values.get = function(params) {
+          return sheetsApiRequestWithRetry(() => originalGet.call(this, params));
+        };
+
+        gapi.client.sheets.spreadsheets.values.batchGet = function(params) {
+          return sheetsApiRequestWithRetry(() => originalBatchGet.call(this, params));
+        };
+      } else {
+        console.warn("⚠️ gapi.client.sheets not available, retry wrapper skipped.");
+      }
+
       // 4. Setup UI
       setupUI();
 
-      // 5. Load initial data (Sheets API calls automatically retried)
+      // 5. Load initial data
       await loadInitialData();
 
       // 6. Finalize initialization
       finishInitialization();
       console.log("✅ Application initialized successfully.");
 
-      // Show success in notifier
       if (window.apiNotifierControl?.isRunning()) {
         updateApiNotifier("success", "✅ App initialized successfully.", { deviceId: "init_success" });
       }
@@ -1745,17 +1743,14 @@ async function initializeApp() {
       throw error;
 
     } finally {
-      // Restore original GAPI methods
-      gapi.client.sheets.spreadsheets.values.get = originalGet;
-      gapi.client.sheets.spreadsheets.values.batchGet = originalBatchGet;
-
       showSpinner(false);
-      appInitializationPromise = null; // Release lock
+      appInitializationPromise = null;
     }
   })();
 
   return appInitializationPromise;
 }
+
 
 
 
@@ -6486,6 +6481,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
