@@ -531,51 +531,55 @@ function startUIMonitoring() {
 }
 
 
-// ===========================
-// API Notifier UI
-// ===========================
+// ============================================================================
+// API Readiness Notifier (clean, API-specific)
+// ============================================================================
+
+let apiNotifierEl = null;
+
 function createApiNotifier() {
-  let notifier = document.getElementById("api-notifier");
-  if (!notifier) {
-    notifier = document.createElement("div");
-    notifier.id = "api-notifier";
-    notifier.style.position = "fixed";
-    notifier.style.bottom = "20px";
-    notifier.style.right = "20px";
-    notifier.style.padding = "10px 16px";
-    notifier.style.background = "#222";
-    notifier.style.color = "#fff";
-    notifier.style.borderRadius = "8px";
-    notifier.style.fontSize = "14px";
-    notifier.style.fontFamily = "Arial, sans-serif";
-    notifier.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
-    notifier.style.zIndex = "9999";
-    notifier.style.display = "none"; // initially hidden
-    document.body.appendChild(notifier);
-  }
-  return notifier;
+  apiNotifierEl = document.createElement("div");
+  apiNotifierEl.id = "api-notifier";
+  apiNotifierEl.style.position = "fixed";
+  apiNotifierEl.style.bottom = "10px";
+  apiNotifierEl.style.right = "10px";
+  apiNotifierEl.style.background = "#222";
+  apiNotifierEl.style.color = "#fff";
+  apiNotifierEl.style.padding = "10px 15px";
+  apiNotifierEl.style.borderRadius = "8px";
+  apiNotifierEl.style.fontFamily = "monospace";
+  apiNotifierEl.style.fontSize = "13px";
+  apiNotifierEl.style.zIndex = "9999";
+  document.body.appendChild(apiNotifierEl);
+
+  updateApiNotifier("pending", "Initializing API monitor…");
 }
 
-function updateApiNotifier(status, message) {
-  const notifier = createApiNotifier();
-  notifier.textContent = `🔔 ${message || status}`;
-  notifier.style.display = "block";
+function updateApiNotifier(status, message, extra = {}) {
+  if (!apiNotifierEl) return;
 
-  if (status === "ready") {
-    notifier.style.background = "#28a745"; // green
-  } else if (status === "quota") {
-    notifier.style.background = "#dc3545"; // red
-  } else {
-    notifier.style.background = "#6c757d"; // gray
-  }
+  let color = "#999"; // default = gray
+  if (status === "ready") color = "limegreen";
+  if (status === "error") color = "crimson";
+  if (status === "pending") color = "goldenrod";
+
+  // Build HTML status block
+  apiNotifierEl.innerHTML = `
+    <div style="font-weight:bold; margin-bottom:4px;">
+      🔔 API Status: <span style="color:${color}">${status.toUpperCase()}</span>
+    </div>
+    <div>${message}</div>
+    <div style="margin-top:6px; font-size:12px; opacity:0.8;">
+      Quota Remaining: ${extra.quota ?? "?"}<br>
+      Reset Time: ${extra.resetTime ?? "?"}<br>
+      Last Request: ${extra.lastRequest ?? "?"}
+    </div>
+  `;
 }
 
-// ===========================
-// Ensure notifier is ready on DOM load
-// ===========================
-window.addEventListener("DOMContentLoaded", () => {
-  createApiNotifier(); // creates hidden notifier right away
-});
+// Initialize immediately on load
+createApiNotifier();
+
 
 
 
@@ -1006,24 +1010,34 @@ class BulletproofAPIManager {
    * @private
    */
   _isGlobalQuotaExceeded() {
-    const { quotaExceededAt, quotaResetTime } = this.globalQuotaState;
-    if (!quotaExceededAt) return false;
-  
-    const now = Date.now();
-  
-    if (quotaResetTime && now < quotaResetTime) {
-      return true; // still in cooldown
-    }
-  
-    // Cooldown ended → reset state
-    this.globalQuotaState.quotaExceededAt = null;
-    this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
-    this._saveGlobalQuotaState();
-  
-    console.log('🔓 Global quota cooldown period ended or reset time passed. Resuming requests.');
-    updateApiNotifier("ready", "Quota window reset — requests resumed.");  // <-- moved here
-    return false;
+  const { quotaExceededAt, quotaResetTime } = this.globalQuotaState;
+  if (!quotaExceededAt) return false;
+
+  const now = Date.now();
+
+  if (quotaResetTime && now < quotaResetTime) {
+    return true; // still in cooldown
   }
+
+  // Cooldown ended → reset state
+  this.globalQuotaState.quotaExceededAt = null;
+  this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
+  this._saveGlobalQuotaState();
+
+  console.log('🔓 Global quota cooldown period ended or reset time passed. Resuming requests.');
+
+  updateApiNotifier(
+    "ready",
+    "Quota window reset — requests resumed.",
+    {
+      quota: "restored",
+      resetTime: new Date(this.globalQuotaState.quotaResetTime).toLocaleString(),
+      lastRequest: new Date().toLocaleTimeString()
+    }
+  );
+
+  return false;
+}
 
 
   // --- Caching ---
@@ -1107,12 +1121,19 @@ class BulletproofAPIManager {
     this._saveGlobalQuotaState();
     this.metrics.quotaExceeded++;
 
-    console.error(`🚨 Google API Quota Exceeded! Will resume after ${new Date(this.globalQuotaState.quotaResetTime).toLocaleString()}.`);
+    const resetAt = new Date(this.globalQuotaState.quotaResetTime);
 
-    // 🔔 Hook into notifier here
+    console.error(`🚨 Google API Quota Exceeded! Will resume after ${resetAt.toLocaleString()}.`);
+
+    // 🔔 Hook into notifier with metadata
     updateApiNotifier(
       "error",
-      `Quota exceeded — will reset at ${new Date(this.globalQuotaState.quotaResetTime).toLocaleTimeString()}`
+      `Quota exceeded — will reset at ${resetAt.toLocaleTimeString()}`,
+      {
+        quota: 0,
+        resetTime: resetAt.toLocaleString(),
+        lastRequest: new Date().toLocaleTimeString()
+      }
     );
 
     return { type: 'quota', retryable: true };
@@ -6104,6 +6125,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
