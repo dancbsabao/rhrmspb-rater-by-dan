@@ -539,7 +539,14 @@ let updateInterval = null;
 let isMinimized = false;
 let lastUpdateTime = null;
 
+// ---------------------------
+// Global variable to track true quota reset time
+// ---------------------------
+let lastStoredResetTime = null;
+
+// ---------------------------
 // Create or get the notifier element
+// ---------------------------
 function createApiNotifier() {
   if (!apiNotifierEl) {
     apiNotifierEl = document.createElement("div");
@@ -560,33 +567,31 @@ function createApiNotifier() {
     apiNotifierEl.style.border = "1px solid rgba(255,255,255,0.1)";
     apiNotifierEl.style.backdropFilter = "blur(10px)";
     apiNotifierEl.style.userSelect = "none";
-    
+
     // Click handler for minimize/expand
     apiNotifierEl.addEventListener('click', toggleMinimize);
-    
+
     // Hover effects
     apiNotifierEl.addEventListener('mouseenter', () => {
       apiNotifierEl.style.transform = "translateY(-2px)";
       apiNotifierEl.style.boxShadow = "0 8px 25px rgba(0,0,0,0.4)";
     });
-    
     apiNotifierEl.addEventListener('mouseleave', () => {
       apiNotifierEl.style.transform = "translateY(0)";
       apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
     });
-    
+
     document.body.appendChild(apiNotifierEl);
   }
 
   function update(status) {
-    const quotaRemaining = status.quota ?? "?";
     const resetTimeFormatted = status.resetTime ? new Date(status.resetTime).toLocaleString() : "?";
     const lastRequestFormatted = status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?";
     const connectionStatus = getConnectionStatus(status);
     const quotaDisplay = getQuotaDisplay(status);
-    
+
     lastUpdateTime = new Date();
-    
+
     if (isMinimized) {
       apiNotifierEl.innerHTML = `
         <div style="font-weight:bold; font-size:12px;">
@@ -626,45 +631,37 @@ function createApiNotifier() {
   return { update };
 }
 
+// ---------------------------
 // Helper functions for status display
+// ---------------------------
 function getConnectionStatus(status) {
-  if (!status.ready) {
-    return { icon: "🔴", text: "NOT READY ❌", short: "DOWN" };
-  }
-  
-  if (status.isExceeded) {
-    return { icon: "⚠️", text: "QUOTA EXCEEDED ⚠️", short: "LIMIT" };
-  }
-  
-  if (status.hasError) {
-    return { icon: "🟡", text: "WARNING ⚠️", short: "WARN" };
-  }
-  
+  if (!status.ready) return { icon: "🔴", text: "NOT READY ❌", short: "DOWN" };
+  if (status.isExceeded) return { icon: "⚠️", text: "QUOTA EXCEEDED ⚠️", short: "LIMIT" };
+  if (status.hasError) return { icon: "🟡", text: "WARNING ⚠️", short: "WARN" };
   return { icon: "🟢", text: "READY ✅", short: "OK" };
 }
 
 function getQuotaDisplay(status) {
-  if (status.isExceeded) {
-    return "⚠️ EXCEEDED";
-  }
-  
+  if (status.isExceeded) return "⚠️ EXCEEDED";
   if (typeof status.requestsToday === 'number' && status.quotaLimit) {
     const remaining = status.quotaLimit - status.requestsToday;
     const percentage = Math.round((remaining / status.quotaLimit) * 100);
     return `${remaining} left (${percentage}%)`;
   }
-  
   return status.quota || "Unknown";
 }
 
+// ---------------------------
 // Toggle minimize/expand
+// ---------------------------
 function toggleMinimize() {
   isMinimized = !isMinimized;
-  // Trigger immediate update to refresh display
   liveUpdateNotifier();
 }
 
-// ✅ Backward compatibility shim
+// ---------------------------
+// Backward compatibility shim
+// ---------------------------
 function updateApiNotifier(status, message, extra = {}) {
   const apiNotifier = createApiNotifier();
   apiNotifier.update({
@@ -681,20 +678,21 @@ function updateApiNotifier(status, message, extra = {}) {
   });
 }
 
-// ===========================
-// Fetch live device info from apiManager
-// ===========================
+// ---------------------------
+// Fetch live device info from apiManager (Updated)
+// ---------------------------
 async function fetchDeviceInfo() {
+  const now = Date.now();
   try {
-    // Check if apiManager exists
     if (typeof apiManager === 'undefined') {
       return {
         requestsToday: "?",
+        quotaLimit: "?",
         isExceeded: false,
         activeDevices: "?",
-        quotaResetTime: null,
+        quotaResetTime: lastStoredResetTime ?? (now + 3600000),
         lastQuotaError: "API Manager not found",
-        lastRequestTime: Date.now(),
+        lastRequestTime: now,
         deviceId: "unknown_device",
         hasError: true
       };
@@ -702,15 +700,19 @@ async function fetchDeviceInfo() {
 
     const metrics = apiManager.getMetrics();
     const globalQuota = metrics.globalQuotaState || {};
-    
+
+    if (!lastStoredResetTime) {
+      lastStoredResetTime = globalQuota.quotaResetTime ?? (now + 3600000);
+    }
+
     return {
       requestsToday: globalQuota.requestsToday ?? 0,
-      quotaLimit: globalQuota.quotaLimit ?? 100, // Assume default limit
+      quotaLimit: globalQuota.quotaLimit ?? 100,
       isExceeded: !!globalQuota.quotaExceededAt,
       activeDevices: metrics.activeDevices ?? 1,
-      quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
+      quotaResetTime: lastStoredResetTime,
       lastQuotaError: globalQuota.lastQuotaError ?? null,
-      lastRequestTime: Date.now(),
+      lastRequestTime: now,
       deviceId: metrics.deviceId ?? "unknown_device",
       hasError: false
     };
@@ -718,10 +720,10 @@ async function fetchDeviceInfo() {
     console.error("❌ Failed to fetch device info:", err);
     return {
       requestsToday: "?",
-      quotaLimit: null,
+      quotaLimit: "?",
       isExceeded: false,
       activeDevices: "?",
-      quotaResetTime: null,
+      quotaResetTime: lastStoredResetTime ?? (Date.now() + 3600000),
       lastQuotaError: err.message,
       lastRequestTime: Date.now(),
       deviceId: "error_device",
@@ -730,27 +732,23 @@ async function fetchDeviceInfo() {
   }
 }
 
-// ===========================
-// Live auto-update with smart intervals
-// ===========================
+// ---------------------------
+// Live auto-update with smart intervals (Updated)
+// ---------------------------
 async function liveUpdateNotifier() {
-  // Skip update if page is hidden (performance optimization)
   if (document.hidden) return;
-  
+
   const info = await fetchDeviceInfo();
   const apiNotifier = createApiNotifier();
-  
+
   let message = "";
-  if (info.hasError && info.lastQuotaError) {
-    message = `⚠️ ${info.lastQuotaError}`;
-  } else if (info.isExceeded) {
-    message = `🚫 Quota exceeded. Resets at ${new Date(info.quotaResetTime).toLocaleTimeString()}`;
-  }
-  
+  if (info.hasError && info.lastQuotaError) message = `⚠️ ${info.lastQuotaError}`;
+  else if (info.isExceeded) message = `🚫 Quota exceeded. Resets at ${new Date(info.quotaResetTime).toLocaleTimeString()}`;
+
   apiNotifier.update({
     ready: !info.hasError && !info.isExceeded,
     deviceId: info.deviceId,
-    quota: info.requestsToday >= 0 ? `${info.requestsToday}/${info.quotaLimit || '?'}` : "?",
+    quota: typeof info.requestsToday === "number" && info.quotaLimit ? `${info.requestsToday}/${info.quotaLimit}` : "?",
     quotaLimit: info.quotaLimit,
     requestsToday: info.requestsToday,
     resetTime: info.quotaResetTime,
@@ -761,22 +759,33 @@ async function liveUpdateNotifier() {
   });
 }
 
-// ===========================
-// Lifecycle management
-// ===========================
-function startLiveUpdates() {
-  if (updateInterval) return; // Already running
-  
-  liveUpdateNotifier(); // Initial call
-  updateInterval = setInterval(liveUpdateNotifier, 5000);
-  
-  // Pause updates when page is hidden, resume when visible
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      liveUpdateNotifier(); // Immediate update when tab becomes visible
+// ---------------------------
+// Optional daily reset
+// ---------------------------
+function resetQuotaIfNeeded() {
+  const now = Date.now();
+  if (lastStoredResetTime && now >= lastStoredResetTime) {
+    lastStoredResetTime = now + 24 * 60 * 60 * 1000; // next day
+    if (apiManager?.globalQuotaState) {
+      apiManager.globalQuotaState.requestsToday = 0;
+      apiManager.globalQuotaState.quotaExceededAt = null;
     }
+  }
+}
+setInterval(resetQuotaIfNeeded, 5000);
+
+// ---------------------------
+// Lifecycle management
+// ---------------------------
+function startLiveUpdates() {
+  if (updateInterval) return;
+  liveUpdateNotifier();
+  updateInterval = setInterval(liveUpdateNotifier, 5000);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) liveUpdateNotifier();
   });
-  
+
   console.log("🔔 API Notifier started");
 }
 
@@ -796,30 +805,23 @@ function removeNotifier() {
   }
 }
 
-// ===========================
+// ---------------------------
 // Initialization integration
-// ===========================
+// ---------------------------
 async function initializeApiNotifier() {
   try {
     console.log('🔔 Initializing API Notifier...');
-    
-    // Wait for apiManager to be available before starting
     let attempts = 0;
-    const maxAttempts = 50; // 5 seconds maximum wait
-    
+    const maxAttempts = 50;
     while (typeof apiManager === 'undefined' && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 100));
       attempts++;
     }
-    
     if (typeof apiManager === 'undefined') {
       console.warn('⚠️ API Manager not found after 5s, starting notifier anyway...');
     }
-    
-    // Start the live updates
     startLiveUpdates();
     console.log('✅ API Notifier initialized successfully');
-    
     return true;
   } catch (error) {
     console.error('❌ API Notifier initialization failed:', error);
@@ -827,14 +829,10 @@ async function initializeApiNotifier() {
   }
 }
 
-// ===========================
+// ---------------------------
 // Auto-start and cleanup
-// ===========================
-
-// Cleanup on page unload
+// ---------------------------
 window.addEventListener('beforeunload', stopLiveUpdates);
-
-// Export functions for manual control
 window.apiNotifierControl = {
   init: initializeApiNotifier,
   start: startLiveUpdates,
@@ -844,6 +842,7 @@ window.apiNotifierControl = {
   update: liveUpdateNotifier,
   isRunning: () => updateInterval !== null
 };
+
 
 
 
@@ -6481,6 +6480,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
