@@ -536,7 +536,7 @@ function startUIMonitoring() {
 // ============================================================================
 //
 //      PROFESSIONALLY REFACTORED BULLETPROOF API & STATE MANAGER
-//      (Version 2.0)
+//      (Version 2.0 - MODIFIED FOR FASTER BATCH FETCH)
 //
 //      - Singleton design for unified state management.
 //      - Efficient, event-driven multi-tab state synchronization.
@@ -684,14 +684,18 @@ class BulletproofAPIManager {
 
     const results = [];
     const errors = [];
-    const initialDelay = isEmergencyMode ? 10000 : 3000;
-    
+    // Reduced initial delay for normal mode, increased for emergency
+    const initialDelay = isEmergencyMode ? 5000 : 1000; // Reduced from 10s/3s to 5s/1s
+    // Max progressive delay cap to prevent infinite growth
+    const maxProgressiveDelay = isEmergencyMode ? 15000 : 5000; // Cap at 15s/5s
+
     for (let i = 0; i < requests.length; i++) {
         const request = requests[i];
         
         // Add a progressive delay between requests to be safe
         if (i > 0) {
-            const progressiveDelay = initialDelay + (i * 1000);
+            // MODIFIED: Reduced multiplier and added a cap to progressive delay
+            const progressiveDelay = Math.min(initialDelay + (i * 200), maxProgressiveDelay); // Changed 1000 to 200, added cap
             console.log(`⏳ Progressive delay: ${progressiveDelay}ms before "${request.key}"`);
             await this._wait(progressiveDelay);
         }
@@ -777,7 +781,8 @@ class BulletproofAPIManager {
 
         if (attempt > 0) {
             const deviceCount = this.globalQuotaState.activeDevices.size || 1;
-            const preRequestDelay = attempt * 1000 * deviceCount;
+            // Reduced pre-request delay on retries to be less aggressive
+            const preRequestDelay = Math.min(attempt * 500 * deviceCount, 10000); // Cap at 10s
             await this._wait(preRequestDelay);
         }
 
@@ -1546,6 +1551,7 @@ function handleTokenCallback(tokenResponse) {
       });
   }
 }
+
 
 function maybeEnableButtons() {
   if (gapiInitialized) {
@@ -5935,6 +5941,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
