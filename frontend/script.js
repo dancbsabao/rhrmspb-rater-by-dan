@@ -1640,57 +1640,123 @@ const pendingRatingsManager = {
 // APPLICATION INITIALIZATION & UI LOGIC
 // ============================================================================
 
+// Global lock to prevent multiple simultaneous initializations
+let appInitializationPromise = null;
+
 async function initializeApp() {
-  // 1. Show a loading spinner to the user immediately.
-  // This provides feedback that the application is starting up.
-  showSpinner(true);
-  try {
-    // 2. Initialize the custom API manager. This is an asynchronous operation.
-    await apiManager.init();
-    
-    // 2.1 Initialize API Notifier after API manager is ready
-    await initializeApiNotifier();
-    
-    // 3. Load the GAPI client library.
-    // The gapi.client.init call is asynchronous and can be awaited directly.
-    await new Promise((resolve, reject) => {
-      // Use gapi.load to ensure the 'client' library is ready before proceeding.
-      gapi.load('client', async () => {
-        try {
-          await initializeGapiClient();
-          console.log('✅ GAPI client initialized successfully.');
-          resolve();
-        } catch (gapiError) {
-          reject(gapiError); // Reject the promise on GAPI client initialization failure.
-        }
-      });
-    });
-    // 4. Setup the user interface once all asynchronous initialization is complete.
-    setupUI();
-    // 5. Load the initial application data.
-    // This could involve fetching data from various sources.
-    await loadInitialData();
-    // 6. Finalize the initialization process.
-    // This typically includes hiding the spinner and making the app interactive.
-    finishInitialization();
-  } catch (error) {
-    // 7. Catch and handle any errors from the entire initialization process.
-    console.error('❌ Application initialization failed:', error);
-    
-    // Show error in API notifier if available
-    if (window.apiNotifierControl?.isRunning()) {
-      updateApiNotifier("error", `Initialization failed: ${error.message}`, {
-        deviceId: "init_error",
-        hasError: true
-      });
-    }
-    
-    handleInitializationFailure(error);
-  } finally {
-    // This ensures the spinner is always hidden, even if an error occurs.
-    showSpinner(false);
+  if (appInitializationPromise) {
+    console.warn("⚠️ Initialization already in progress. Waiting for it to complete...");
+    return appInitializationPromise;
   }
+
+  appInitializationPromise = (async () => {
+    showSpinner(true);
+
+    // -----------------------------
+    // Retry wrapper for Sheets API with notifier updates
+    // -----------------------------
+    async function sheetsApiRequestWithRetry(apiCallFn, maxRetries = 5, initialDelay = 500) {
+      let attempt = 0;
+      let delay = initialDelay;
+
+      while (true) {
+        try {
+          return await apiCallFn();
+        } catch (error) {
+          if (error.status === 429 && attempt < maxRetries) {
+            attempt++;
+            const msg = `⚠️ API rate limit hit. Retry ${attempt}/${maxRetries} in ${delay}ms...`;
+            console.warn(msg);
+
+            // Update API notifier if running
+            if (window.apiNotifierControl?.isRunning()) {
+              updateApiNotifier("warning", msg, { deviceId: "init_retry", hasError: false });
+            }
+
+            await new Promise(res => setTimeout(res, delay));
+            delay *= 2; // exponential backoff
+          } else {
+            throw error;
+          }
+        }
+      }
+    }
+
+    // -----------------------------
+    // Patch GAPI Sheets methods for retry during initialization
+    // -----------------------------
+    const originalGet = gapi.client.sheets.spreadsheets.values.get;
+    const originalBatchGet = gapi.client.sheets.spreadsheets.values.batchGet;
+
+    gapi.client.sheets.spreadsheets.values.get = function(params) {
+      return sheetsApiRequestWithRetry(() => originalGet.call(this, params));
+    };
+
+    gapi.client.sheets.spreadsheets.values.batchGet = function(params) {
+      return sheetsApiRequestWithRetry(() => originalBatchGet.call(this, params));
+    };
+
+    try {
+      // 1. Initialize API Manager
+      await apiManager.init();
+
+      // 2. Initialize API Notifier
+      await initializeApiNotifier();
+
+      // 3. Load GAPI client
+      await new Promise((resolve, reject) => {
+        gapi.load('client', async () => {
+          try {
+            await initializeGapiClient();
+            console.log('✅ GAPI client initialized successfully.');
+            resolve();
+          } catch (gapiError) {
+            reject(gapiError);
+          }
+        });
+      });
+
+      // 4. Setup UI
+      setupUI();
+
+      // 5. Load initial data (Sheets API calls automatically retried)
+      await loadInitialData();
+
+      // 6. Finalize initialization
+      finishInitialization();
+      console.log("✅ Application initialized successfully.");
+
+      // Show success in notifier
+      if (window.apiNotifierControl?.isRunning()) {
+        updateApiNotifier("success", "✅ App initialized successfully.", { deviceId: "init_success" });
+      }
+
+    } catch (error) {
+      console.error('❌ Application initialization failed:', error);
+
+      if (window.apiNotifierControl?.isRunning()) {
+        updateApiNotifier("error", `Initialization failed: ${error.message}`, {
+          deviceId: "init_error",
+          hasError: true
+        });
+      }
+
+      handleInitializationFailure(error);
+      throw error;
+
+    } finally {
+      // Restore original GAPI methods
+      gapi.client.sheets.spreadsheets.values.get = originalGet;
+      gapi.client.sheets.spreadsheets.values.batchGet = originalBatchGet;
+
+      showSpinner(false);
+      appInitializationPromise = null; // Release lock
+    }
+  })();
+
+  return appInitializationPromise;
 }
+
 
 
 /**
@@ -6420,6 +6486,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
