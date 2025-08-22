@@ -591,10 +591,63 @@ class BulletproofAPIManager {
    * Asynchronously initializes the manager. Must be called before use.
    */
   async init() {
+  updateApiNotifier("loading", "Starting up...");
+  try {
     await this._loadGlobalQuotaState();
     this._startMonitoring();
     console.log(`BulletproofAPIManager Initialized. Device ID: ${this.deviceId}`);
+    updateApiNotifier("ready", `Device ${this.deviceId}`);
+  } catch (err) {
+    console.error("Init failed:", err);
+    updateApiNotifier("error", err.message);
   }
+}
+
+
+
+  // ============================================================================
+// API READINESS NOTIFIER
+// ============================================================================
+function createApiNotifier() {
+  let notifier = document.getElementById("api-notifier");
+  if (!notifier) {
+    notifier = document.createElement("div");
+    notifier.id = "api-notifier";
+    Object.assign(notifier.style, {
+      position: "fixed",
+      bottom: "15px",
+      right: "15px",
+      padding: "10px 15px",
+      borderRadius: "12px",
+      fontFamily: "Arial, sans-serif",
+      fontSize: "14px",
+      color: "#fff",
+      background: "#666",
+      boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+      zIndex: 9999,
+      transition: "background 0.3s ease, opacity 0.3s ease"
+    });
+    document.body.appendChild(notifier);
+  }
+  return notifier;
+}
+
+function updateApiNotifier(status, message) {
+  const el = createApiNotifier();
+  if (status === "ready") {
+    el.style.background = "#28a745"; // green
+    el.textContent = `✅ API Ready: ${message || "All systems go"}`;
+  } else if (status === "loading") {
+    el.style.background = "#ffc107"; // amber
+    el.textContent = `⏳ Initializing API... ${message || ""}`;
+  } else if (status === "error") {
+    el.style.background = "#dc3545"; // red
+    el.textContent = `❌ API Error: ${message || "Check connection/quota"}`;
+  } else if (status === "warning") {
+    el.style.background = "#fd7e14"; // orange
+    el.textContent = `⚠️ ${message}`;
+  }
+}
 
   // ========================================================================
   // PUBLIC API METHODS
@@ -952,19 +1005,23 @@ class BulletproofAPIManager {
   _isGlobalQuotaExceeded() {
     const { quotaExceededAt, quotaResetTime } = this.globalQuotaState;
     if (!quotaExceededAt) return false;
-
+  
     const now = Date.now();
-
+  
     if (quotaResetTime && now < quotaResetTime) {
-      return true;
+      return true; // still in cooldown
     }
-
+  
+    // Cooldown ended → reset state
     this.globalQuotaState.quotaExceededAt = null;
     this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
     this._saveGlobalQuotaState();
+  
     console.log('🔓 Global quota cooldown period ended or reset time passed. Resuming requests.');
+    updateApiNotifier("ready", "Quota window reset — requests resumed.");  // <-- moved here
     return false;
   }
+
 
   // --- Caching ---
 
@@ -1037,26 +1094,36 @@ class BulletproofAPIManager {
   }
 
   _classifyError(error) {
-    const msg = (error.message || '').toLowerCase();
-    const status = error.code || error.status;
+  const msg = (error.message || '').toLowerCase();
+  const status = error.code || error.status;
 
-    if (status === 403 || status === 429 || msg.includes('quota') || msg.includes('ratelimit')) {
-      this.globalQuotaState.quotaExceededAt = Date.now();
-      this.globalQuotaState.lastQuotaError = error.message;
-      this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
-      this._saveGlobalQuotaState();
-      this.metrics.quotaExceeded++;
-      console.error(`🚨 Google API Quota Exceeded! Will resume after ${new Date(this.globalQuotaState.quotaResetTime).toLocaleString()}.`);
-      return { type: 'quota', retryable: true };
-    }
-    if (status >= 500 || msg.includes('network') || msg.includes('timeout')) {
-      return { type: 'network', retryable: true };
-    }
-    if (status === 401 || msg.includes('unauthorized')) {
-      return { type: 'auth', retryable: false };
-    }
-    return { type: 'unknown', retryable: false };
+  if (status === 403 || status === 429 || msg.includes('quota') || msg.includes('ratelimit')) {
+    this.globalQuotaState.quotaExceededAt = Date.now();
+    this.globalQuotaState.lastQuotaError = error.message;
+    this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
+    this._saveGlobalQuotaState();
+    this.metrics.quotaExceeded++;
+
+    console.error(`🚨 Google API Quota Exceeded! Will resume after ${new Date(this.globalQuotaState.quotaResetTime).toLocaleString()}.`);
+
+    // 🔔 Hook into notifier here
+    updateApiNotifier(
+      "error",
+      `Quota exceeded — will reset at ${new Date(this.globalQuotaState.quotaResetTime).toLocaleTimeString()}`
+    );
+
+    return { type: 'quota', retryable: true };
   }
+
+  if (status >= 500 || msg.includes('network') || msg.includes('timeout')) {
+    return { type: 'network', retryable: true };
+  }
+  if (status === 401 || msg.includes('unauthorized')) {
+    return { type: 'auth', retryable: false };
+  }
+  return { type: 'unknown', retryable: false };
+}
+
 
   // --- Utilities ---
 
@@ -6034,5 +6101,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
