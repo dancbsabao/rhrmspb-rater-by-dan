@@ -531,9 +531,9 @@ function startUIMonitoring() {
 }
 
 
-// ------------------------------
-// API Notifier Helpers
-// ------------------------------
+// ===========================
+// API Notifier UI
+// ===========================
 function createApiNotifier() {
   let notifier = document.getElementById("api-notifier");
   if (!notifier) {
@@ -542,14 +542,15 @@ function createApiNotifier() {
     notifier.style.position = "fixed";
     notifier.style.bottom = "20px";
     notifier.style.right = "20px";
-    notifier.style.padding = "10px 15px";
-    notifier.style.borderRadius = "12px";
-    notifier.style.fontFamily = "Arial, sans-serif";
-    notifier.style.fontSize = "14px";
+    notifier.style.padding = "10px 16px";
+    notifier.style.background = "#222";
     notifier.style.color = "#fff";
-    notifier.style.background = "rgba(0, 0, 0, 0.75)";
+    notifier.style.borderRadius = "8px";
+    notifier.style.fontSize = "14px";
+    notifier.style.fontFamily = "Arial, sans-serif";
+    notifier.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
     notifier.style.zIndex = "9999";
-    notifier.style.display = "none";
+    notifier.style.display = "none"; // initially hidden
     document.body.appendChild(notifier);
   }
   return notifier;
@@ -557,31 +558,25 @@ function createApiNotifier() {
 
 function updateApiNotifier(status, message) {
   const notifier = createApiNotifier();
-  notifier.innerText = message;
-
-  switch (status) {
-    case "ready":
-      notifier.style.background = "rgba(46, 204, 113, 0.9)"; // green
-      break;
-    case "waiting":
-      notifier.style.background = "rgba(241, 196, 15, 0.9)"; // yellow
-      break;
-    case "error":
-      notifier.style.background = "rgba(231, 76, 60, 0.9)"; // red
-      break;
-    default:
-      notifier.style.background = "rgba(0, 0, 0, 0.75)"; // default
-  }
-
+  notifier.textContent = `🔔 ${message || status}`;
   notifier.style.display = "block";
 
-  // Auto-hide after 5s (unless "waiting")
-  if (status !== "waiting") {
-    setTimeout(() => {
-      notifier.style.display = "none";
-    }, 5000);
+  if (status === "ready") {
+    notifier.style.background = "#28a745"; // green
+  } else if (status === "quota") {
+    notifier.style.background = "#dc3545"; // red
+  } else {
+    notifier.style.background = "#6c757d"; // gray
   }
 }
+
+// ===========================
+// Ensure notifier is ready on DOM load
+// ===========================
+window.addEventListener("DOMContentLoaded", () => {
+  createApiNotifier(); // creates hidden notifier right away
+});
+
 
 
 
@@ -6109,6 +6104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
