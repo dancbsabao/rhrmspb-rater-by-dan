@@ -532,33 +532,42 @@ function startUIMonitoring() {
 
 
 // ===========================
-// API NOTIFIER (Enhanced + Backward Compatible)
+// LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
 // ===========================
+
+let apiNotifierEl = null;
+
+// Create or get the notifier element
 function createApiNotifier() {
-  let notifier = document.getElementById("apiNotifier");
-  if (!notifier) {
-    notifier = document.createElement("div");
-    notifier.id = "apiNotifier";
-    notifier.style.position = "fixed";
-    notifier.style.bottom = "10px";
-    notifier.style.right = "10px";
-    notifier.style.padding = "12px 16px";
-    notifier.style.background = "#222";
-    notifier.style.color = "white";
-    notifier.style.borderRadius = "12px";
-    notifier.style.boxShadow = "0 4px 8px rgba(0,0,0,0.25)";
-    notifier.style.fontSize = "14px";
-    notifier.style.zIndex = "9999";
-    document.body.appendChild(notifier);
+  if (!apiNotifierEl) {
+    apiNotifierEl = document.createElement("div");
+    apiNotifierEl.id = "apiNotifier";
+    apiNotifierEl.style.position = "fixed";
+    apiNotifierEl.style.bottom = "10px";
+    apiNotifierEl.style.right = "10px";
+    apiNotifierEl.style.padding = "12px 16px";
+    apiNotifierEl.style.background = "#222";
+    apiNotifierEl.style.color = "white";
+    apiNotifierEl.style.borderRadius = "12px";
+    apiNotifierEl.style.boxShadow = "0 4px 8px rgba(0,0,0,0.25)";
+    apiNotifierEl.style.fontSize = "14px";
+    apiNotifierEl.style.zIndex = "9999";
+    document.body.appendChild(apiNotifierEl);
   }
 
   function update(status) {
-    notifier.innerHTML = `
-      <div style="font-weight:bold; margin-bottom:4px;">🔔 API Status: ${status.ready ? "READY ✅" : "NOT READY ❌"}</div>
+    const quotaRemaining = status.quota ?? "?";
+    const resetTimeFormatted = status.resetTime ? new Date(status.resetTime).toLocaleString() : "?";
+    const lastRequestFormatted = status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?";
+
+    apiNotifierEl.innerHTML = `
+      <div style="font-weight:bold; margin-bottom:4px;">
+        🔔 API Status: ${status.ready ? "READY ✅" : "NOT READY ❌"}
+      </div>
       <div><strong>Device:</strong> ${status.deviceId || "N/A"}</div>
-      <div><strong>Quota Remaining:</strong> ${status.quota ?? "?"}</div>
-      <div><strong>Reset Time:</strong> ${status.resetTime ? new Date(status.resetTime).toLocaleString() : "?"}</div>
-      <div><strong>Last Request:</strong> ${status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?"}</div>
+      <div><strong>Quota Remaining:</strong> ${quotaRemaining}</div>
+      <div><strong>Reset Time:</strong> ${resetTimeFormatted}</div>
+      <div><strong>Last Request:</strong> ${lastRequestFormatted}</div>
       <div style="margin-top:6px; opacity:0.85;">${status.message || ""}</div>
     `;
   }
@@ -575,7 +584,7 @@ const apiNotifier = createApiNotifier();
 function updateApiNotifier(status, message, extra = {}) {
   apiNotifier.update({
     ready: status === "ready",
-    deviceId: extra.deviceId || "device_te1z6mgrx_1755852237973", // fallback
+    deviceId: extra.deviceId, // fully dynamic
     quota: extra.quota ?? "?",
     resetTime: extra.resetTime ?? null,
     lastRequest: extra.lastRequest ?? null,
@@ -584,24 +593,54 @@ function updateApiNotifier(status, message, extra = {}) {
 }
 
 // ===========================
-// Example fetch wrapper
+// Fetch live device info from apiManager
 // ===========================
-async function fetchWithNotifier(url, options = {}) {
-  const res = await fetch(url, options);
+async function fetchDeviceInfo() {
+  try {
+    const metrics = apiManager.getMetrics(); // your live API manager metrics
+    const globalQuota = metrics.globalQuotaState || {};
 
-  // read quota headers if API provides them
-  const quota = res.headers.get("X-RateLimit-Remaining");
-  const reset = res.headers.get("X-RateLimit-Reset");
-
-  updateApiNotifier(res.ok ? "ready" : "error", res.ok ? "Request OK" : "Request failed", {
-    deviceId: "device_te1z6mgrx_1755852237973",
-    quota: quota !== null ? quota : "?",
-    resetTime: reset ? Number(reset) * 1000 : null, // UNIX seconds → ms
-    lastRequest: Date.now(),
-  });
-
-  return res;
+    return {
+      requestsToday: globalQuota.requestsToday ?? 0,
+      isExceeded: !!globalQuota.quotaExceededAt,
+      activeDevices: metrics.activeDevices ?? 1,
+      quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
+      lastQuotaError: globalQuota.lastQuotaError ?? null,
+      lastRequestTime: Date.now(),
+      deviceId: metrics.deviceId ?? "unknown_device"
+    };
+  } catch (err) {
+    console.error("❌ Failed to fetch device info:", err);
+    return {
+      requestsToday: "?",
+      isExceeded: false,
+      activeDevices: "?",
+      quotaResetTime: null,
+      lastQuotaError: err.message,
+      lastRequestTime: Date.now(),
+      deviceId: "unknown_device"
+    };
+  }
 }
+
+// ===========================
+// Live auto-update every 5s
+// ===========================
+async function liveUpdateNotifier() {
+  const info = await fetchDeviceInfo();
+
+  updateApiNotifier("ready", "Live status update", {
+    deviceId: info.deviceId,
+    quota: info.requestsToday >= 0 ? `Remaining: ${info.requestsToday}` : "?",
+    resetTime: info.quotaResetTime,
+    lastRequest: info.lastRequestTime
+  });
+}
+
+// Initial call + auto-update every 5s
+liveUpdateNotifier();
+setInterval(liveUpdateNotifier, 5000);
+
 
 
 
@@ -6150,6 +6189,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
