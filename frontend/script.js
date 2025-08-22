@@ -621,9 +621,6 @@ async function liveUpdateNotifier() {
   }
 }
 
-// Initial call + auto-update every 5s
-liveUpdateNotifier();
-setInterval(liveUpdateNotifier, 5000);
 
 
 
@@ -6175,6 +6172,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
