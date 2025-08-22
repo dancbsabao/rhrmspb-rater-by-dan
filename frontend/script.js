@@ -2040,13 +2040,13 @@ function setupTabNavigation() {
         async () => {
           const name = document.getElementById('newMemberName').value.trim();
           const password = document.getElementById('newMemberPassword').value.trim();
-          const vacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
+          const memberVacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
           if (!name || !password || !vacancies.length) {
             showToast('error', 'Error', 'All fields are required');
             return;
           }
           const id = Date.now().toString();
-          await saveSecretariatMember({ id, name, password, vacancies });
+          await saveSecretariatMember({ id, name, password, vacancies: memberVacancies }); // Use memberVacancies here
           showToast('success', 'Success', 'Member added successfully');
         }
       );
@@ -6420,6 +6420,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
