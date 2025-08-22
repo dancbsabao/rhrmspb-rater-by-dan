@@ -1390,39 +1390,55 @@ window.addEventListener('beforeunload', () => {
 
 async function initializeGapiClient() {
   try {
+    // Initialize the GAPI client first
     await gapi.client.init({
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
-    const token = gapi.client.getToken();
-    if (token && !await isTokenValid()) await refreshAccessToken();
+
+    // NOW, load your saved state from localStorage
+    const authState = JSON.parse(localStorage.getItem('authState'));
+
+    // If we have a saved token, load it into the GAPI client
+    if (authState?.access_token) {
+      gapi.client.setToken({ access_token: authState.access_token });
+      console.log('Loaded token from localStorage into GAPI client.');
+
+      // Now that the token is set, validate it
+      if (!await isTokenValid()) {
+        console.log('Token validation failed after loading, will attempt refresh.');
+        // The refresh function will be called inside isTokenValid
+      } else {
+        console.log('Loaded token is valid.');
+      }
+    } else {
+        console.log('No saved token found in localStorage.');
+    }
+
     gapiInitialized = true;
-    console.log('GAPI client initialized');
+    console.log('GAPI client initialization sequence complete.');
+
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
+    // You might want to show an error to the user here
   }
 }
 
 async function isTokenValid() {
   const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.access_token) return false;
+  if (!authState?.access_token || !authState?.expires_at) {
+    return false; // No token or expiration info
+  }
 
+  // Check if the token expires in the next 5 minutes (300,000 ms)
   const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft <= 0) {
-    console.log('Token expired, refreshing');
-    return await refreshAccessToken();
+  if (timeLeft <= 300000) {
+    console.log('Token is expired or expiring soon, attempting refresh.');
+    return await refreshAccessToken(); // Returns true on success, false on failure
   }
 
-  try {
-    await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
-    return true;
-  } catch (error) {
-    console.log('Token validation failed:', error);
-    if (timeLeft < 300000) {
-      return await refreshAccessToken();
-    }
-    return false;
-  }
+  // If we reach here, the token is considered valid for now
+  return true;
 }
 
 async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
@@ -5919,6 +5935,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
