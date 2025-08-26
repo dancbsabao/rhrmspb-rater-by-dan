@@ -6408,49 +6408,121 @@ async function deleteSignatory(index) {
 }
 
 
-// Add this function to your script.js
+/**
+ * Fetches vacancies data using the bulletproof API manager
+ * Replaces the original fetchVacanciesData() function
+ */
 async function fetchVacanciesData() {
   try {
-    if (!gapiInitialized) return;
+    console.log('Fetching vacancies data via bulletproof manager...');
     
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.VACANCIES,
-    });
+    // Use the existing safeFetchVacanciesData wrapper that's already integrated
+    // with the bulletproof API manager
+    const response = await safeFetchVacanciesData();
     
-    const values = response.result.values;
-    if (values && values.length > 1) {
-      vacanciesData = values.slice(1); // Skip header row
-      console.log('Vacancies data loaded:', vacanciesData.length, 'records');
+    if (response && response.result && response.result.values) {
+      const values = response.result.values;
+      if (values.length > 1) {
+        // Store in global variable for backward compatibility
+        vacanciesData = values.slice(1); // Skip header row
+        console.log('Vacancies data loaded successfully:', vacanciesData.length, 'records');
+        return vacanciesData;
+      } else {
+        console.warn('Vacancies data is empty or has no data rows');
+        vacanciesData = [];
+        return vacanciesData;
+      }
+    } else {
+      console.warn('Invalid response structure from vacancies API');
+      // Try to preserve existing data if available
+      if (!vacanciesData) {
+        vacanciesData = [];
+      }
+      return vacanciesData;
     }
   } catch (error) {
     console.error('Error fetching vacancies data:', error);
+    
+    // Try to use any existing cached data as fallback
+    if (vacanciesData && vacanciesData.length > 0) {
+      console.warn('Using existing vacancies data as fallback');
+      return vacanciesData;
+    }
+    
+    // Initialize empty array if no fallback available
+    vacanciesData = [];
+    return vacanciesData;
   }
 }
 
-
-// Add this function to your script.js
+/**
+ * Gets vacancy details for a specific item number with improved error handling
+ * Replaces the original getVacancyDetails() function
+ */
 function getVacancyDetails(itemNumber) {
-  // Find vacancy by item number (assuming item number is in column A)
-  const vacancy = vacanciesData.find(row => row[0] === itemNumber);
-  
-  if (vacancy) {
+  try {
+    // Ensure we have data to work with
+    if (!vacanciesData || !Array.isArray(vacanciesData)) {
+      console.warn('No vacancies data available for item:', itemNumber);
+      return {
+        education: 'Data not available',
+        training: 'Data not available', 
+        experience: 'Data not available',
+        eligibility: 'Data not available'
+      };
+    }
+
+    if (vacanciesData.length === 0) {
+      console.warn('Vacancies data is empty for item:', itemNumber);
+      return {
+        education: 'No vacancy data loaded',
+        training: 'No vacancy data loaded',
+        experience: 'No vacancy data loaded', 
+        eligibility: 'No vacancy data loaded'
+      };
+    }
+
+    // Convert itemNumber to string for consistent comparison
+    const itemNumberStr = String(itemNumber).trim();
+    
+    // Find vacancy by item number (assuming item number is in column A/index 0)
+    const vacancy = vacanciesData.find(row => {
+      if (!row || !Array.isArray(row) || row.length === 0) return false;
+      return String(row[0]).trim() === itemNumberStr;
+    });
+
+    if (vacancy && Array.isArray(vacancy)) {
+      // Safely extract values with proper fallbacks
+      const details = {
+        education: (vacancy[4] && String(vacancy[4]).trim()) || 'Not specified',     // Column E
+        training: (vacancy[5] && String(vacancy[5]).trim()) || 'Not specified',      // Column F  
+        experience: (vacancy[6] && String(vacancy[6]).trim()) || 'Not specified',    // Column G
+        eligibility: (vacancy[7] && String(vacancy[7]).trim()) || 'Not specified'    // Column H
+      };
+      
+      console.log(`Found vacancy details for item ${itemNumber}:`, details);
+      return details;
+    } else {
+      console.warn(`No vacancy found for item number: ${itemNumber}`);
+      console.log('Available item numbers:', vacanciesData.map(row => row[0]).filter(Boolean));
+      
+      return {
+        education: 'Vacancy not found',
+        training: 'Vacancy not found',
+        experience: 'Vacancy not found',
+        eligibility: 'Vacancy not found'
+      };
+    }
+  } catch (error) {
+    console.error('Error getting vacancy details for item', itemNumber, ':', error);
     return {
-      education: vacancy[4] || 'N/A',    // Column E
-      training: vacancy[5] || 'N/A',     // Column F
-      experience: vacancy[6] || 'N/A',   // Column G
-      eligibility: vacancy[7] || 'N/A'   // Column H
+      education: 'Error loading data',
+      training: 'Error loading data', 
+      experience: 'Error loading data',
+      eligibility: 'Error loading data'
     };
   }
-  
-  return {
-    education: 'N/A',
-    training: 'N/A',
-    experience: 'N/A',
-    eligibility: 'N/A'
-  };
 }
-
 
 
 
@@ -6571,3 +6643,4 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
