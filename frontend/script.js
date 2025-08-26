@@ -857,17 +857,18 @@ window.apiNotifierControl = {
 // ============================================================================
 //
 //      PROFESSIONALLY REFACTORED BULLETPROOF API & STATE MANAGER
-//      (Version 3.0 - CORRECTED GOOGLE API RATE LIMIT HANDLING)
+//      (Version 3.1 - WITH PROACTIVE RECOVERY SYSTEM)
 //      Fixed: proper Google Sheets API quota understanding, removed hourly/minute
 //      reset assumptions, implemented correct 100req/100s rate limiting
+//      Added: Automatic recovery system with persistent spinner until resolved
 //
 // ============================================================================
 
 /**
  * @class BulletproofAPIManager
  * A singleton class to manage API requests with caching, rate limiting,
- * exponential backoff, circuit breaking, and multi-device/tab coordination.
- * Now properly handles Google Sheets API rate limits (100 req/100s, daily quota).
+ * exponential backoff, circuit breaking, multi-device/tab coordination,
+ * and automatic proactive recovery from server load issues.
  */
 class BulletproofAPIManager {
   /**
@@ -902,6 +903,18 @@ class BulletproofAPIManager {
     this.cache = new Map();
     this.requestQueue = new Map();
     this.circuitBreaker = new Map();
+
+    // --- Recovery System Properties ---
+    this.recoverySystem = {
+      isInRecoveryMode: false,
+      recoveryAttempts: 0,
+      maxRecoveryAttempts: 5,
+      recoveryInterval: 60 * 1000, // 1 minute
+      criticalDataKeys: ['secretariatMembers', 'vacanciesData'],
+      recoveryTimer: null,
+      lastRecoveryAttempt: null,
+      failedRequests: []
+    };
 
     // --- Internal Properties ---
     this._storageEventHandler = this._handleStorageChange.bind(this);
@@ -1149,10 +1162,336 @@ class BulletproofAPIManager {
     if (this._quotaMonitorInterval) clearInterval(this._quotaMonitorInterval);
     if (this._cacheCleanupInterval) clearInterval(this._cacheCleanupInterval);
 
+    // Clean up recovery system
+    if (this.recoverySystem.recoveryTimer) {
+      clearTimeout(this.recoverySystem.recoveryTimer);
+    }
+
     // Announce departure to other devices
     this.globalQuotaState.activeDevices.delete(this.deviceId);
     this._saveGlobalQuotaState();
     console.log(`Device ${this.deviceId} cleaned up and deregistered.`);
+  }
+
+  // ========================================================================
+  // PROACTIVE RECOVERY SYSTEM
+  // ========================================================================
+
+  /**
+   * Enters recovery mode - keeps spinner active and schedules automatic retries
+   * @private
+   */
+  _enterRecoveryMode(failedRequests = []) {
+    if (this.recoverySystem.isInRecoveryMode) {
+      console.log('Already in recovery mode, extending timeout...');
+      this._scheduleRecoveryAttempt();
+      return;
+    }
+
+    console.log('ENTERING RECOVERY MODE - High server load detected');
+    this.recoverySystem.isInRecoveryMode = true;
+    this.recoverySystem.recoveryAttempts = 0;
+    this.recoverySystem.failedRequests = failedRequests;
+
+    // Keep spinner active during recovery
+    this._setRecoverySpinner(true);
+
+    // Show proactive recovery notification
+    if (typeof updateApiNotifier === 'function') {
+      updateApiNotifier("warning", "High server load - attempting automatic recovery...", {
+        recoveryMode: true,
+        attempts: this.recoverySystem.recoveryAttempts,
+        maxAttempts: this.recoverySystem.maxRecoveryAttempts
+      });
+    }
+
+    // Schedule first recovery attempt
+    this._scheduleRecoveryAttempt();
+  }
+
+  /**
+   * Schedules the next recovery attempt
+   * @private
+   */
+  _scheduleRecoveryAttempt() {
+    if (this.recoverySystem.recoveryTimer) {
+      clearTimeout(this.recoverySystem.recoveryTimer);
+    }
+
+    // Progressive backoff: 1min, 2min, 3min, 5min, 10min
+    const delays = [60000, 120000, 180000, 300000, 600000];
+    const delay = delays[Math.min(this.recoverySystem.recoveryAttempts, delays.length - 1)];
+
+    this.recoverySystem.recoveryTimer = setTimeout(() => {
+      this._attemptRecovery();
+    }, delay);
+
+    const nextAttemptTime = new Date(Date.now() + delay);
+    console.log(`Next recovery attempt scheduled for ${nextAttemptTime.toLocaleTimeString()}`);
+    
+    // Update UI with countdown
+    this._startRecoveryCountdown(delay);
+  }
+
+  /**
+   * Attempts to recover from high server load
+   * @private
+   */
+  async _attemptRecovery() {
+    this.recoverySystem.recoveryAttempts++;
+    this.recoverySystem.lastRecoveryAttempt = Date.now();
+
+    console.log(`Recovery attempt ${this.recoverySystem.recoveryAttempts}/${this.recoverySystem.maxRecoveryAttempts}`);
+
+    if (typeof updateApiNotifier === 'function') {
+      updateApiNotifier("loading", `Recovery attempt ${this.recoverySystem.recoveryAttempts}/${this.recoverySystem.maxRecoveryAttempts}...`, {
+        recoveryMode: true,
+        attempts: this.recoverySystem.recoveryAttempts,
+        maxAttempts: this.recoverySystem.maxRecoveryAttempts
+      });
+    }
+
+    try {
+      // Test with a lightweight request first
+      await this._testServerHealth();
+
+      // If server health check passes, attempt to load critical data
+      const success = await this._recoverCriticalData();
+
+      if (success) {
+        this._exitRecoveryMode(true);
+      } else {
+        this._handleRecoveryFailure();
+      }
+
+    } catch (error) {
+      console.error(`Recovery attempt ${this.recoverySystem.recoveryAttempts} failed:`, error);
+      this._handleRecoveryFailure();
+    }
+  }
+
+  /**
+   * Tests server health with minimal API usage
+   * @private
+   */
+  async _testServerHealth() {
+    console.log('Testing server health...');
+    
+    // Use a small range request to test connectivity
+    if (!await isTokenValid()) {
+      await refreshAccessToken();
+    }
+
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'A1:A1', // Minimal request
+    });
+
+    if (!response?.result) {
+      throw new Error('Server health check failed');
+    }
+
+    console.log('Server health check passed');
+    return true;
+  }
+
+  /**
+   * Attempts to recover critical data
+   * @private
+   */
+  async _recoverCriticalData() {
+    console.log('Attempting to recover critical data...');
+
+    const criticalRequests = [
+      { key: 'secretariatMembers', fetchFunction: () => safeFetchSecretariatMembers(), required: true },
+      { key: 'vacanciesData', fetchFunction: () => safeFetchVacanciesData(), required: true }
+    ];
+
+    try {
+      // Use lower concurrency during recovery
+      const result = await this.concurrentFetch(criticalRequests, 1);
+      
+      const successCount = result.results.length;
+      const totalRequired = criticalRequests.filter(r => r.required).length;
+
+      console.log(`Recovery data fetch: ${successCount}/${totalRequired} critical items successful`);
+
+      if (successCount >= totalRequired) {
+        console.log('Critical data recovery successful');
+        return true;
+      } else {
+        console.warn('Partial recovery - some critical data still unavailable');
+        return false;
+      }
+
+    } catch (error) {
+      console.error('Critical data recovery failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Handles recovery failure
+   * @private
+   */
+  _handleRecoveryFailure() {
+    if (this.recoverySystem.recoveryAttempts >= this.recoverySystem.maxRecoveryAttempts) {
+      console.error('Max recovery attempts reached. Exiting recovery mode.');
+      this._exitRecoveryMode(false);
+    } else {
+      console.log(`Recovery attempt ${this.recoverySystem.recoveryAttempts} failed. Scheduling next attempt...`);
+      this._scheduleRecoveryAttempt();
+    }
+  }
+
+  /**
+   * Exits recovery mode
+   * @private
+   */
+  _exitRecoveryMode(success) {
+    console.log(`EXITING RECOVERY MODE - ${success ? 'SUCCESS' : 'FAILED'}`);
+
+    this.recoverySystem.isInRecoveryMode = false;
+    this.recoverySystem.recoveryAttempts = 0;
+    this.recoverySystem.failedRequests = [];
+    
+    if (this.recoverySystem.recoveryTimer) {
+      clearTimeout(this.recoverySystem.recoveryTimer);
+      this.recoverySystem.recoveryTimer = null;
+    }
+
+    // Hide recovery spinner
+    this._setRecoverySpinner(false);
+
+    if (success) {
+      if (typeof updateApiNotifier === 'function') {
+        updateApiNotifier("success", "Recovery successful - data refreshed!", {
+          recoveryMode: false,
+          recovered: true
+        });
+      }
+
+      // Refresh the UI with new data
+      if (typeof refreshUIData === 'function') {
+        refreshUIData();
+      }
+
+      // Show success notification
+      showSuccessNotification('Connection restored! Data has been refreshed.');
+
+    } else {
+      if (typeof updateApiNotifier === 'function') {
+        updateApiNotifier("error", "Recovery failed - using cached data only", {
+          recoveryMode: false,
+          recovered: false
+        });
+      }
+
+      // Show failure notification with manual refresh option
+      showRecoveryFailedNotification();
+    }
+  }
+
+  /**
+   * Shows/hides recovery spinner
+   * @private
+   */
+  _setRecoverySpinner(show) {
+    const spinner = document.getElementById('loadingSpinner');
+    const recoveryMessage = document.getElementById('recoveryMessage') || this._createRecoveryMessage();
+    
+    if (show) {
+      if (spinner) {
+        spinner.style.display = 'block';
+        spinner.style.opacity = '1';
+      }
+      if (recoveryMessage) {
+        recoveryMessage.style.display = 'block';
+        recoveryMessage.textContent = 'Attempting automatic recovery...';
+      }
+    } else {
+      if (spinner) {
+        spinner.style.opacity = '0';
+        setTimeout(() => {
+          if (spinner) spinner.style.display = 'none';
+        }, 300);
+      }
+      if (recoveryMessage) {
+        recoveryMessage.style.display = 'none';
+      }
+    }
+  }
+
+  /**
+   * Creates recovery message element
+   * @private
+   */
+  _createRecoveryMessage() {
+    const existing = document.getElementById('recoveryMessage');
+    if (existing) return existing;
+
+    const message = document.createElement('div');
+    message.id = 'recoveryMessage';
+    message.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 193, 7, 0.95);
+      color: #000;
+      padding: 15px 25px;
+      border-radius: 8px;
+      font-weight: 500;
+      z-index: 10000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      display: none;
+    `;
+
+    document.body.appendChild(message);
+    return message;
+  }
+
+  /**
+   * Starts countdown display for next recovery attempt
+   * @private
+   */
+  _startRecoveryCountdown(totalMs) {
+    const countdownElement = document.getElementById('recoveryMessage');
+    if (!countdownElement) return;
+
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, totalMs - elapsed);
+      
+      if (remaining === 0 || !this.recoverySystem.isInRecoveryMode) {
+        clearInterval(interval);
+        return;
+      }
+
+      const minutes = Math.floor(remaining / 60000);
+      const seconds = Math.floor((remaining % 60000) / 1000);
+      const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+      
+      countdownElement.textContent = `Retrying in ${timeStr}... (Attempt ${this.recoverySystem.recoveryAttempts + 1}/${this.recoverySystem.maxRecoveryAttempts})`;
+    }, 1000);
+  }
+
+  /**
+   * Checks if system is in recovery mode
+   */
+  isInRecoveryMode() {
+    return this.recoverySystem.isInRecoveryMode;
+  }
+
+  /**
+   * Forces exit from recovery mode (for manual refresh)
+   */
+  forceExitRecoveryMode() {
+    if (this.recoverySystem.isInRecoveryMode) {
+      console.log('Forcing exit from recovery mode');
+      this._exitRecoveryMode(false);
+    }
   }
 
   // ========================================================================
@@ -1840,7 +2179,10 @@ async function initializeApp() {
       throw error;
 
     } finally {
-      showSpinner(false);
+      // Only hide spinner if NOT in recovery mode
+      if (!apiManager.isInRecoveryMode()) {
+        showSpinner(false);
+      }
       appInitializationPromise = null;
     }
   })();
@@ -1850,11 +2192,15 @@ async function initializeApp() {
 
 /**
  * Loads critical data, first from cache, then concurrently via network.
- * Optimized for immediate loading and quota safety.
+ * Enhanced with recovery awareness and timeout handling.
  */
 async function loadInitialData() {
-  console.log('Starting immediate initial data load...');
+  console.log('Starting initial data load...');
   console.log('Device Info:', apiManager.getMetrics().globalQuotaState);
+
+  // If in recovery mode, use more conservative approach
+  const concurrency = apiManager.isInRecoveryMode() ? 1 : 3;
+  const timeout = apiManager.isInRecoveryMode() ? 30000 : 15000;
 
   const apiRequests = [
     { key: 'secretariatMembers', fetchFunction: () => safeFetchSecretariatMembers(), priority: 3, required: true },
@@ -1862,39 +2208,56 @@ async function loadInitialData() {
     { key: 'signatories',       fetchFunction: () => safeLoadSignatories(),        priority: 1, required: false },
   ];
 
-  // Cache-first pass
-  const { cachedResults, remainingRequests } = apiManager._processBatchCache(apiRequests);
+  try {
+    // Cache-first pass
+    const { cachedResults, remainingRequests } = apiManager._processBatchCache(apiRequests);
 
-  const allRequiredCached = apiRequests
-    .filter(r => r.required)
-    .every(req => cachedResults.some(cr => cr.key === req.key));
+    const allRequiredCached = apiRequests
+      .filter(r => r.required)
+      .every(req => cachedResults.some(cr => cr.key === req.key));
 
-  if (allRequiredCached && remainingRequests.length === 0) {
-    console.log('All required data loaded from cache! UI is ready.');
-    return;
-  }
+    if (allRequiredCached && remainingRequests.length === 0) {
+      console.log('All required data loaded from cache! UI is ready.');
+      return;
+    }
 
-  console.log(`Fetching ${remainingRequests.length} remaining items concurrently.`);
-  const concurrentResult = await apiManager.concurrentFetch(remainingRequests, 3);
+    console.log(`Fetching ${remainingRequests.length} remaining items (concurrency: ${concurrency}).`);
+    
+    // Add timeout to concurrent fetch
+    const fetchPromise = apiManager.concurrentFetch(remainingRequests, concurrency);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Request timeout')), timeout)
+    );
 
-  const allResults = [...cachedResults, ...concurrentResult.results];
-  const allErrors  = concurrentResult.errors;
+    const concurrentResult = await Promise.race([fetchPromise, timeoutPromise]);
 
-  const criticalErrors = allErrors.filter(err =>
-    apiRequests.find(req => req.key === err.key)?.required
-  );
+    const allResults = [...cachedResults, ...concurrentResult.results];
+    const allErrors  = concurrentResult.errors;
 
-  if (criticalErrors.length > 0) {
-    console.error('Critical API failures detected during concurrent load:', criticalErrors);
-    handleCriticalAPIFailure(criticalErrors);
-  } else {
-    console.log('Initial data load complete (concurrently fetched).');
+    const criticalErrors = allErrors.filter(err =>
+      apiRequests.find(req => req.key === err.key)?.required
+    );
+
+    if (criticalErrors.length > 0) {
+      console.error('Critical API failures detected during load:', criticalErrors);
+      handleCriticalAPIFailure(criticalErrors);
+      throw new Error('Critical data unavailable due to server issues');
+    } else {
+      console.log('Initial data load complete.');
+    }
+
+  } catch (error) {
+    console.error('Load initial data failed:', error);
+    throw error;
   }
 }
 
 function setupUI() {
   if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
   if (typeof setupTabNavigation === 'function') setupTabNavigation();
+  
+  // Add recovery UI components
+  addRecoveryButton();
 }
 
 function finishInitialization() {
@@ -1912,32 +2275,167 @@ function finishInitialization() {
     elements.addSignatoryBtn?.addEventListener('click', addSignatory);
   }
 
-  showSpinner(false);
+  // Only hide spinner if NOT in recovery mode
+  if (!apiManager.isInRecoveryMode()) {
+    showSpinner(false);
+  }
+  
   console.log('App initialization complete.');
   console.log('Final Metrics:', apiManager.getMetrics());
 }
 
-// --- Failure Handlers & UI Notifications ---
+// ========================================================================
+// ENHANCED FAILURE HANDLERS WITH PROACTIVE RECOVERY
+// ========================================================================
 
+/**
+ * Enhanced critical API failure handler with proactive recovery
+ * Now enters recovery mode instead of just showing notification
+ */
 function handleCriticalAPIFailure(errors) {
-  console.warn('Handling critical API failures... App may be degraded.');
+  console.warn('Handling critical API failures with proactive recovery...');
+  
+  // Try to serve stale cache for immediate UX
+  const servedFromCache = [];
   for (const error of errors) {
     const staleData = apiManager._getCachedData(error.key, Infinity);
     if (staleData) {
       console.log(`Using stale cache for critical data: "${error.key}"`);
+      servedFromCache.push(error.key);
     }
   }
+
+  // Show initial notification
+  const cacheInfo = servedFromCache.length > 0 
+    ? ` Using cached data for ${servedFromCache.length} items.`
+    : ' No cached data available.';
+  
   showErrorNotification(
-    'Some data is temporarily unavailable due to high server load. The app is using cached data where possible.'
+    `High server load detected.${cacheInfo} Automatic recovery will begin in 1 minute.`
   );
+
+  // Enter recovery mode for proactive handling
+  apiManager._enterRecoveryMode(errors);
 }
 
+/**
+ * Enhanced initialization failure with recovery option
+ * Now handles quota/rate limit errors with recovery mode
+ */
 function handleInitializationFailure(error) {
-  console.error('Handling complete initialization failure...');
-  showSpinner(false);
-  showErrorNotification(
-    `Unable to load fresh data: ${error.message}. The app may not function correctly. Please check your connection and refresh.`
-  );
+  console.error('Handling initialization failure with recovery options...');
+  
+  const isQuotaOrRateLimit = error.message.toLowerCase().includes('quota') || 
+                            error.message.toLowerCase().includes('rate') ||
+                            error.message.toLowerCase().includes('limit') ||
+                            error.message.toLowerCase().includes('server load');
+
+  if (isQuotaOrRateLimit) {
+    // Don't hide spinner, enter recovery mode instead
+    showErrorNotification(
+      `${error.message} Automatic recovery will begin shortly.`
+    );
+    apiManager._enterRecoveryMode([]);
+  } else {
+    // For non-recoverable errors, show traditional failure
+    showSpinner(false);
+    showErrorNotification(
+      `Unable to load fresh data: ${error.message}. Please check your connection and refresh.`
+    );
+  }
+}
+
+/**
+ * Shows success notification for recovery
+ */
+function showSuccessNotification(message) {
+  console.log('Success:', message);
+  if (typeof showToast === 'function') {
+    showToast('success', 'Recovery Complete', message);
+  } else if (typeof alert === 'function') {
+    alert(`${message}`);
+  }
+}
+
+/**
+ * Shows recovery failed notification with manual option
+ */
+function showRecoveryFailedNotification() {
+  const message = 'Automatic recovery failed after multiple attempts. The app is using cached data where available.';
+  console.error('Recovery Failed:', message);
+  
+  if (typeof showToast === 'function') {
+    showToast('error', 'Recovery Failed', message + ' You may manually refresh the page.');
+  } else {
+    const userChoice = confirm(`${message}\n\nWould you like to manually refresh the page now?`);
+    if (userChoice) {
+      window.location.reload();
+    }
+  }
+}
+
+/**
+ * Manual recovery trigger for UI buttons
+ */
+function triggerManualRecovery() {
+  if (apiManager.isInRecoveryMode()) {
+    console.log('Manual recovery triggered while in recovery mode');
+    apiManager.forceExitRecoveryMode();
+  }
+  
+  // Force a fresh initialization
+  showSpinner(true);
+  loadInitialData()
+    .then(() => {
+      showSuccessNotification('Manual recovery completed successfully!');
+      if (typeof refreshUIData === 'function') refreshUIData();
+    })
+    .catch(error => {
+      console.error('Manual recovery failed:', error);
+      showErrorNotification(`Manual recovery failed: ${error.message}`);
+    })
+    .finally(() => {
+      if (!apiManager.isInRecoveryMode()) {
+        showSpinner(false);
+      }
+    });
+}
+
+/**
+ * Add manual recovery button to UI
+ */
+function addRecoveryButton() {
+  const existingButton = document.getElementById('manualRecoveryBtn');
+  if (existingButton) return;
+
+  const button = document.createElement('button');
+  button.id = 'manualRecoveryBtn';
+  button.textContent = 'Retry Connection';
+  button.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    z-index: 1000;
+    display: none;
+  `;
+  
+  button.addEventListener('click', triggerManualRecovery);
+  document.body.appendChild(button);
+
+  // Show/hide based on recovery mode
+  const checkRecoveryMode = () => {
+    button.style.display = apiManager.isInRecoveryMode() ? 'block' : 'none';
+  };
+  
+  setInterval(checkRecoveryMode, 1000);
 }
 
 function showSpinner(show) {
@@ -1964,6 +2462,11 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('beforeunload', () => {
   apiManager.cleanup();
+});
+
+// Initialize recovery UI enhancements when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  addRecoveryButton();
 });
 
 // ============================================================================
@@ -6646,5 +7149,6 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
