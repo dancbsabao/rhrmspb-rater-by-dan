@@ -6408,18 +6408,10 @@ async function deleteSignatory(index) {
 }
 
 
-// REPLACE your existing fetchVacanciesData function with this enhanced version
+// Add this function to your script.js
 async function fetchVacanciesData() {
   try {
-    if (!gapiInitialized) {
-      throw new Error('GAPI not initialized');
-    }
-    
-    if (!await isTokenValid()) {
-      await refreshAccessToken();
-    }
-    
-    console.log('Fetching vacancies data from sheet range:', SHEET_RANGES.VACANCIES);
+    if (!gapiInitialized) return;
     
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
@@ -6427,166 +6419,36 @@ async function fetchVacanciesData() {
     });
     
     const values = response.result.values;
-    console.log('Raw vacancy response:', { 
-      hasValues: !!values, 
-      length: values?.length,
-      firstRow: values?.[0],
-      secondRow: values?.[1] // This is your actual first data row
-    });
-    
-    if (values && values.length > 0) {
-      // Store the complete data including headers for debugging
-      window.vacanciesDataRaw = values;
-      
-      // Also store without headers for backward compatibility
-      if (values.length > 1) {
-        window.vacanciesData = values.slice(1); // Skip header row
-        console.log('Vacancies data loaded:', window.vacanciesData.length, 'records');
-      } else {
-        window.vacanciesData = [];
-        console.warn('Only header row found in vacancy data');
-      }
-      
-      // Return in the format expected by the API manager
-      return { 
-        values: values,
-        timestamp: Date.now() 
-      };
-    } else {
-      console.error('No vacancy data returned from API');
-      return { values: [], timestamp: Date.now() };
+    if (values && values.length > 1) {
+      vacanciesData = values.slice(1); // Skip header row
+      console.log('Vacancies data loaded:', vacanciesData.length, 'records');
     }
-    
   } catch (error) {
     console.error('Error fetching vacancies data:', error);
-    throw error; // Re-throw so the API manager can handle retries
   }
 }
 
-// ADD this wrapper function that your API manager expects
-async function safeFetchVacanciesData() {
-  return apiManager.bulletproofFetch('vacanciesData', fetchVacanciesData, {
-    maxCacheAge: 10 * 60 * 1000,  // 10 minutes
-    cacheTTL: 30 * 60 * 1000,     // 30 minutes cache
-  });
-}
 
-
-// Fixed getVacancyDetails function with better error handling and data structure awareness
-// REPLACE your existing getVacancyDetails function
+// Add this function to your script.js
 function getVacancyDetails(itemNumber) {
-  console.log('Getting vacancy details for item:', itemNumber);
+  // Find vacancy by item number (assuming item number is in column A)
+  const vacancy = vacanciesData.find(row => row[0] === itemNumber);
   
-  try {
-    // Check multiple data sources in order of preference
-    let dataSource = null;
-    let dataArray = null;
-    
-    // 1. Try raw data with headers (most complete)
-    if (window.vacanciesDataRaw && Array.isArray(window.vacanciesDataRaw)) {
-      dataSource = 'vacanciesDataRaw';
-      dataArray = window.vacanciesDataRaw;
-    }
-    // 2. Try processed data without headers 
-    else if (window.vacanciesData && Array.isArray(window.vacanciesData)) {
-      dataSource = 'vacanciesData';
-      dataArray = window.vacanciesData;
-    }
-    // 3. Try cached data from API manager
-    else if (window.apiManager) {
-      const cachedData = window.apiManager._getCachedData('vacanciesData', Infinity);
-      if (cachedData && cachedData.values) {
-        dataSource = 'apiManagerCache';
-        dataArray = cachedData.values;
-      }
-    }
-    
-    if (!dataArray) {
-      console.warn('No vacancy data available from any source');
-      return null;
-    }
-    
-    console.log(`Using data source: ${dataSource}, rows: ${dataArray.length}`);
-    return findVacancyInArray(dataArray, itemNumber);
-    
-  } catch (error) {
-    console.error('Error in getVacancyDetails:', error);
-    return null;
-  }
-}
-
-// Helper function to find vacancy in data array with flexible matching
-function findVacancyInArray(dataArray, itemNumber) {
-  if (!Array.isArray(dataArray) || dataArray.length === 0) {
-    console.warn('Invalid or empty data array provided');
-    return null;
+  if (vacancy) {
+    return {
+      education: vacancy[4] || 'N/A',    // Column E
+      training: vacancy[5] || 'N/A',     // Column F
+      experience: vacancy[6] || 'N/A',   // Column G
+      eligibility: vacancy[7] || 'N/A'   // Column H
+    };
   }
   
-  // Skip header row if it exists (check if first row contains text like "Item", "Education", etc.)
-  const startIndex = (dataArray[0] && typeof dataArray[0][0] === 'string' && 
-                     (dataArray[0][0].toLowerCase().includes('item') || 
-                      dataArray[0].some(cell => typeof cell === 'string' && cell.toLowerCase().includes('education')))) ? 1 : 0;
-  
-  console.log(`Searching in ${dataArray.length - startIndex} data rows (skipping ${startIndex} header rows)`);
-  
-  // Try different matching strategies
-  const searchStrategies = [
-    (row) => row[0] === itemNumber,                    // Exact match
-    (row) => row[0] === `Item ${itemNumber}`,          // "Item X" format
-    (row) => row[0] === `${itemNumber}`,               // String version
-    (row) => String(row[0]).trim() === String(itemNumber).trim(), // Trimmed string comparison
-    (row) => String(row[0]).includes(String(itemNumber)) // Contains match (last resort)
-  ];
-  
-  for (let strategy = 0; strategy < searchStrategies.length; strategy++) {
-    const matchingRow = dataArray.slice(startIndex).find(searchStrategies[strategy]);
-    
-    if (matchingRow) {
-      console.log(`Found vacancy using strategy ${strategy + 1}:`, matchingRow[0]);
-      
-      // Log the entire row to help debug column structure
-      console.log('Full row data:', matchingRow);
-      
-      // Try different column configurations based on common spreadsheet layouts
-      const columnConfigs = [
-        // Config 1: Standard layout (Item, Title, Description, Education, Training, Experience, Eligibility)
-        { education: 3, training: 4, experience: 5, eligibility: 6 },
-        // Config 2: Alternative layout
-        { education: 2, training: 3, experience: 4, eligibility: 5 },
-        // Config 3: Your original layout
-        { education: 4, training: 5, experience: 6, eligibility: 7 },
-        // Config 4: Extended layout with more columns
-        { education: 5, training: 6, experience: 7, eligibility: 8 }
-      ];
-      
-      // Try each configuration and use the first one that has data
-      for (const config of columnConfigs) {
-        const result = {
-          education: matchingRow[config.education] || '',
-          training: matchingRow[config.training] || '',
-          experience: matchingRow[config.experience] || '',
-          eligibility: matchingRow[config.eligibility] || ''
-        };
-        
-        // Check if this configuration has any meaningful data
-        const hasData = Object.values(result).some(value => 
-          value && value.trim() && value.trim() !== '' && value.trim().toLowerCase() !== 'n/a'
-        );
-        
-        if (hasData) {
-          console.log('Using column configuration:', config);
-          console.log('Extracted vacancy details:', result);
-          return result;
-        }
-      }
-      
-      console.warn('Found matching row but no meaningful data in any column configuration');
-      break;
-    }
-  }
-  
-  console.warn(`No vacancy found for item "${itemNumber}"`);
-  return null;
+  return {
+    education: 'N/A',
+    training: 'N/A',
+    experience: 'N/A',
+    eligibility: 'N/A'
+  };
 }
 
 
@@ -6709,25 +6571,3 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
