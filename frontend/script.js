@@ -536,7 +536,7 @@ function startUIMonitoring() {
 // ===========================
 let apiNotifierEl = null;
 let updateInterval = null;
-let isMinimized = false;
+let isMinimized = true;
 let lastUpdateTime = null;
 
 // ---------------------------
@@ -857,9 +857,9 @@ window.apiNotifierControl = {
 // ============================================================================
 //
 //      PROFESSIONALLY REFACTORED BULLETPROOF API & STATE MANAGER
-//      (Version 2.2 - GOOGLE API RATE LIMIT AWARE)
-//      Patched for: crash fix, quota-safe concurrency, offline fallback,
-//      accurate PST quota reset, no double-counting in metrics
+//      (Version 3.0 - CORRECTED GOOGLE API RATE LIMIT HANDLING)
+//      Fixed: proper Google Sheets API quota understanding, removed hourly/minute
+//      reset assumptions, implemented correct 100req/100s rate limiting
 //
 // ============================================================================
 
@@ -867,17 +867,12 @@ window.apiNotifierControl = {
  * @class BulletproofAPIManager
  * A singleton class to manage API requests with caching, rate limiting,
  * exponential backoff, circuit breaking, and multi-device/tab coordination.
+ * Now properly handles Google Sheets API rate limits (100 req/100s, daily quota).
  */
 class BulletproofAPIManager {
   /**
    * Private constructor to enforce singleton pattern.
    * @param {object} options Configuration options.
-   * @param {number} [options.baseDelay=3000] Base delay in ms for retries.
-   * @param {number} [options.maxDelay=300000] Maximum delay in ms.
-   * @param {number} [options.maxRetries=8] Default maximum number of retries.
-   * @param {number} [options.quotaResetTime=86400000] 24 hours in ms (generic).
-   * @param {string} [options.googleQuotaResetTimezone='America/Los_Angeles'] Timezone for Google API daily quota reset (PST).
-   * @param {number} [options.googleQuotaResetHour=0] Hour (0-23) for Google API daily quota reset (midnight PST).
    */
   constructor(options = {}) {
     // --- Configuration ---
@@ -885,10 +880,19 @@ class BulletproofAPIManager {
       baseDelay: options.baseDelay || 3000,
       maxDelay: options.maxDelay || 300000,
       maxRetries: options.maxRetries || 8,
-      quotaResetTime: options.quotaResetTime || 24 * 60 * 60 * 1000, // Generic 24 hours
       cacheCleanupInterval: 5 * 60 * 1000, // 5 minutes
-      googleQuotaResetTimezone: options.googleQuotaResetTimezone || 'America/Los_Angeles', // PST
-      googleQuotaResetHour: options.googleQuotaResetHour || 0, // Midnight
+      
+      // Google Sheets API actual limits (corrected):
+      // - 100 requests per 100 seconds per user
+      // - 300 requests per 100 seconds shared across all users
+      // - Daily quota varies by account type, resets at midnight PT
+      googleRateLimitWindow: 100 * 1000, // 100 seconds in milliseconds
+      googleUserRateLimit: 100, // requests per 100 seconds per user
+      googleSharedRateLimit: 300, // requests per 100 seconds shared
+      
+      // Daily quota reset configuration
+      googleQuotaResetTimezone: options.googleQuotaResetTimezone || 'America/Los_Angeles',
+      googleQuotaResetHour: options.googleQuotaResetHour || 0, // Midnight PT
     };
 
     // --- State Management ---
@@ -912,25 +916,32 @@ class BulletproofAPIManager {
    * Asynchronously initializes the manager. Must be called before use.
    */
   async init() {
-  updateApiNotifier("loading", "Starting up...");
-  try {
-    await this._loadGlobalQuotaState();
-    this._startMonitoring();
-    console.log(`BulletproofAPIManager Initialized. Device ID: ${this.deviceId}`);
-    updateApiNotifier("ready", `Device ${this.deviceId}`);
-  } catch (err) {
-    console.error("Init failed:", err);
-    updateApiNotifier("error", err.message);
+    if (typeof updateApiNotifier === 'function') {
+      updateApiNotifier("loading", "Starting up...");
+    }
+    
+    try {
+      await this._loadGlobalQuotaState();
+      this._startMonitoring();
+      console.log(`BulletproofAPIManager Initialized. Device ID: ${this.deviceId}`);
+      
+      if (typeof updateApiNotifier === 'function') {
+        updateApiNotifier("ready", `Device ${this.deviceId}`);
+      }
+    } catch (err) {
+      console.error("Init failed:", err);
+      if (typeof updateApiNotifier === 'function') {
+        updateApiNotifier("error", err.message);
+      }
+    }
   }
-}
-
 
   // ========================================================================
   // PUBLIC API METHODS
   // ========================================================================
 
   /**
-   * Fetches data using a "bulletproof" strategy.
+   * Fetches data using a "bulletproof" strategy with corrected quota handling.
    * @param {string} key A unique key for the request.
    * @param {Function} fetchFunction The async function that performs the API call.
    * @param {object} [options={}] Options for this specific request.
@@ -942,31 +953,31 @@ class BulletproofAPIManager {
   async bulletproofFetch(key, fetchFunction, options = {}) {
     this.metrics.totalRequests++;
 
-    // --- Offline, serve stale cache to protect quota ---
+    // 1. Offline check - serve stale cache to protect quota
     const isOnline = (typeof navigator === 'undefined') ? true : (navigator.onLine !== false);
     if (!isOnline) {
       const stale = this._getCachedData(key, Infinity);
       if (stale) {
-        console.warn(`📴 Offline. Serving stale cache for "${key}".`);
+        console.warn(`Offline. Serving stale cache for "${key}".`);
         this.metrics.cacheHits++;
         return stale;
       }
       throw new Error(`Offline and no cached data for "${key}".`);
     }
 
-    // 1. Check global quota first (critical stop)
-    if (this._isGlobalQuotaExceeded()) {
-      const staleData = this._getCachedData(key, Infinity); // Get even expired cache
+    // 2. Check if daily quota is exceeded
+    if (this._isDailyQuotaExceeded()) {
+      const staleData = this._getCachedData(key, Infinity);
       if (staleData) {
-        console.warn(`🗃️ Using stale cache for "${key}" due to global quota limit.`);
+        console.warn(`Using stale cache for "${key}" due to daily quota exceeded.`);
         this.metrics.cacheHits++;
         return staleData;
       }
-      // Throw a specific error that can be caught by the UI for better messaging
-      throw new Error(`Global quota exceeded for "${key}". Quota resets at ${new Date(this.globalQuotaState.quotaResetTime).toLocaleTimeString()} ${this.config.googleQuotaResetTimezone}. No cache available. Try again later.`);
+      const resetTime = new Date(this.globalQuotaState.dailyQuotaResetTime);
+      throw new Error(`Daily quota exceeded. Resets at ${resetTime.toLocaleString()}. No cache available.`);
     }
 
-    // 2. Return fresh cache if available
+    // 3. Return fresh cache if available
     const maxCacheAge = options.maxCacheAge ?? 300000;
     const cachedData = this._getCachedData(key, maxCacheAge);
     if (cachedData && !options.forceRefresh) {
@@ -974,24 +985,39 @@ class BulletproofAPIManager {
       return cachedData;
     }
 
-    // 3. Check circuit breaker
+    // 4. Check rate limiting (100 requests per 100 seconds)
+    const rateLimitCheck = this._checkRateLimit();
+    if (rateLimitCheck.shouldWait) {
+      const staleData = this._getCachedData(key, Infinity);
+      if (staleData) {
+        console.warn(`Rate limited. Using stale cache for "${key}".`);
+        this.metrics.cacheHits++;
+        return staleData;
+      }
+      
+      // Wait for rate limit window to reset
+      console.log(`Rate limited. Waiting ${Math.ceil(rateLimitCheck.waitTime/1000)}s before proceeding.`);
+      await this._wait(rateLimitCheck.waitTime + 1000); // Add 1s buffer
+    }
+
+    // 5. Check circuit breaker
     if (this._isCircuitOpen(key)) {
       const staleData = this._getCachedData(key, Infinity);
       if (staleData) {
-        console.warn(`⚡ Using stale cache for "${key}" due to open circuit breaker.`);
+        console.warn(`Circuit breaker open. Using stale cache for "${key}".`);
         this.metrics.cacheHits++;
         return staleData;
       }
       throw new Error(`Circuit breaker is open for "${key}". No cached data available.`);
     }
 
-    // 4. Coalesce concurrent requests for the same key
+    // 6. Coalesce concurrent requests for the same key
     if (this.requestQueue.has(key)) {
-      console.log(`⏳ Waiting for existing request: "${key}"`);
+      console.log(`Waiting for existing request: "${key}"`);
       return this.requestQueue.get(key);
     }
 
-    // 5. Execute the request with retry logic
+    // 7. Execute the request with retry logic
     const requestPromise = this._executeWithRetry(key, fetchFunction, options);
     this.requestQueue.set(key, requestPromise);
 
@@ -1005,18 +1031,13 @@ class BulletproofAPIManager {
   /**
    * Processes a batch of requests with multi-device awareness.
    * Requests are executed serially to respect rate limits.
-   * This method is now primarily for scenarios where serial execution is desired.
-   * For immediate loading, consider using `concurrentFetch` or direct `bulletproofFetch` calls.
-   * @param {Array<object>} requests Array of request objects.
-   * @param {object} [options={}] Batch processing options.
-   * @param {boolean} [options.priorityOrder=true] Sort requests by priority.
    */
   async batchFetch(requests, options = {}) {
-    const isEmergencyMode = this._isGlobalQuotaExceeded();
-    console.log(`🎯 Starting ${isEmergencyMode ? 'EMERGENCY' : 'NORMAL'} batch fetch for ${requests.length} items.`);
+    const isDailyQuotaExceeded = this._isDailyQuotaExceeded();
+    console.log(`Starting ${isDailyQuotaExceeded ? 'EMERGENCY' : 'NORMAL'} batch fetch for ${requests.length} items.`);
 
     // In emergency mode, prioritize returning any available cache
-    if (isEmergencyMode) {
+    if (isDailyQuotaExceeded) {
       const { cachedResults, remainingRequests } = this._processBatchCache(requests);
       if (remainingRequests.length === 0) {
         return { results: cachedResults, errors: [], metrics: this.getMetrics() };
@@ -1030,15 +1051,15 @@ class BulletproofAPIManager {
 
     const results = [];
     const errors = [];
-    const initialDelay = isEmergencyMode ? 5000 : 1000;
-    const maxProgressiveDelay = isEmergencyMode ? 15000 : 5000;
+    const baseDelay = isDailyQuotaExceeded ? 5000 : 1000;
+    const maxProgressiveDelay = isDailyQuotaExceeded ? 15000 : 5000;
 
     for (let i = 0; i < requests.length; i++) {
       const request = requests[i];
 
       if (i > 0) {
-        const progressiveDelay = Math.min(initialDelay + (i * 200), maxProgressiveDelay);
-        console.log(`⏳ Progressive delay: ${progressiveDelay}ms before "${request.key}"`);
+        const progressiveDelay = Math.min(baseDelay + (i * 200), maxProgressiveDelay);
+        console.log(`Progressive delay: ${progressiveDelay}ms before "${request.key}"`);
         await this._wait(progressiveDelay);
       }
 
@@ -1048,26 +1069,22 @@ class BulletproofAPIManager {
       } catch (error) {
         errors.push({ key: request.key, error: error.message, success: false });
         if (error.message.toLowerCase().includes('quota')) {
-          console.error(`🛑 Quota error detected during batch. Aborting remaining ${requests.length - i - 1} requests.`);
+          console.error(`Daily quota error detected during batch. Aborting remaining ${requests.length - i - 1} requests.`);
           break;
         }
       }
     }
 
-    console.log(`🏁 Batch complete: ${results.length} successful, ${errors.length} failed.`);
+    console.log(`Batch complete: ${results.length} successful, ${errors.length} failed.`);
     return { results, errors, metrics: this.getMetrics() };
   }
 
   /**
    * Processes a batch of requests concurrently with a small worker pool.
-   * IMPORTANT: Each request.fetchFunction is expected to be a SAFE WRAPPER
-   * that already calls bulletproofFetch internally. We DO NOT nest bulletproof here.
-   * @param {Array<{key:string, fetchFunction:Function, options?:object}>} requests
-   * @param {number} [concurrency=3]
-   * @returns {Promise<{results:Array, errors:Array, metrics:object}>}
+   * IMPORTANT: Each request.fetchFunction should be a SAFE WRAPPER.
    */
   async concurrentFetch(requests, concurrency = 3) {
-    console.log(`⚡ Starting concurrent fetch for ${requests.length} items (pool=${concurrency}).`);
+    console.log(`Starting concurrent fetch for ${requests.length} items (pool=${concurrency}).`);
 
     const queue = requests.slice();
     const results = [];
@@ -1077,7 +1094,6 @@ class BulletproofAPIManager {
       while (queue.length) {
         const req = queue.shift();
         try {
-          // SAFE wrapper handles caching/backoff/quota
           const data = await req.fetchFunction();
           results.push({ key: req.key, data, success: true });
         } catch (error) {
@@ -1089,13 +1105,12 @@ class BulletproofAPIManager {
     const workers = Array.from({ length: Math.min(concurrency, queue.length) }, worker);
     await Promise.all(workers);
 
-    console.log(`🏁 Concurrent fetch complete: ${results.length} successful, ${errors.length} failed.`);
+    console.log(`Concurrent fetch complete: ${results.length} successful, ${errors.length} failed.`);
     return { results, errors, metrics: this.getMetrics() };
   }
 
   /**
    * Gets current performance and state metrics.
-   * @returns {object} The metrics object.
    */
   getMetrics() {
     return {
@@ -1106,10 +1121,11 @@ class BulletproofAPIManager {
       successRate: this.metrics.totalRequests > 0 ?
         (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0,
       globalQuotaState: {
-        requestsToday: this.globalQuotaState.requestsToday,
-        isExceeded: !!this.globalQuotaState.quotaExceededAt,
+        recentRequestsCount: this.globalQuotaState.recentRequests.length,
+        dailyRequestsCount: this.globalQuotaState.dailyRequestsCount,
+        isDailyQuotaExceeded: !!this.globalQuotaState.dailyQuotaExceededAt,
         activeDevices: this.globalQuotaState.activeDevices.size,
-        quotaResetTime: this.globalQuotaState.quotaResetTime,
+        dailyQuotaResetTime: this.globalQuotaState.dailyQuotaResetTime,
         lastQuotaError: this.globalQuotaState.lastQuotaError,
       },
     };
@@ -1120,27 +1136,108 @@ class BulletproofAPIManager {
    */
   clearCache() {
     this.cache.clear();
-    console.log('🗑️ Cache cleared.');
+    console.log('Cache cleared.');
   }
 
   /**
    * Cleans up resources, like intervals and event listeners.
-   * Should be called when the application is closing.
    */
   cleanup() {
-    window.removeEventListener('storage', this._storageEventHandler);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', this._storageEventHandler);
+    }
     if (this._quotaMonitorInterval) clearInterval(this._quotaMonitorInterval);
     if (this._cacheCleanupInterval) clearInterval(this._cacheCleanupInterval);
 
     // Announce departure to other devices
     this.globalQuotaState.activeDevices.delete(this.deviceId);
     this._saveGlobalQuotaState();
-    console.log(`🧹 Device ${this.deviceId} cleaned up and deregistered.`);
+    console.log(`Device ${this.deviceId} cleaned up and deregistered.`);
   }
 
   // ========================================================================
-  // INTERNAL & PRIVATE METHODS
+  // CORRECTED RATE LIMITING & QUOTA MANAGEMENT
   // ========================================================================
+
+  /**
+   * Checks if we should wait due to rate limiting (100 req/100s rule).
+   * @private
+   */
+  _checkRateLimit() {
+    const now = Date.now();
+    const windowStart = now - this.config.googleRateLimitWindow;
+    
+    // Clean old requests outside the 100-second window
+    this.globalQuotaState.recentRequests = this.globalQuotaState.recentRequests
+      .filter(timestamp => timestamp > windowStart);
+    
+    const recentCount = this.globalQuotaState.recentRequests.length;
+    
+    // Use 80% of limit as safety margin to avoid hitting the limit
+    const safeLimit = Math.floor(this.config.googleUserRateLimit * 0.8);
+    
+    if (recentCount >= safeLimit) {
+      // Calculate wait time until oldest request falls out of window
+      const oldestRequest = Math.min(...this.globalQuotaState.recentRequests);
+      const waitTime = (oldestRequest + this.config.googleRateLimitWindow) - now;
+      
+      console.warn(`Rate limiting: ${recentCount}/${this.config.googleUserRateLimit} requests in last 100s. Waiting ${Math.ceil(waitTime/1000)}s.`);
+      
+      return { shouldWait: true, waitTime: Math.max(waitTime, 1000) };
+    }
+    
+    return { shouldWait: false, waitTime: 0 };
+  }
+
+  /**
+   * Records a successful request for rate limiting tracking.
+   * @private
+   */
+  _recordRequestForRateLimit() {
+    const now = Date.now();
+    this.globalQuotaState.recentRequests.push(now);
+    this.globalQuotaState.dailyRequestsCount++;
+    
+    // Keep only recent requests for memory efficiency
+    if (this.globalQuotaState.recentRequests.length > this.config.googleUserRateLimit) {
+      this.globalQuotaState.recentRequests = this.globalQuotaState.recentRequests.slice(-this.config.googleUserRateLimit);
+    }
+    
+    this._saveGlobalQuotaState();
+  }
+
+  /**
+   * Checks if daily quota has been exceeded.
+   * @private
+   */
+  _isDailyQuotaExceeded() {
+    const { dailyQuotaExceededAt, dailyQuotaResetTime } = this.globalQuotaState;
+    
+    if (!dailyQuotaExceededAt) return false;
+
+    const now = Date.now();
+    
+    // Check if daily reset time has passed
+    if (dailyQuotaResetTime && now >= dailyQuotaResetTime) {
+      console.log('Daily quota reset time passed. Clearing quota exceeded state.');
+      this.globalQuotaState.dailyQuotaExceededAt = null;
+      this.globalQuotaState.dailyQuotaResetTime = this._calculateNextDailyReset();
+      this.globalQuotaState.dailyRequestsCount = 0;
+      this.globalQuotaState.recentRequests = [];
+      this._saveGlobalQuotaState();
+      
+      if (typeof updateApiNotifier === 'function') {
+        updateApiNotifier("ready", "Daily quota reset - requests resumed", {
+          quota: "restored",
+          resetTime: new Date(this.globalQuotaState.dailyQuotaResetTime).toLocaleString(),
+        });
+      }
+      
+      return false;
+    }
+
+    return true;
+  }
 
   /**
    * Executes a request with retries, backoff, and circuit breaker logic.
@@ -1154,22 +1251,27 @@ class BulletproofAPIManager {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        if (this._isGlobalQuotaExceeded()) {
-          throw new Error(`Global quota exceeded. Quota resets at ${new Date(this.globalQuotaState.quotaResetTime).toLocaleTimeString()} ${this.config.googleQuotaResetTimezone}.`);
+        // Re-check daily quota before each attempt
+        if (this._isDailyQuotaExceeded()) {
+          const resetTime = new Date(this.globalQuotaState.dailyQuotaResetTime);
+          throw new Error(`Daily quota exceeded. Resets at ${resetTime.toLocaleString()}.`);
         }
 
         if (attempt > 0) {
-          const deviceCount = this.globalQuotaState.activeDevices.size || 1;
-          const preRequestDelay = Math.min(attempt * 500 * deviceCount, 10000);
-          await this._wait(preRequestDelay);
+          const delay = this._calculateBackoffDelay(attempt);
+          console.log(`Retry attempt ${attempt + 1}/${maxRetries + 1} for "${key}" after ${Math.round(delay/1000)}s`);
+          await this._wait(delay);
         }
 
-        console.log(`🚀 Attempt ${attempt + 1}/${maxRetries + 1} for "${key}"`);
+        console.log(`Executing request ${attempt + 1}/${maxRetries + 1} for "${key}"`);
         const result = await fetchFunction();
 
+        // Record successful request
+        this._recordRequestForRateLimit();
         this._recordSuccess(key);
         this._setCachedData(key, result, options.cacheTTL);
-        console.log(`✅ Successfully fetched "${key}"`);
+        
+        console.log(`Successfully fetched "${key}"`);
         return result;
 
       } catch (error) {
@@ -1177,29 +1279,77 @@ class BulletproofAPIManager {
         this.metrics.failedRequests++;
         const errorInfo = this._classifyError(error);
 
-        console.error(`❌ Attempt ${attempt + 1} failed for "${key}": ${errorInfo.type} - ${error.message}`);
+        console.error(`Attempt ${attempt + 1} failed for "${key}": ${errorInfo.type} - ${error.message}`);
         this._recordFailure(key, errorInfo);
 
-        if (errorInfo.type === 'quota' || !errorInfo.retryable || attempt === maxRetries) {
+        // Don't retry daily quota exceeded or non-retryable errors
+        if (errorInfo.type === 'dailyQuota' || !errorInfo.retryable || attempt === maxRetries) {
           break;
         }
-
-        const delay = this._calculateBackoffDelay(attempt, errorInfo);
-        console.log(`⏱️ Waiting ${Math.round(delay/1000)}s before retry for "${key}"...`);
-        await this._wait(delay);
       }
     }
 
+    // All retries failed - try stale cache as last resort
     const staleData = this._getCachedData(key, Infinity);
     if (staleData) {
-      console.warn(`🗃️ All retries failed for "${key}". Returning stale cache.`);
+      console.warn(`All retries failed for "${key}". Returning stale cache.`);
       return staleData;
     }
 
     throw new Error(`All retry attempts failed for "${key}". Last error: ${lastError?.message || 'Unknown error'}`);
   }
 
-  // --- State Management & Synchronization ---
+  /**
+   * Classifies errors properly for Google Sheets API.
+   * @private
+   */
+  _classifyError(error) {
+    const msg = (error.message || '').toLowerCase();
+    const status = error.code || error.status;
+
+    // Daily quota exceeded (403 with quota-related message)
+    if (status === 403 && (msg.includes('quota') || msg.includes('limit exceeded') || msg.includes('daily limit'))) {
+      this.globalQuotaState.dailyQuotaExceededAt = Date.now();
+      this.globalQuotaState.lastQuotaError = error.message;
+      this.globalQuotaState.dailyQuotaResetTime = this._calculateNextDailyReset();
+      this._saveGlobalQuotaState();
+      this.metrics.quotaExceeded++;
+
+      const resetAt = new Date(this.globalQuotaState.dailyQuotaResetTime);
+      console.error(`Daily quota exceeded! Will reset at ${resetAt.toLocaleString()}.`);
+
+      if (typeof updateApiNotifier === 'function') {
+        updateApiNotifier("error", `Daily quota exceeded - resets at ${resetAt.toLocaleTimeString()}`, {
+          quota: 0,
+          resetTime: resetAt.toLocaleString(),
+        });
+      }
+
+      return { type: 'dailyQuota', retryable: false };
+    }
+
+    // Rate limiting (429 or rate-related messages)
+    if (status === 429 || msg.includes('rate') || msg.includes('too many requests')) {
+      console.warn('Rate limit hit - will retry with backoff');
+      return { type: 'rateLimit', retryable: true };
+    }
+
+    // Network/server errors
+    if (status >= 500 || msg.includes('network') || msg.includes('timeout')) {
+      return { type: 'network', retryable: true };
+    }
+
+    // Auth errors
+    if (status === 401 || msg.includes('unauthorized')) {
+      return { type: 'auth', retryable: false };
+    }
+
+    return { type: 'unknown', retryable: false };
+  }
+
+  // ========================================================================
+  // STATE MANAGEMENT & SYNCHRONIZATION
+  // ========================================================================
 
   /**
    * Loads and validates the global quota state from localStorage.
@@ -1210,11 +1360,15 @@ class BulletproofAPIManager {
       const stored = localStorage.getItem(this.globalQuotaKey);
       if (stored) {
         const state = JSON.parse(stored);
-        if (state.quotaResetTime && Date.now() > state.quotaResetTime) {
-          console.log('🗓️ Google API daily quota reset time passed. Resetting quota state.');
+        if (state.dailyQuotaResetTime && Date.now() > state.dailyQuotaResetTime) {
+          console.log('Daily quota reset time passed during load. Resetting quota state.');
           this.globalQuotaState = this._getDefaultQuotaState();
         } else {
-          this.globalQuotaState = { ...state, activeDevices: new Set(state.activeDevices) };
+          this.globalQuotaState = {
+            ...state,
+            activeDevices: new Set(state.activeDevices || []),
+            recentRequests: state.recentRequests || []
+          };
         }
       }
     } catch (e) {
@@ -1249,11 +1403,15 @@ class BulletproofAPIManager {
     if (event.key === this.globalQuotaKey && event.newValue) {
       try {
         const newState = JSON.parse(event.newValue);
-        if (newState.quotaExceededAt && (!this.globalQuotaState.quotaExceededAt || newState.quotaExceededAt > this.globalQuotaState.quotaExceededAt)) {
-          console.log('🚨 Another tab/device hit quota limit. Syncing state.');
-          this.globalQuotaState = { ...newState, activeDevices: new Set(newState.activeDevices) };
-        } else if (newState.quotaResetTime && newState.quotaResetTime > this.globalQuotaState.quotaResetTime) {
-          this.globalQuotaState.quotaResetTime = newState.quotaResetTime;
+        if (newState.dailyQuotaExceededAt && (!this.globalQuotaState.dailyQuotaExceededAt || newState.dailyQuotaExceededAt > this.globalQuotaState.dailyQuotaExceededAt)) {
+          console.log('Another tab/device hit daily quota limit. Syncing state.');
+          this.globalQuotaState = { 
+            ...newState, 
+            activeDevices: new Set(newState.activeDevices || []),
+            recentRequests: newState.recentRequests || []
+          };
+        } else if (newState.dailyQuotaResetTime && newState.dailyQuotaResetTime > this.globalQuotaState.dailyQuotaResetTime) {
+          this.globalQuotaState.dailyQuotaResetTime = newState.dailyQuotaResetTime;
           this._saveGlobalQuotaState();
         }
       } catch (e) {
@@ -1267,49 +1425,17 @@ class BulletproofAPIManager {
    * @private
    */
   _startMonitoring() {
-    window.addEventListener('storage', this._storageEventHandler);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', this._storageEventHandler);
+    }
 
     this._quotaMonitorInterval = setInterval(() => this._loadGlobalQuotaState(), 15000);
     this._cacheCleanupInterval = setInterval(() => this._evictExpiredCache(), this.config.cacheCleanupInterval);
   }
 
-  /**
-   * Checks if the global quota has been marked as exceeded.
-   * If so, it determines if the Google API daily reset time has passed.
-   * @private
-   */
-  _isGlobalQuotaExceeded() {
-  const { quotaExceededAt, quotaResetTime } = this.globalQuotaState;
-  if (!quotaExceededAt) return false;
-
-  const now = Date.now();
-
-  if (quotaResetTime && now < quotaResetTime) {
-    return true; // still in cooldown
-  }
-
-  // Cooldown ended → reset state
-  this.globalQuotaState.quotaExceededAt = null;
-  this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
-  this._saveGlobalQuotaState();
-
-  console.log('🔓 Global quota cooldown period ended or reset time passed. Resuming requests.');
-
-  updateApiNotifier(
-    "ready",
-    "Quota window reset — requests resumed.",
-    {
-      quota: "restored",
-      resetTime: new Date(this.globalQuotaState.quotaResetTime).toLocaleString(),
-      lastRequest: new Date().toLocaleTimeString()
-    }
-  );
-
-  return false;
-}
-
-
-  // --- Caching ---
+  // ========================================================================
+  // CACHING METHODS
+  // ========================================================================
 
   _getCachedData(key, maxAge) {
     const cached = this.cache.get(key);
@@ -1340,11 +1466,13 @@ class BulletproofAPIManager {
       }
     }
     if (evictedCount > 0) {
-      console.log(`🧹 Evicted ${evictedCount} expired cache entries.`);
+      console.log(`Evicted ${evictedCount} expired cache entries.`);
     }
   }
 
-  // --- Circuit Breaker & Error Handling ---
+  // ========================================================================
+  // CIRCUIT BREAKER & ERROR HANDLING
+  // ========================================================================
 
   _isCircuitOpen(key) {
     const breaker = this.circuitBreaker.get(key);
@@ -1360,8 +1488,6 @@ class BulletproofAPIManager {
 
   _recordSuccess(key) {
     this.metrics.successfulRequests++;
-    this.globalQuotaState.requestsToday++;
-    this._saveGlobalQuotaState();
     this.circuitBreaker.delete(key);
   }
 
@@ -1372,53 +1498,16 @@ class BulletproofAPIManager {
     breaker.failures++;
     breaker.lastFailure = now;
 
-    const baseCooldown = (errorInfo.type === 'quota') ? 30000 : 5000;
+    const baseCooldown = (errorInfo.type === 'dailyQuota') ? 30000 : 5000;
     breaker.cooldownTime = Math.min(baseCooldown * Math.pow(2, breaker.failures - 1), this.config.maxDelay);
 
     this.circuitBreaker.set(key, breaker);
-    console.warn(`🔥 Circuit breaker for "${key}" recorded failure ${breaker.failures}. Cooldown: ${breaker.cooldownTime}ms`);
+    console.warn(`Circuit breaker for "${key}" recorded failure ${breaker.failures}. Cooldown: ${breaker.cooldownTime}ms`);
   }
 
-  _classifyError(error) {
-  const msg = (error.message || '').toLowerCase();
-  const status = error.code || error.status;
-
-  if (status === 403 || status === 429 || msg.includes('quota') || msg.includes('ratelimit')) {
-    this.globalQuotaState.quotaExceededAt = Date.now();
-    this.globalQuotaState.lastQuotaError = error.message;
-    this.globalQuotaState.quotaResetTime = this._calculateNextGoogleQuotaReset();
-    this._saveGlobalQuotaState();
-    this.metrics.quotaExceeded++;
-
-    const resetAt = new Date(this.globalQuotaState.quotaResetTime);
-
-    console.error(`🚨 Google API Quota Exceeded! Will resume after ${resetAt.toLocaleString()}.`);
-
-    // 🔔 Hook into notifier with metadata
-    updateApiNotifier(
-      "error",
-      `Quota exceeded — will reset at ${resetAt.toLocaleTimeString()}`,
-      {
-        quota: 0,
-        resetTime: resetAt.toLocaleString(),
-        lastRequest: new Date().toLocaleTimeString()
-      }
-    );
-
-    return { type: 'quota', retryable: true };
-  }
-
-  if (status >= 500 || msg.includes('network') || msg.includes('timeout')) {
-    return { type: 'network', retryable: true };
-  }
-  if (status === 401 || msg.includes('unauthorized')) {
-    return { type: 'auth', retryable: false };
-  }
-  return { type: 'unknown', retryable: false };
-}
-
-
-  // --- Utilities ---
+  // ========================================================================
+  // UTILITY METHODS
+  // ========================================================================
 
   _wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -1432,10 +1521,8 @@ class BulletproofAPIManager {
     return newId;
   }
 
-  _calculateBackoffDelay(attempt, errorInfo) {
-    const multiplier = (errorInfo.type === 'quota') ? 5 : 2;
-    const baseDelay = this.config.baseDelay * multiplier;
-    const exponentialDelay = baseDelay * Math.pow(2, attempt);
+  _calculateBackoffDelay(attempt) {
+    const exponentialDelay = this.config.baseDelay * Math.pow(2, attempt);
     const jitter = exponentialDelay * 0.2 * Math.random();
     return Math.min(exponentialDelay + jitter, this.config.maxDelay);
   }
@@ -1446,15 +1533,19 @@ class BulletproofAPIManager {
     return deviceIndex > 0 ? deviceIndex * 500 : 0;
   }
 
-  /** Convert a Date to an equivalent local-clock Date for a timeZone. */
+  /**
+   * Convert a Date to an equivalent local-clock Date for a timeZone.
+   */
   _toZonedDate(date, timeZone) {
     const inv = new Date(date.toLocaleString('en-US', { timeZone }));
     const diff = date.getTime() - inv.getTime();
     return new Date(date.getTime() - diff);
   }
 
-  /** Calculates next midnight in Google quota TZ (America/Los_Angeles) */
-  _calculateNextGoogleQuotaReset() {
+  /**
+   * Calculates next daily reset time (midnight in configured timezone).
+   */
+  _calculateNextDailyReset() {
     const tz = this.config.googleQuotaResetTimezone;
     const targetHour = this.config.googleQuotaResetHour || 0;
     const now = new Date();
@@ -1462,6 +1553,7 @@ class BulletproofAPIManager {
     const zonedNow = this._toZonedDate(now, tz);
     const zonedReset = new Date(zonedNow);
     zonedReset.setHours(targetHour, 0, 0, 0);
+    
     if (zonedReset <= zonedNow) {
       zonedReset.setDate(zonedReset.getDate() + 1);
     }
@@ -1472,12 +1564,18 @@ class BulletproofAPIManager {
 
   _getDefaultQuotaState() {
     return {
-      requestsToday: 0,
-      quotaExceededAt: null,
+      // Rate limiting: track recent requests within 100-second windows
+      recentRequests: [],
+      
+      // Daily quota tracking
+      dailyRequestsCount: 0,
+      dailyQuotaExceededAt: null,
       lastReset: Date.now(),
+      dailyQuotaResetTime: this._calculateNextDailyReset(),
+      
+      // Multi-device coordination
       activeDevices: new Set([this.deviceId]),
       lastQuotaError: null,
-      quotaResetTime: this._calculateNextGoogleQuotaReset(),
     };
   }
 
@@ -1503,7 +1601,7 @@ class BulletproofAPIManager {
         remainingRequests.push(req);
       }
     }
-    console.log(`🗄️ Emergency cache check: ${cachedResults.length} hits, ${remainingRequests.length} misses.`);
+    console.log(`Emergency cache check: ${cachedResults.length} hits, ${remainingRequests.length} misses.`);
     return { cachedResults, remainingRequests };
   }
 }
@@ -1574,7 +1672,7 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
     const dataRows = values.slice(1);
     const matchingRows = dataRows.filter(row => matchesRatingRow(row, item, name, evaluator));
 
-    console.log(`✅ Found ${matchingRows.length} rating rows for:`, { evaluator, item, name });
+    console.log(`Found ${matchingRows.length} rating rows for:`, { evaluator, item, name });
 
     return { values: [header, ...matchingRows], ts: Date.now() };
   };
@@ -1598,7 +1696,7 @@ const pendingRatingsManager = {
     const data = { ...ratingData, evaluator, item, name, timestamp: Date.now() };
     try {
       localStorage.setItem(key, JSON.stringify(data));
-      console.log(`💾 Saved pending rating for "${name}" on item "${item}".`);
+      console.log(`Saved pending rating for "${name}" on item "${item}".`);
     } catch (e) {
       console.warn('Failed to save pending rating to localStorage:', e);
     }
@@ -1612,7 +1710,7 @@ const pendingRatingsManager = {
 
       const pending = JSON.parse(stored);
       if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
-        console.log(`📤 Restored pending rating for "${name}" on item "${item}".`);
+        console.log(`Restored pending rating for "${name}" on item "${item}".`);
         return pending;
       } else {
         localStorage.removeItem(key);
@@ -1628,7 +1726,7 @@ const pendingRatingsManager = {
     const key = this._getKey(evaluator, item, name);
     try {
       localStorage.removeItem(key);
-      console.log(`🧹 Cleared pending rating for "${name}" on item "${item}".`);
+      console.log(`Cleared pending rating for "${name}" on item "${item}".`);
     } catch (e) {
       console.warn('Failed to clear pending rating from localStorage:', e);
     }
@@ -1644,7 +1742,7 @@ let appInitializationPromise = null;
 
 async function initializeApp() {
   if (appInitializationPromise) {
-    console.warn("⚠️ Initialization already in progress. Waiting for it to complete...");
+    console.warn("Initialization already in progress. Waiting for it to complete...");
     return appInitializationPromise;
   }
 
@@ -1662,7 +1760,7 @@ async function initializeApp() {
         } catch (error) {
           if (error.status === 429 && attempt < maxRetries) {
             attempt++;
-            const msg = `⚠️ API rate limit hit. Retry ${attempt}/${maxRetries} in ${delay}ms...`;
+            const msg = `API rate limit hit. Retry ${attempt}/${maxRetries} in ${delay}ms...`;
             console.warn(msg);
             if (window.apiNotifierControl?.isRunning()) {
               updateApiNotifier("warning", msg, { deviceId: "init_retry", hasError: false });
@@ -1681,14 +1779,16 @@ async function initializeApp() {
       await apiManager.init();
 
       // 2. Initialize API Notifier
-      await initializeApiNotifier();
+      if (typeof initializeApiNotifier === 'function') {
+        await initializeApiNotifier();
+      }
 
       // 3. Load GAPI client
       await new Promise((resolve, reject) => {
         gapi.load('client', async () => {
           try {
             await initializeGapiClient();
-            console.log('✅ GAPI client initialized successfully.');
+            console.log('GAPI client initialized successfully.');
             resolve();
           } catch (gapiError) {
             reject(gapiError);
@@ -1696,9 +1796,7 @@ async function initializeApp() {
         });
       });
 
-      // -----------------------------
       // Patch Sheets API methods AFTER gapi.client is ready
-      // -----------------------------
       if (gapi.client?.sheets?.spreadsheets?.values) {
         const originalGet = gapi.client.sheets.spreadsheets.values.get;
         const originalBatchGet = gapi.client.sheets.spreadsheets.values.batchGet;
@@ -1711,7 +1809,7 @@ async function initializeApp() {
           return sheetsApiRequestWithRetry(() => originalBatchGet.call(this, params));
         };
       } else {
-        console.warn("⚠️ gapi.client.sheets not available, retry wrapper skipped.");
+        console.warn("gapi.client.sheets not available, retry wrapper skipped.");
       }
 
       // 4. Setup UI
@@ -1722,14 +1820,14 @@ async function initializeApp() {
 
       // 6. Finalize initialization
       finishInitialization();
-      console.log("✅ Application initialized successfully.");
+      console.log("Application initialized successfully.");
 
       if (window.apiNotifierControl?.isRunning()) {
-        updateApiNotifier("success", "✅ App initialized successfully.", { deviceId: "init_success" });
+        updateApiNotifier("success", "App initialized successfully.", { deviceId: "init_success" });
       }
 
     } catch (error) {
-      console.error('❌ Application initialization failed:', error);
+      console.error('Application initialization failed:', error);
 
       if (window.apiNotifierControl?.isRunning()) {
         updateApiNotifier("error", `Initialization failed: ${error.message}`, {
@@ -1750,16 +1848,13 @@ async function initializeApp() {
   return appInitializationPromise;
 }
 
-
-
-
 /**
  * Loads critical data, first from cache, then concurrently via network.
  * Optimized for immediate loading and quota safety.
  */
 async function loadInitialData() {
-  console.log('🎯 Starting immediate initial data load...');
-  console.log('📱 Device Info:', apiManager.getMetrics().globalQuotaState);
+  console.log('Starting immediate initial data load...');
+  console.log('Device Info:', apiManager.getMetrics().globalQuotaState);
 
   const apiRequests = [
     { key: 'secretariatMembers', fetchFunction: () => safeFetchSecretariatMembers(), priority: 3, required: true },
@@ -1767,7 +1862,7 @@ async function loadInitialData() {
     { key: 'signatories',       fetchFunction: () => safeLoadSignatories(),        priority: 1, required: false },
   ];
 
-  // Cache-first pass (internal helper)
+  // Cache-first pass
   const { cachedResults, remainingRequests } = apiManager._processBatchCache(apiRequests);
 
   const allRequiredCached = apiRequests
@@ -1775,11 +1870,11 @@ async function loadInitialData() {
     .every(req => cachedResults.some(cr => cr.key === req.key));
 
   if (allRequiredCached && remainingRequests.length === 0) {
-    console.log('🚀 All required data loaded from cache! UI is ready.');
+    console.log('All required data loaded from cache! UI is ready.');
     return;
   }
 
-  console.log(`⚡ Fetching ${remainingRequests.length} remaining items concurrently.`);
+  console.log(`Fetching ${remainingRequests.length} remaining items concurrently.`);
   const concurrentResult = await apiManager.concurrentFetch(remainingRequests, 3);
 
   const allResults = [...cachedResults, ...concurrentResult.results];
@@ -1790,13 +1885,10 @@ async function loadInitialData() {
   );
 
   if (criticalErrors.length > 0) {
-    console.error('🚨 Critical API failures detected during concurrent load:', criticalErrors);
+    console.error('Critical API failures detected during concurrent load:', criticalErrors);
     handleCriticalAPIFailure(criticalErrors);
   } else {
-    console.log('✅ Initial data load complete (concurrently fetched).');
-    // Example: update UI with allResults
-    // const secretariatMembers = allResults.find(r => r.key === 'secretariatMembers')?.data;
-    // const vacanciesData = allResults.find(r => r.key === 'vacanciesData')?.data;
+    console.log('Initial data load complete (concurrently fetched).');
   }
 }
 
@@ -1821,19 +1913,18 @@ function finishInitialization() {
   }
 
   showSpinner(false);
-  console.log('✅ App initialization complete.');
-  console.log('📊 Final Metrics:', apiManager.getMetrics());
+  console.log('App initialization complete.');
+  console.log('Final Metrics:', apiManager.getMetrics());
 }
 
 // --- Failure Handlers & UI Notifications ---
 
 function handleCriticalAPIFailure(errors) {
-  console.warn('🆘 Handling critical API failures... App may be degraded.');
+  console.warn('Handling critical API failures... App may be degraded.');
   for (const error of errors) {
     const staleData = apiManager._getCachedData(error.key, Infinity);
     if (staleData) {
-      console.log(`🗃️ Using stale cache for critical data: "${error.key}"`);
-      // Populate UI with staleData if appropriate
+      console.log(`Using stale cache for critical data: "${error.key}"`);
     }
   }
   showErrorNotification(
@@ -1842,7 +1933,7 @@ function handleCriticalAPIFailure(errors) {
 }
 
 function handleInitializationFailure(error) {
-  console.error('🆘 Handling complete initialization failure...');
+  console.error('Handling complete initialization failure...');
   showSpinner(false);
   showErrorNotification(
     `Unable to load fresh data: ${error.message}. The app may not function correctly. Please check your connection and refresh.`
@@ -1858,7 +1949,7 @@ function showSpinner(show) {
 }
 
 function showErrorNotification(message) {
-  console.error('🚨 User Notification:', message);
+  console.error('User Notification:', message);
   if (typeof alert === 'function') alert(message);
 }
 
@@ -1866,7 +1957,7 @@ function showErrorNotification(message) {
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    console.log('📱 Tab visible - syncing API state.');
+    console.log('Tab visible - syncing API state.');
     apiManager._loadGlobalQuotaState();
   }
 });
@@ -1876,7 +1967,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ============================================================================
-// GAPI AUTH/TOKEN HELPERS (unchanged except logs)
+// GAPI AUTH/TOKEN HELPERS
 // ============================================================================
 
 async function initializeGapiClient() {
@@ -6480,6 +6571,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
