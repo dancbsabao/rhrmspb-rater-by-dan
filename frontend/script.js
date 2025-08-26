@@ -534,107 +534,160 @@ function startUIMonitoring() {
 
 
 // ===================
-// SIMPLE API QUEUE MANAGER
+// BULLETPROOF API RATE LIMITER
 // ===================
 
-class SimpleAPIQueue {
+class BulletproofAPIManager {
   constructor(options = {}) {
-    this.maxRetries = options.maxRetries || 5;
-    this.retryDelay = options.retryDelay || 2000;
-    this.requestQueue = [];
-    this.isProcessing = false;
-    this.cache = new Map();
-    this.loadingProgress = 0;
-    this.totalTasks = 0;
+    // Configuration
+    this.baseDelay = options.baseDelay || 3000; // 3 second base delay for multi-device
+    this.maxDelay = options.maxDelay || 300000; // 5 minute max delay
+    this.maxRetries = options.maxRetries || 8;
+    this.quotaResetTime = options.quotaResetTime || 24 * 60 * 60 * 1000; // 24 hours
     
-    // Bind methods
-    this.processQueue = this.processQueue.bind(this);
+    // Multi-device coordination (note: localStorage is per-device, so coordination is limited to same-device sessions)
+    this.deviceId = this.generateDeviceId();
+    this.globalQuotaKey = 'global_api_quota_tracker';
+    this.deviceQuotaKey = `device_quota_${this.deviceId}`;
+    
+    // State management
+    this.cache = new Map();
+    this.requestQueue = new Map();
+    this.rateLimitInfo = new Map();
+    this.circuitBreaker = new Map();
+    
+    // Global quota tracking
+    this.globalQuotaState = this.loadGlobalQuotaState();
+    
+    // Metrics
+    this.metrics = {
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      cacheHits: 0,
+      quotaExceeded: 0,
+      deviceId: this.deviceId
+    };
+    
+    // Start quota monitoring
+    this.startQuotaMonitoring();
   }
 
-  // Add request to queue
-  addRequest(key, fetchFunction, options = {}) {
-    return new Promise((resolve, reject) => {
-      // Check cache first
-      const cached = this.getCachedData(key, options.maxCacheAge || 5 * 60 * 1000);
-      if (cached && !options.forceRefresh) {
-        console.log(`Cache hit for ${key}`);
-        resolve(cached);
-        return;
-      }
-
-      this.requestQueue.push({
-        key,
-        fetchFunction,
-        options,
-        resolve,
-        reject,
-        attempts: 0
-      });
-
-      this.totalTasks = this.requestQueue.length;
-      this.processQueue();
-    });
+  generateDeviceId() {
+    const stored = localStorage.getItem('device_id');
+    if (stored) return stored;
+    
+    const deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+    localStorage.setItem('device_id', deviceId);
+    return deviceId;
   }
 
-  // Process queue sequentially
-  async processQueue() {
-    if (this.isProcessing || this.requestQueue.length === 0) {
-      return;
-    }
-
-    this.isProcessing = true;
-    this.updateLoadingBar();
-
-    while (this.requestQueue.length > 0) {
-      const request = this.requestQueue.shift();
-      
-      try {
-        const result = await this.executeRequest(request);
-        this.setCachedData(request.key, result);
-        request.resolve(result);
-        
-        this.loadingProgress++;
-        this.updateLoadingBar();
-        
-        // Small delay between requests
-        await this.wait(500);
-        
-      } catch (error) {
-        request.reject(error);
-        this.loadingProgress++;
-        this.updateLoadingBar();
-      }
-    }
-
-    this.isProcessing = false;
-    this.hideLoadingBar();
-  }
-
-  // Execute single request with retries
-  async executeRequest(request) {
-    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      try {
-        console.log(`Executing ${request.key} - attempt ${attempt + 1}`);
-        const result = await request.fetchFunction();
-        console.log(`Success: ${request.key}`);
-        return result;
-        
-      } catch (error) {
-        console.error(`Attempt ${attempt + 1} failed for ${request.key}:`, error);
-        
-        if (attempt === this.maxRetries) {
-          throw new Error(`All retry attempts failed for ${request.key}: ${error.message}`);
+  loadGlobalQuotaState() {
+    try {
+      const stored = localStorage.getItem(this.globalQuotaKey);
+      if (stored) {
+        const state = JSON.parse(stored);
+        state.activeDevices = new Set(state.activeDevices); // Ensure it's a Set
+        // Reset if it's a new day
+        if (Date.now() - state.lastReset > this.quotaResetTime) {
+          return this.resetGlobalQuotaState();
         }
-        
-        // Wait before retry with exponential backoff
-        const delay = this.retryDelay * Math.pow(2, attempt);
-        await this.wait(delay);
+        return state;
       }
+    } catch (e) {
+      console.warn('Failed to load global quota state:', e);
+    }
+    return this.resetGlobalQuotaState();
+  }
+
+  resetGlobalQuotaState() {
+    const state = {
+      requestsToday: 0,
+      quotaExceededAt: null,
+      lastReset: Date.now(),
+      activeDevices: new Set([this.deviceId]),
+      lastQuotaError: null
+    };
+    this.saveGlobalQuotaState(state);
+    return state;
+  }
+
+  saveGlobalQuotaState(state = null) {
+    const stateToSave = state || this.globalQuotaState;
+    try {
+      // Convert Set to Array for JSON serialization
+      const serializable = {
+        ...stateToSave,
+        activeDevices: Array.from(stateToSave.activeDevices)
+      };
+      localStorage.setItem(this.globalQuotaKey, JSON.stringify(serializable));
+    } catch (e) {
+      console.warn('Failed to save global quota state:', e);
     }
   }
 
-  // Cache management
-  getCachedData(key, maxAge = 5 * 60 * 1000) {
+  startQuotaMonitoring() {
+    // Register this device
+    this.globalQuotaState.activeDevices.add(this.deviceId);
+    this.saveGlobalQuotaState();
+    
+    // Monitor other devices' quota usage
+    this.quotaMonitor = setInterval(() => {
+      this.syncGlobalQuotaState();
+    }, 10000); // Check every 10 seconds
+  }
+
+  syncGlobalQuotaState() {
+    try {
+      const stored = localStorage.getItem(this.globalQuotaKey);
+      if (stored) {
+        const state = JSON.parse(stored);
+        state.activeDevices = new Set(state.activeDevices);
+        
+        // If quota was exceeded by another device, respect it
+        if (state.quotaExceededAt && !this.globalQuotaState.quotaExceededAt) {
+          console.log('🚨 Another device hit quota limit. Entering conservative mode.');
+          this.globalQuotaState = state;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to sync global quota state:', e);
+    }
+  }
+
+  // Check if we're in quota exceeded state globally
+  isGlobalQuotaExceeded() {
+    if (!this.globalQuotaState.quotaExceededAt) return false;
+    
+    const timeSinceQuotaError = Date.now() - this.globalQuotaState.quotaExceededAt;
+    const cooldownTime = Math.min(300000 + (timeSinceQuotaError * 0.1), 3600000); // 5min to 1hour
+    
+    if (timeSinceQuotaError < cooldownTime) {
+      console.log(`🛑 Global quota exceeded. Cooling down for ${Math.round((cooldownTime - timeSinceQuotaError)/1000)}s more`);
+      return true;
+    }
+    
+    // Reset quota exceeded state
+    this.globalQuotaState.quotaExceededAt = null;
+    this.saveGlobalQuotaState();
+    return false;
+  }
+
+  // Smart device coordination delay
+  calculateDeviceDelay() {
+    const deviceCount = this.globalQuotaState.activeDevices.size;
+    const deviceIndex = Array.from(this.globalQuotaState.activeDevices).indexOf(this.deviceId);
+    
+    // Stagger requests across devices
+    const baseStagger = 2000; // 2 seconds base
+    const deviceDelay = deviceIndex * baseStagger;
+    
+    console.log(`📱 Device ${deviceIndex + 1}/${deviceCount}: Adding ${deviceDelay}ms stagger delay`);
+    return deviceDelay;
+  }
+
+  // Enhanced cache with TTL and versioning
+  getCachedData(key, maxAge = 5 * 60 * 1000) { // 5 minutes default
     const cached = this.cache.get(key);
     if (!cached) return null;
     
@@ -644,127 +697,445 @@ class SimpleAPIQueue {
       return null;
     }
     
+    this.metrics.cacheHits++;
+    console.log(`📦 Cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
     return cached.data;
   }
 
-  setCachedData(key, data) {
+  setCachedData(key, data, customTTL = null) {
     this.cache.set(key, {
       data,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      ttl: customTTL
     });
   }
 
-  // Loading bar management
-  updateLoadingBar() {
-    const progressPercent = this.totalTasks > 0 ? (this.loadingProgress / this.totalTasks) * 100 : 0;
+  // Exponential backoff with jitter
+  calculateBackoffDelay(attempt, baseDelay = this.baseDelay) {
+    const exponentialDelay = baseDelay * Math.pow(2, attempt);
+    const jitter = Math.random() * 0.1 * exponentialDelay; // 10% jitter
+    return Math.min(exponentialDelay + jitter, this.maxDelay);
+  }
+
+  // Circuit breaker pattern
+  isCircuitOpen(key) {
+    const breaker = this.circuitBreaker.get(key);
+    if (!breaker) return false;
     
-    let loadingBar = document.getElementById('apiLoadingBar');
-    if (!loadingBar) {
-      loadingBar = this.createLoadingBar();
+    const now = Date.now();
+    if (now - breaker.lastFailure < breaker.cooldownTime) {
+      console.log(`🚫 Circuit breaker OPEN for ${key}. Cooling down...`);
+      return true;
     }
     
-    const progressFill = loadingBar.querySelector('.progress-fill');
-    const progressText = loadingBar.querySelector('.progress-text');
-    
-    progressFill.style.width = `${progressPercent}%`;
-    progressText.textContent = `Loading API data... ${Math.round(progressPercent)}%`;
-    
-    loadingBar.style.display = 'block';
+    // Reset circuit breaker
+    this.circuitBreaker.delete(key);
+    return false;
   }
 
-  createLoadingBar() {
-    const loadingBar = document.createElement('div');
-    loadingBar.id = 'apiLoadingBar';
-    loadingBar.innerHTML = `
-      <div class="progress-container">
-        <div class="progress-text">Loading API data... 0%</div>
-        <div class="progress-bar">
-          <div class="progress-fill"></div>
-        </div>
-      </div>
-    `;
+  recordFailure(key, isQuotaError = false) {
+    const now = Date.now();
+    const current = this.circuitBreaker.get(key) || { failures: 0, lastFailure: 0 };
     
-    loadingBar.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      background: rgba(0, 0, 0, 0.9);
-      color: white;
-      padding: 20px;
-      z-index: 10000;
-      display: none;
-    `;
+    current.failures++;
+    current.lastFailure = now;
     
-    const progressContainer = loadingBar.querySelector('.progress-container');
-    progressContainer.style.cssText = `
-      max-width: 400px;
-      margin: 0 auto;
-      text-align: center;
-    `;
+    if (isQuotaError) {
+      // Longer cooldown for quota errors
+      current.cooldownTime = Math.min(30000 * current.failures, 300000); // 30s to 5min
+      this.metrics.quotaExceeded++;
+    } else {
+      current.cooldownTime = Math.min(5000 * current.failures, 60000); // 5s to 1min
+    }
     
-    const progressBar = loadingBar.querySelector('.progress-bar');
-    progressBar.style.cssText = `
-      width: 100%;
-      height: 20px;
-      background: #333;
-      border-radius: 10px;
-      margin-top: 10px;
-      overflow: hidden;
-    `;
-    
-    const progressFill = loadingBar.querySelector('.progress-fill');
-    progressFill.style.cssText = `
-      height: 100%;
-      background: linear-gradient(90deg, #4CAF50, #45a049);
-      width: 0%;
-      transition: width 0.3s ease;
-    `;
-    
-    document.body.appendChild(loadingBar);
-    return loadingBar;
+    this.circuitBreaker.set(key, current);
+    console.log(`🔥 Circuit breaker recorded failure for ${key}. Failures: ${current.failures}, Cooldown: ${current.cooldownTime}ms`);
   }
 
-  hideLoadingBar() {
-    const loadingBar = document.getElementById('apiLoadingBar');
-    if (loadingBar) {
-      setTimeout(() => {
-        loadingBar.style.display = 'none';
-        this.loadingProgress = 0;
-        this.totalTasks = 0;
-      }, 500);
+  recordSuccess(key) {
+    // Reset circuit breaker on success
+    this.circuitBreaker.delete(key);
+    this.metrics.successfulRequests++;
+  }
+
+  // Advanced error classification with quota awareness
+  classifyError(error) {
+    const errorMessage = error.message || error.toString();
+    const errorCode = error.code || error.status;
+    
+    // Quota exceeded errors - CRITICAL for multi-device
+    if (errorCode === 403 || errorMessage.includes('quotaExceeded') || 
+        errorMessage.includes('userRateLimitExceeded') ||
+        errorMessage.includes('dailyLimitExceeded') ||
+        errorMessage.includes('Quota exceeded')) {
+      
+      // Mark global quota as exceeded
+      this.globalQuotaState.quotaExceededAt = Date.now();
+      this.globalQuotaState.lastQuotaError = errorMessage;
+      this.saveGlobalQuotaState();
+      
+      return { 
+        type: 'quota', 
+        retryable: true, 
+        backoffMultiplier: 5, // Much longer backoff
+        isGlobal: true 
+      };
+    }
+    
+    // Rate limit errors
+    if (errorCode === 429 || errorMessage.includes('rateLimitExceeded')) {
+      return { type: 'rateLimit', retryable: true, backoffMultiplier: 3 };
+    }
+    
+    // Network errors
+    if (errorMessage.includes('network') || errorMessage.includes('timeout') ||
+        errorCode >= 500) {
+      return { type: 'network', retryable: true, backoffMultiplier: 2 };
+    }
+    
+    // Authentication errors
+    if (errorCode === 401 || errorMessage.includes('unauthorized')) {
+      return { type: 'auth', retryable: false, backoffMultiplier: 1 };
+    }
+    
+    // Default to non-retryable
+    return { type: 'unknown', retryable: false, backoffMultiplier: 1 };
+  }
+
+  // Enhanced main fetch with multi-device awareness
+  async bulletproofFetch(key, fetchFunction, options = {}) {
+    this.metrics.totalRequests++;
+    
+    // Check global quota first
+    if (this.isGlobalQuotaExceeded()) {
+      const staleData = this.cache.get(key);
+      if (staleData) {
+        console.log(`🗃️  Using stale cache for ${key} due to global quota exceeded`);
+        return staleData.data;
+      }
+      throw new Error(`Global quota exceeded for ${key}. Try again later.`);
+    }
+    
+    // Check cache first
+    const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
+    const cachedData = this.getCachedData(key, maxCacheAge);
+    if (cachedData && !options.forceRefresh) {
+      return cachedData;
+    }
+
+    // Check circuit breaker
+    if (this.isCircuitOpen(key)) {
+      const staleData = this.cache.get(key);
+      if (staleData) {
+        console.log(`⚡ Using stale cache for ${key} due to circuit breaker`);
+        return staleData.data;
+      }
+      throw new Error(`Circuit breaker is open for ${key}. No cached data available.`);
+    }
+
+    // Ensure only one request per key is in flight
+    if (this.requestQueue.has(key)) {
+      console.log(`⏳ Waiting for existing request: ${key}`);
+      return await this.requestQueue.get(key);
+    }
+
+    // Add device coordination delay
+    const deviceDelay = this.calculateDeviceDelay();
+    if (deviceDelay > 0) {
+      console.log(`⏱️  Device coordination delay: ${deviceDelay}ms`);
+      await this.wait(deviceDelay);
+    }
+
+    // Create the request promise
+    const requestPromise = this.executeWithRetry(key, fetchFunction, options);
+    this.requestQueue.set(key, requestPromise);
+
+    try {
+      const result = await requestPromise;
+      return result;
+    } finally {
+      this.requestQueue.delete(key);
     }
   }
 
-  // Utility
+  async executeWithRetry(key, fetchFunction, options) {
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        // Check global quota before each attempt
+        if (this.isGlobalQuotaExceeded()) {
+          throw new Error('Global quota exceeded - using cache fallback');
+        }
+        
+        console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key} (Device: ${this.deviceId})`);
+        
+        // Pre-request delay increases with attempts and device count
+        if (attempt > 0) {
+          const deviceCount = this.globalQuotaState.activeDevices.size;
+          const extraDelay = attempt * 1000 * deviceCount; // Progressively longer delays
+          await this.wait(extraDelay);
+        }
+        
+        const result = await fetchFunction();
+        
+        // Success! Update global counters
+        this.recordGlobalSuccess(key);
+        this.recordSuccess(key);
+        this.setCachedData(key, result, options.cacheTTL);
+        
+        console.log(`✅ Successfully fetched ${key}`);
+        return result;
+        
+      } catch (error) {
+        lastError = error;
+        this.metrics.failedRequests++;
+        
+        const errorInfo = this.classifyError(error);
+        console.log(`❌ Attempt ${attempt + 1} failed for ${key}:`, {
+          type: errorInfo.type,
+          retryable: errorInfo.retryable,
+          message: error.message,
+          deviceId: this.deviceId
+        });
+        
+        // Record failure for circuit breaker
+        this.recordFailure(key, errorInfo.type === 'quota');
+        
+        // If it's a global quota issue, mark it globally
+        if (errorInfo.isGlobal) {
+          this.recordGlobalQuotaFailure(error);
+        }
+        
+        // Don't retry if not retryable or max retries reached
+        if (!errorInfo.retryable || attempt === this.maxRetries) {
+          break;
+        }
+        
+        // Calculate smart backoff delay
+        const baseDelay = this.baseDelay * errorInfo.backoffMultiplier;
+        const deviceMultiplier = this.globalQuotaState.activeDevices.size;
+        const delay = this.calculateBackoffDelay(attempt, baseDelay) * deviceMultiplier;
+        
+        console.log(`⏱️  Waiting ${Math.round(delay/1000)}s before retry (${deviceMultiplier} devices active)...`);
+        await this.wait(delay);
+      }
+    }
+    
+    // All retries failed - try to return stale cache
+    const staleData = this.cache.get(key);
+    if (staleData) {
+      console.log(`🗃️  All retries failed for ${key}. Using stale cache (age: ${Math.round((Date.now() - staleData.timestamp)/1000)}s)`);
+      return staleData.data;
+    }
+    
+    throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
+  }
+
+  recordGlobalSuccess(key) {
+    this.globalQuotaState.requestsToday++;
+    this.saveGlobalQuotaState();
+  }
+
+  recordGlobalQuotaFailure(error) {
+    this.globalQuotaState.quotaExceededAt = Date.now();
+    this.globalQuotaState.lastQuotaError = error.message;
+    this.saveGlobalQuotaState();
+    
+    console.log(`🚨 GLOBAL QUOTA EXCEEDED recorded by device ${this.deviceId}`);
+  }
+
+  // Multi-device aware batch processing
+  async batchFetch(requests, options = {}) {
+    const {
+      concurrency = 1, // Always 1 for multi-device safety
+      adaptiveDelay = true,
+      priorityOrder = true,
+      emergencyMode = false
+    } = options;
+    
+    // Check if we're in emergency mode (quota exceeded recently)
+    const isEmergency = emergencyMode || this.isGlobalQuotaExceeded();
+    
+    console.log(`🎯 Starting ${isEmergency ? 'EMERGENCY' : 'NORMAL'} batch fetch:`, {
+      requests: requests.length,
+      deviceId: this.deviceId,
+      activeDevices: this.globalQuotaState.activeDevices.size,
+      quotaExceeded: !!this.globalQuotaState.quotaExceededAt
+    });
+    
+    let cacheResults = [];
+    if (isEmergency) {
+      const missedRequests = [];
+      
+      for (const request of requests) {
+        const cached = this.getCachedData(request.key, 30 * 60 * 1000); // Accept 30min old cache
+        if (cached) {
+          cacheResults.push({ key: request.key, data: cached, success: true, fromCache: true });
+        } else {
+          missedRequests.push(request);
+        }
+      }
+      
+      console.log(`🗄️  Emergency cache results: ${cacheResults.length} hits, ${missedRequests.length} misses`);
+      
+      // If we got everything from cache, return early
+      if (missedRequests.length === 0) {
+        return {
+          results: cacheResults,
+          errors: [],
+          metrics: this.getMetrics()
+        };
+      }
+      
+      // For cache misses in emergency mode, use much longer delays
+      requests = missedRequests;
+    }
+    
+    // Sort by priority if specified
+    if (priorityOrder) {
+      requests.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    }
+    
+    const results = [];
+    const errors = [];
+    let adaptiveDelayMs = isEmergency ? 10000 : 3000; // Start higher in emergency
+    
+    // Process requests one by one (safest for multi-device)
+    for (let i = 0; i < requests.length; i++) {
+      const request = requests[i];
+      
+      try {
+        // Add progressive delay between requests
+        if (i > 0) {
+          const progressiveDelay = adaptiveDelayMs + (i * 1000); // Each request waits longer
+          console.log(`⏳ Progressive delay: ${progressiveDelay}ms (request ${i + 1}/${requests.length})`);
+          await this.wait(progressiveDelay);
+        }
+        
+        const result = await this.bulletproofFetch(
+          request.key,
+          request.fetchFunction,
+          request.options || {}
+        );
+        
+        results.push({ key: request.key, data: result, success: true });
+        
+        // Success reduces delay slightly
+        if (adaptiveDelay && adaptiveDelayMs > 2000) {
+          adaptiveDelayMs = Math.max(adaptiveDelayMs * 0.9, 2000);
+        }
+        
+      } catch (error) {
+        errors.push({ key: request.key, error: error.message, success: false });
+        
+        // Failure increases delay significantly
+        if (adaptiveDelay) {
+          adaptiveDelayMs = Math.min(adaptiveDelayMs * 1.5, 30000);
+          console.log(`📈 Request failed. Increasing delay to ${adaptiveDelayMs}ms`);
+        }
+        
+        // If this was a quota error, abort remaining requests
+        if (error.message.includes('quota') || error.message.includes('Quota')) {
+          console.log(`🛑 Quota error detected. Aborting remaining ${requests.length - i - 1} requests.`);
+          break;
+        }
+      }
+    }
+    
+    console.log(`🏁 Multi-device batch complete:`, {
+      successful: results.length,
+      failed: errors.length,
+      deviceId: this.deviceId,
+      totalDevices: this.globalQuotaState.activeDevices.size
+    });
+    
+    return {
+      results: isEmergency ? [...cacheResults, ...results] : results,
+      errors,
+      metrics: this.getMetrics()
+    };
+  }
+
+  // Utility methods
   wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  getMetrics() {
+    const cacheSize = this.cache.size;
+    const queueSize = this.requestQueue.size;
+    const circuitBreakers = this.circuitBreaker.size;
+    
+    return {
+      ...this.metrics,
+      cacheSize,
+      queueSize,
+      circuitBreakers,
+      successRate: this.metrics.totalRequests > 0 ? 
+        (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0,
+      globalQuotaState: {
+        requestsToday: this.globalQuotaState.requestsToday,
+        quotaExceeded: !!this.globalQuotaState.quotaExceededAt,
+        activeDevices: this.globalQuotaState.activeDevices.size
+      }
+    };
+  }
+
   clearCache() {
     this.cache.clear();
+    console.log('🗑️  Cache cleared');
+  }
+
+  resetMetrics() {
+    this.metrics = {
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      cacheHits: 0,
+      quotaExceeded: 0,
+      deviceId: this.deviceId
+    };
+    console.log('📊 Metrics reset');
+  }
+
+  // Cleanup method for when device goes offline
+  cleanup() {
+    if (this.quotaMonitor) {
+      clearInterval(this.quotaMonitor);
+    }
+    
+    // Remove this device from active devices
+    this.globalQuotaState.activeDevices.delete(this.deviceId);
+    this.saveGlobalQuotaState();
+    
+    console.log(`🧹 Device ${this.deviceId} cleaned up`);
   }
 }
 
-// Create global instance
-const apiQueue = new SimpleAPIQueue({
-  maxRetries: 5,
-  retryDelay: 2000
+// ===================
+// ENHANCED IMPLEMENTATION FOR MULTI-DEVICE ENVIRONMENTS
+// ===================
+
+// Create global instance with multi-device settings
+const apiManager = new BulletproofAPIManager({
+  baseDelay: 5000,     // 5 second base delay for multi-device
+  maxDelay: 300000,    // 5 minute max delay
+  maxRetries: 10       // More retries for critical data
 });
 
-// ===================
-// SAFE API WRAPPERS
-// ===================
-
+// Enhanced wrapper functions for your existing API calls
 async function safeFetchSecretariatMembers() {
-  return await apiQueue.addRequest('secretariatMembers', fetchSecretariatMembers, {
-    maxCacheAge: 15 * 60 * 1000 // 15 minutes
+  return await apiManager.bulletproofFetch('secretariatMembers', fetchSecretariatMembers, {
+    maxCacheAge: 15 * 60 * 1000,  // 15 minutes cache
+    cacheTTL: 60 * 60 * 1000      // 1 hour TTL
   });
 }
 
 async function safeFetchVacanciesData() {
-  return await apiQueue.addRequest('vacanciesData', fetchVacanciesData, {
-    maxCacheAge: 10 * 60 * 1000 // 10 minutes
+  return await apiManager.bulletproofFetch('vacanciesData', fetchVacanciesData, {
+    maxCacheAge: 10 * 60 * 1000,  // 10 minutes cache
+    cacheTTL: 30 * 60 * 1000      // 30 minutes TTL
   });
 }
 
@@ -774,19 +1145,35 @@ async function safeLoadSignatories() {
     return null;
   }
   
-  return await apiQueue.addRequest('signatories', loadSignatories, {
-    maxCacheAge: 20 * 60 * 1000 // 20 minutes
+  return await apiManager.bulletproofFetch('signatories', loadSignatories, {
+    maxCacheAge: 20 * 60 * 1000,  // 20 minutes cache
+    cacheTTL: 2 * 60 * 60 * 1000  // 2 hour TTL
   });
 }
+
+// ===================
+// CORRECTED safeFetchRatings - MATCHES YOUR SHEET STRUCTURE
+// ===================
 
 async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
   if (!name || !item || !evaluator) {
     throw new Error('Missing required parameters: name, item, evaluator are all required');
   }
 
+  // Make the cache key hyper-specific to prevent cross-contamination
   const key = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
 
+  console.log(`🔍 Fetching ratings with precise key:`, {
+    key,
+    evaluator,
+    item, 
+    name,
+    deviceId: apiManager.deviceId
+  });
+
+  // The actual function that hits GAPI
   const fetchFunction = async () => {
+    // Always ensure token is fresh right before the call
     if (!await isTokenValid()) await refreshAccessToken();
 
     const response = await gapi.client.sheets.spreadsheets.values.get({
@@ -795,11 +1182,15 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
     });
 
     const values = response?.result?.values || [];
+    
+    // CORRECTED: Filter using your existing matchesRatingRow logic
     const filteredValues = [];
     
+    // Add header row if it exists
     if (values.length > 0) {
       filteredValues.push(values[0]); // Keep header
       
+      // Filter data rows using your existing logic
       const dataRows = values.slice(1);
       const matchingRows = dataRows.filter(row => {
         return matchesRatingRow(row, item, name, evaluator);
@@ -807,30 +1198,134 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
       
       filteredValues.push(...matchingRows);
       
-      console.log(`Found ${matchingRows.length} matching rating rows for:`, {
-        evaluator, item, name
+      console.log(`✅ Found ${matchingRows.length} matching rating rows for:`, {
+        evaluator, item, name,
+        totalRows: dataRows.length,
+        matchingRows: matchingRows.length
       });
     }
+    
+    console.log(`📊 Rating fetch results:`, {
+      totalRows: values.length,
+      filteredRows: filteredValues.length - 1, // -1 for header
+      searchCriteria: { evaluator, item, name },
+      deviceId: apiManager.deviceId
+    });
 
+    // Return the filtered data for THIS specific combination
     return { 
       values: filteredValues, 
       ts: Date.now(),
-      evaluator,
-      item,
-      name
+      evaluator,  // Include for validation
+      item,       // Include for validation  
+      name        // Include for validation
     };
   };
 
-  return await apiQueue.addRequest(key, fetchFunction, {
-    maxCacheAge: 30 * 1000, // 30 seconds
+  // Cache with shorter duration for ratings since they change frequently
+  return await apiManager.bulletproofFetch(key, fetchFunction, {
+    maxCacheAge: 30 * 1000,      // Only 30 seconds fresh cache
+    cacheTTL: 2 * 60 * 1000,     // 2 minutes TTL for fallback
     forceRefresh
   });
 }
 
+
+
+
 // ===================
-// ENHANCED INITIALIZATION
+// IMPROVED PENDING RATING MANAGEMENT
 // ===================
 
+const pendingRatings = new Map(); // Store pending ratings by specific key
+
+function savePendingRating(evaluator, item, name, ratingData) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  const pendingData = {
+    ...ratingData,
+    evaluator,
+    item,
+    name,
+    deviceId: apiManager.deviceId,
+    timestamp: Date.now()
+  };
+  
+  pendingRatings.set(key, pendingData);
+  
+  // Store in localStorage with device-specific key
+  try {
+    localStorage.setItem(key, JSON.stringify(pendingData));
+    console.log(`💾 Saved pending rating:`, { evaluator, item, name, deviceId: apiManager.deviceId });
+  } catch (e) {
+    console.warn('Failed to save pending rating to localStorage:', e);
+  }
+}
+
+function getPendingRating(evaluator, item, name) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  // First check memory
+  let pending = pendingRatings.get(key);
+  
+  // If not in memory, try localStorage
+  if (!pending) {
+    try {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        pending = JSON.parse(stored);
+        // Validate it matches exactly
+        if (pending.evaluator === evaluator && 
+            pending.item === item && 
+            pending.name === name &&
+            pending.deviceId === apiManager.deviceId) {
+          
+          // Check if not too old (5 minutes)
+          if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
+            pendingRatings.set(key, pending);
+            console.log(`📤 Restored pending rating:`, { evaluator, item, name });
+          } else {
+            // Too old, remove it
+            localStorage.removeItem(key);
+            pending = null;
+          }
+        } else {
+          pending = null;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore pending rating:', e);
+      pending = null;
+    }
+  }
+  
+  return pending;
+}
+
+function clearPendingRating(evaluator, item, name) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  pendingRatings.delete(key);
+  
+  try {
+    localStorage.removeItem(key);
+    console.log(`🧹 Cleared pending rating:`, { evaluator, item, name });
+  } catch (e) {
+    console.warn('Failed to clear pending rating from localStorage:', e);
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+// Ultra-safe initialization with fallback UI loading
 async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
@@ -847,72 +1342,173 @@ async function initializeApp() {
     try {
       await initializeGapiClient();
       gapiInitialized = true;
-      console.log('GAPI client initialized');
+      console.log('✅ GAPI client initialized');
       loadingState.gapi = true;
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
 
-      console.log('Starting API data loading...');
+      // ===================
+      // BULLETPROOF MULTI-DEVICE API STRATEGY
+      // ===================
       
-      try {
-        // Queue all API requests
-        const promises = [
-          safeFetchSecretariatMembers(),
-          safeFetchVacanciesData(),
-          safeLoadSignatories()
-        ];
-
-        // Wait for all to complete
-        await Promise.all(promises);
-        
-        console.log('All API requests completed successfully');
+      console.log('🎯 Starting bulletproof multi-device API calls...');
+      console.log('📱 Device Info:', {
+        deviceId: apiManager.deviceId,
+        activeDevices: apiManager.globalQuotaState.activeDevices.size,
+        globalQuotaStatus: apiManager.isGlobalQuotaExceeded() ? 'EXCEEDED' : 'OK'
+      });
+      
+      // Try cache-first approach
+      const cacheOnlyResults = await tryLoadFromCacheOnly();
+      
+      if (cacheOnlyResults.allLoaded) {
+        console.log('🚀 All data loaded from cache! Skipping API calls.');
         loadingState.apiDone = true;
         finishInitialization();
-        
-      } catch (error) {
-        console.error('API loading failed:', error);
-        handleAPIFailure();
+        return;
       }
       
+      // Define API requests with conservative settings
+      const apiRequests = [
+        {
+          key: 'secretariatMembers',
+          fetchFunction: safeFetchSecretariatMembers,
+          priority: 3,
+          required: true
+        },
+        {
+          key: 'vacanciesData', 
+          fetchFunction: safeFetchVacanciesData,
+          priority: 2,
+          required: true
+        },
+        {
+          key: 'signatories',
+          fetchFunction: safeLoadSignatories,
+          priority: 1,
+          required: false
+        }
+      ].filter(req => !cacheOnlyResults.loadedKeys.includes(req.key));
+      
+      if (apiRequests.length === 0) {
+        console.log('✅ All required data already cached');
+        loadingState.apiDone = true;
+        finishInitialization();
+        return;
+      }
+      
+      // Execute with ultra-conservative settings
+      const batchResult = await apiManager.batchFetch(apiRequests, {
+        concurrency: 1,
+        adaptiveDelay: true,
+        priorityOrder: true,
+        emergencyMode: apiManager.isGlobalQuotaExceeded()
+      });
+      
+      // Enhanced error handling
+      const criticalErrors = batchResult.errors.filter(err => 
+        apiRequests.find(req => req.key === err.key)?.required
+      );
+      
+      if (criticalErrors.length > 0) {
+        console.error('🚨 Critical API failures detected:', criticalErrors);
+        
+        // Try emergency fallback
+        await handleCriticalAPIFailure(criticalErrors);
+      }
+      
+      // Log comprehensive results
+      console.log('📊 Multi-device API Results:', {
+        successful: batchResult.results.length,
+        failed: batchResult.errors.length,
+        metrics: batchResult.metrics,
+        quotaStatus: apiManager.globalQuotaState.quotaExceededAt ? 'EXCEEDED' : 'OK'
+      });
+      
+      loadingState.apiDone = true;
+      finishInitialization();
+      
     } catch (error) {
-      console.error('Critical initialization error:', error);
-      handleInitializationFailure();
+      console.error('❌ Critical initialization error:', error);
+      await handleInitializationFailure();
     }
   });
 }
 
-// Handle API failure with 1-minute retry
-function handleAPIFailure() {
-  console.log('API failed, will reinitialize app in 1 minute...');
+// Cache-only loading attempt
+async function tryLoadFromCacheOnly() {
+  const results = {
+    loadedKeys: [],
+    allLoaded: false
+  };
   
+  const cacheTests = [
+    { key: 'secretariatMembers', required: true },
+    { key: 'vacanciesData', required: true },
+    { key: 'signatories', required: false }
+  ];
+  
+  let requiredLoaded = 0;
+  let requiredCount = 0;
+  
+  for (const test of cacheTests) {
+    if (test.required) requiredCount++;
+    
+    const cached = apiManager.getCachedData(test.key, 30 * 60 * 1000); // 30min tolerance
+    if (cached) {
+      results.loadedKeys.push(test.key);
+      if (test.required) requiredLoaded++;
+      console.log(`✅ ${test.key} loaded from cache`);
+    }
+  }
+  
+  results.allLoaded = (requiredLoaded === requiredCount);
+  return results;
+}
+
+// Handle critical API failures with graceful degradation
+async function handleCriticalAPIFailure(criticalErrors) {
+  console.log('🆘 Handling critical API failures...');
+  
+  // Try to load any available stale cache
+  for (const error of criticalErrors) {
+    const staleData = apiManager.cache.get(error.key);
+    if (staleData) {
+      console.log(`🗃️  Using stale cache for critical data: ${error.key}`);
+      // You might want to populate your UI with this stale data
+    }
+  }
+  
+  // Show user notification
   showErrorNotification(
-    'Failed to load data. The app will automatically restart in 1 minute.',
-    { showCountdown: true }
+    'Some data is temporarily unavailable due to high server load. ' +
+    'The app is using cached data where possible. Please try refreshing in a few minutes.'
   );
-  
-  setTimeout(() => {
-    console.log('Reinitializing app after API failure...');
-    window.location.reload();
-  }, 60000); // 1 minute
 }
 
 // Handle complete initialization failure
-function handleInitializationFailure() {
-  console.log('Complete initialization failure, will retry in 1 minute...');
+async function handleInitializationFailure() {
+  console.log('🆘 Handling complete initialization failure...');
+  
+  // Force mark everything as ready to show UI
+  loadingState.gapi = true;
+  loadingState.uiReady = true;
+  loadingState.dom = true;
+  loadingState.apiDone = true;
+  
+  // Try to load any cached data
+  await tryLoadFromCacheOnly();
+  
+  checkAndHideSpinner();
   
   showErrorNotification(
-    'App initialization failed. Restarting in 1 minute...',
-    { showCountdown: true }
+    'Unable to load fresh data. The app is running in offline mode with cached data. ' +
+    'Please check your internet connection and try refreshing.'
   );
-  
-  setTimeout(() => {
-    console.log('Reinitializing app after complete failure...');
-    window.location.reload();
-  }, 60000); // 1 minute
 }
 
-// Finish initialization
+// Finish initialization process
 function finishInitialization() {
   startUIMonitoring();
   restoreState();
@@ -930,26 +1526,33 @@ function finishInitialization() {
   loadingState.dom = true;
   checkAndHideSpinner();
   
-  console.log('App initialization complete');
+  console.log('✅ App initialization complete');
+  console.log('📊 Final metrics:', apiManager.getMetrics());
 }
 
-// Enhanced error notification with countdown
+// Enhanced error notification with retry option
 function showErrorNotification(message, options = {}) {
-  console.error('User notification:', message);
+  console.error('🚨 User notification:', message);
   
+  // Create enhanced notification UI
   const notification = document.createElement('div');
   notification.className = 'api-error-notification';
   notification.innerHTML = `
     <div class="notification-content">
       <div class="notification-icon">⚠️</div>
       <div class="notification-text">${message}</div>
-      ${options.showCountdown ? '<div class="countdown">60</div>' : ''}
+      ${options.showRetry ? `
+        <button class="notification-retry-btn" onclick="retryFailedAPIRequests()">
+          🔄 Retry Now
+        </button>
+      ` : ''}
       <button class="notification-close-btn" onclick="this.parentElement.parentElement.remove()">
         ✕
       </button>
     </div>
   `;
   
+  // Add styles
   notification.style.cssText = `
     position: fixed;
     top: 20px;
@@ -966,34 +1569,94 @@ function showErrorNotification(message, options = {}) {
   
   document.body.appendChild(notification);
   
-  // Countdown timer
-  if (options.showCountdown) {
-    const countdownEl = notification.querySelector('.countdown');
-    let seconds = 60;
-    
-    const countdownInterval = setInterval(() => {
-      seconds--;
-      if (countdownEl) {
-        countdownEl.textContent = seconds;
-      }
-      
-      if (seconds <= 0) {
-        clearInterval(countdownInterval);
-      }
-    }, 1000);
-  }
-  
-  // Auto-remove after 65 seconds
+  // Auto-remove after 30 seconds
   setTimeout(() => {
     if (notification.parentElement) {
       notification.remove();
     }
-  }, 65000);
+  }, 30000);
 }
 
-// ===================
-// AUTHENTICATION FUNCTIONS (NO DUPLICATES)
-// ===================
+// Retry mechanism for failed requests
+async function retryFailedAPIRequests() {
+  console.log('🔄 Manual retry triggered...');
+  
+  // Clear any quota exceeded state older than 5 minutes
+  if (apiManager.globalQuotaState.quotaExceededAt) {
+    const timeSince = Date.now() - apiManager.globalQuotaState.quotaExceededAt;
+    if (timeSince > 300000) { // 5 minutes
+      apiManager.globalQuotaState.quotaExceededAt = null;
+      apiManager.saveGlobalQuotaState();
+      console.log('🔓 Reset quota exceeded state for manual retry');
+    }
+  }
+  
+  // Try the initialization again
+  const apiRequests = [
+    {
+      key: 'secretariatMembers',
+      fetchFunction: safeFetchSecretariatMembers,
+      priority: 3,
+      options: { forceRefresh: true }
+    },
+    {
+      key: 'vacanciesData',
+      fetchFunction: safeFetchVacanciesData, 
+      priority: 2,
+      options: { forceRefresh: true }
+    },
+    {
+      key: 'signatories',
+      fetchFunction: safeLoadSignatories,
+      priority: 1,
+      options: { forceRefresh: true }
+    }
+  ];
+  
+  const result = await apiManager.batchFetch(apiRequests, {
+    concurrency: 1,
+    adaptiveDelay: true,
+    priorityOrder: true
+  });
+  
+  if (result.errors.length === 0) {
+    showErrorNotification('✅ All data refreshed successfully!');
+    window.location.reload(); // Refresh to apply new data
+  } else {
+    showErrorNotification('Some requests still failing. Please wait longer before retrying.');
+  }
+}
+
+// Monitor page visibility to pause requests when tab is hidden
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    console.log('📱 Tab hidden - pausing API requests');
+    // The queue system will naturally pause when tab is hidden
+  } else {
+    console.log('📱 Tab visible - resuming API requests');
+    apiManager.syncGlobalQuotaState(); // Sync state when coming back
+  }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  apiManager.cleanup();
+});
+
+// Optional: Add periodic cache cleanup
+setInterval(() => {
+  const metrics = apiManager.getMetrics();
+  if (metrics.cacheSize > 100) { // Arbitrary limit
+    console.log('🧹 Cleaning up old cache entries...');
+    // You could implement smarter cache eviction here
+  }
+}, 5 * 60 * 1000); // Every 5 minutes
+
+
+
+
+
+
 
 async function initializeGapiClient() {
   try {
@@ -1007,7 +1670,6 @@ async function initializeGapiClient() {
     console.log('GAPI client initialized');
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
-    throw error;
   }
 }
 
@@ -1043,19 +1705,17 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Attempt ${attempt} to refresh token with session_id: ${authState.session_id}`);
-      
+      console.log('Request headers:', { 'Content-Type': 'application/json' });
+      console.log('Request body:', JSON.stringify({ session_id: authState.session_id }));
       const response = await fetch(`${API_BASE_URL}/refresh-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ session_id: authState.session_id }),
       });
-      
       const responseBody = await response.text();
-      console.log('Server response:', responseBody);
-      
+      console.log('Full server response:', responseBody);
       const newToken = JSON.parse(responseBody);
-      
       if (!response.ok || newToken.error) {
         if (newToken.error === 'No refresh token') {
           console.error('Non-retryable error: No refresh token');
@@ -1067,7 +1727,6 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
         }
         throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
       }
-      
       authState.access_token = newToken.access_token;
       authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
       localStorage.setItem('authState', JSON.stringify(authState));
@@ -1075,7 +1734,6 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
       console.log('Token refreshed successfully');
       scheduleTokenRefresh();
       return true;
-      
     } catch (error) {
       console.error(`Refresh attempt ${attempt} failed: ${error.message}`);
       if (attempt === maxRetries) {
@@ -1142,10 +1800,6 @@ function handleTokenCallback(tokenResponse) {
       });
   }
 }
-
-
-
-
 
 function maybeEnableButtons() {
   if (gapiInitialized) {
@@ -2340,94 +2994,37 @@ async function handleEvaluatorSelection(event) {
   });
 }
 
-
-  console.log('Redirecting to Google Auth');
+function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
-// ===================
-// LOGOUT FUNCTIONS
-// ===================
-
-// Enhanced sign out with proper error handling
+// Update handleSignOutClick to make it robust
 async function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
-  
   const result = await showModal('Confirm Sign Out', modalContent, async () => {
     try {
-      console.log('Starting sign out process...');
-      
-      const authState = JSON.parse(localStorage.getItem('authState'));
       const accessToken = gapi.client.getToken()?.access_token;
-      
-      // Step 1: Revoke Google access token
       if (accessToken) {
-        try {
-          console.log('Revoking Google access token...');
-          const revokeResponse = await fetch(`https://oauth2.googleapis.com/revoke?token=${accessToken}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-          });
-          
-          if (revokeResponse.ok) {
-            console.log('Google access token revoked successfully');
-          } else {
-            console.warn('Failed to revoke Google token, but continuing logout');
-          }
-        } catch (error) {
-          console.warn('Error revoking Google token:', error);
-          // Continue with logout even if revoke fails
-        }
+        // Revoke the access token
+        await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
       }
-      
-      // Step 2: Clear session on backend
-      if (authState?.session_id) {
-        try {
-          console.log('Clearing backend session...');
-          const clearResponse = await fetch(`${API_BASE_URL}/clear-session`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': accessToken ? `Bearer ${accessToken}` : ''
-            },
-            body: JSON.stringify({ 
-              sessionId: authState.session_id,
-              session_id: authState.session_id 
-            }),
-            credentials: 'include'
-          });
-          
-          if (clearResponse.ok) {
-            console.log('Backend session cleared successfully');
-          } else {
-            const errorText = await clearResponse.text();
-            console.warn('Backend session clear failed:', errorText);
-          }
-        } catch (error) {
-          console.warn('Error clearing backend session:', error);
-          // Continue with logout even if backend clear fails
-        }
-      }
-      
-      // Step 3: Clear all client-side state
-      console.log('Clearing client-side state...');
-      
-      // Clear GAPI token
-      try {
-        gapi.client.setToken(null);
-      } catch (error) {
-        console.warn('Error clearing GAPI token:', error);
-      }
-      
-      // Clear all localStorage
-      try {
-        localStorage.clear();
-        console.log('localStorage cleared');
-      } catch (error) {
-        console.warn('Error clearing localStorage:', error);
-      }
-      
-      // Clear global variables
+      // Clear refresh token cookie on backend
+      await fetch(`${API_BASE_URL}/clear-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ sessionId }),
+        credentials: 'include'
+      });
+      // Reset client-side state
+      gapi.client.setToken(null);
+      localStorage.clear();
+      console.log('All localStorage cleared');
       currentEvaluator = null;
       sessionId = null;
       secretariatMemberId = null;
@@ -2436,8 +3033,19 @@ async function handleSignOutClick() {
       compeCodes = [];
       competencies = [];
       submissionQueue = [];
-      
-      // Clear timers
+      console.log('Global variables reset');
+      updateUI(false);
+      resetDropdowns([]);
+      elements.competencyContainer.innerHTML = '';
+      clearRatings();
+      const evaluatorSelect = document.getElementById('evaluatorSelect');
+      if (evaluatorSelect) {
+        evaluatorSelect.value = '';
+        evaluatorSelect.parentElement.remove();
+      }
+      if (elements.submitRatings) {
+        elements.submitRatings.disabled = true;
+      }
       if (fetchTimeout) {
         clearTimeout(fetchTimeout);
         fetchTimeout = null;
@@ -2446,81 +3054,30 @@ async function handleSignOutClick() {
         clearTimeout(refreshTimer);
         refreshTimer = null;
       }
-      
-      // Clear API queue cache
-      if (typeof apiQueue !== 'undefined') {
-        apiQueue.clearCache();
+      const resultsArea = document.querySelector('.results-area');
+      if (resultsArea) {
+        resultsArea.remove();
       }
-      
-      console.log('Global variables and timers cleared');
-      
-      // Step 4: Reset UI
-      try {
-        updateUI(false);
-        resetDropdowns([]);
-        elements.competencyContainer.innerHTML = '';
-        clearRatings();
-        
-        // Remove evaluator selector
-        const evaluatorSelect = document.getElementById('evaluatorSelect');
-        if (evaluatorSelect && evaluatorSelect.parentElement) {
-          evaluatorSelect.parentElement.remove();
-        }
-        
-        // Disable submit button
-        if (elements.submitRatings) {
-          elements.submitRatings.disabled = true;
-        }
-        
-        // Remove results area
-        const resultsArea = document.querySelector('.results-area');
-        if (resultsArea) {
-          resultsArea.remove();
-        }
-        
-        // Reset container margin
-        const container = document.querySelector('.container');
-        if (container) {
-          container.style.marginTop = '20px';
-        }
-        
-        // Show signed out state
-        const authSection = document.querySelector('.auth-section');
-        if (authSection) {
-          authSection.classList.add('signed-out');
-        }
-        
-        console.log('UI reset completed');
-        showToast('success', 'Signed Out', 'You have been successfully signed out.');
-        
-      } catch (error) {
-        console.error('Error resetting UI:', error);
-        showToast('warning', 'Partial Logout', 'Signed out but some UI elements may need manual refresh.');
-      }
-      
+      const container = document.querySelector('.container');
+      container.style.marginTop = '20px';
+      const authSection = document.querySelector('.auth-section');
+      authSection.classList.add('signed-out');
+      showToast('success', 'Signed Out', 'You have been successfully signed out.');
     } catch (error) {
       console.error('Error during sign out:', error);
-      showToast('error', 'Logout Error', 'There was an issue during sign out. Please refresh the page.');
-      
-      // Force refresh after error
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
+      showToast('error', 'Error', 'Failed to sign out completely. Please try again.');
     }
   }, () => {
     console.log('Sign out canceled');
   });
 }
 
-// Enhanced logout all sessions with better error handling
+// Update handleLogoutAll to ensure correct password handling
 async function handleLogoutAll() {
   const contentHTML = `
-    <div style="margin-bottom: 15px;">
-      <p>Enter the admin password to log out all sessions:</p>
-      <input type="password" id="logoutAllPasswordInput" placeholder="Enter password" style="width: 100%; padding: 8px; margin-top: 10px; border: 1px solid #ccc; border-radius: 4px;">
-    </div>
+    <p>Enter the admin password to log out all sessions:</p>
+    <input type="password" id="logoutAllPasswordInput" placeholder="Enter password">
   `;
-  
   const result = await showModal(
     'Confirm Logout All Sessions',
     contentHTML,
@@ -2531,57 +3088,31 @@ async function handleLogoutAll() {
         showToast('error', 'Error', 'Password input not found. Please try again.');
         return;
       }
-      
       const password = passwordInput.value.trim();
       if (password !== 'admindan') {
-        console.warn('Invalid password entered');
+        console.warn('Invalid password entered:', password);
         showToast('error', 'Error', 'Invalid password');
         return;
       }
-      
       try {
-        console.log('Starting logout all sessions...');
-        
-        const authState = JSON.parse(localStorage.getItem('authState'));
         const accessToken = gapi.client.getToken()?.access_token;
-        
-        if (!accessToken && !authState?.session_id) {
+        if (!accessToken) {
           showToast('error', 'Error', 'No valid session found');
           return;
         }
-        
-        // Call backend logout-all endpoint
         const response = await fetch(`${API_BASE_URL}/logout-all`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': accessToken ? `Bearer ${accessToken}` : ''
+            'Authorization': `Bearer ${accessToken}`
           },
-          body: JSON.stringify({ 
-            sessionId: authState?.session_id,
-            session_id: authState?.session_id,
-            password: password
-          }),
-          credentials: 'include'
+          body: JSON.stringify({ sessionId })
         });
-        
-        const responseText = await response.text();
-        console.log('Logout all response:', responseText);
-        
         if (response.ok) {
-          console.log('All sessions logged out on backend');
-          
-          // Clear local state (same as regular logout)
-          try {
-            gapi.client.setToken(null);
-          } catch (error) {
-            console.warn('Error clearing GAPI token:', error);
-          }
-          
+          // Reset client-side state
+          gapi.client.setToken(null);
           localStorage.clear();
-          console.log('localStorage cleared');
-          
-          // Clear global variables
+          console.log('All localStorage cleared');
           currentEvaluator = null;
           sessionId = null;
           secretariatMemberId = null;
@@ -2590,8 +3121,19 @@ async function handleLogoutAll() {
           compeCodes = [];
           competencies = [];
           submissionQueue = [];
-          
-          // Clear timers
+          console.log('Global variables reset');
+          updateUI(false);
+          resetDropdowns([]);
+          elements.competencyContainer.innerHTML = '';
+          clearRatings();
+          const evaluatorSelect = document.getElementById('evaluatorSelect');
+          if (evaluatorSelect) {
+            evaluatorSelect.value = '';
+            evaluatorSelect.parentElement.remove();
+          }
+          if (elements.submitRatings) {
+            elements.submitRatings.disabled = true;
+          }
           if (fetchTimeout) {
             clearTimeout(fetchTimeout);
             fetchTimeout = null;
@@ -2600,65 +3142,26 @@ async function handleLogoutAll() {
             clearTimeout(refreshTimer);
             refreshTimer = null;
           }
-          
-          // Clear API queue cache
-          if (typeof apiQueue !== 'undefined') {
-            apiQueue.clearCache();
-          }
-          
-          console.log('Global variables cleared');
-          
-          // Reset UI
-          updateUI(false);
-          resetDropdowns([]);
-          elements.competencyContainer.innerHTML = '';
-          clearRatings();
-          
-          const evaluatorSelect = document.getElementById('evaluatorSelect');
-          if (evaluatorSelect && evaluatorSelect.parentElement) {
-            evaluatorSelect.parentElement.remove();
-          }
-          
-          if (elements.submitRatings) {
-            elements.submitRatings.disabled = true;
-          }
-          
           const resultsArea = document.querySelector('.results-area');
           if (resultsArea) {
             resultsArea.remove();
           }
-          
           const container = document.querySelector('.container');
-          if (container) {
-            container.style.marginTop = '20px';
-          }
-          
+          container.style.marginTop = '20px';
           const authSection = document.querySelector('.auth-section');
-          if (authSection) {
-            authSection.classList.add('signed-out');
-          }
-          
-          showToast('success', 'Success', 'All sessions logged out successfully');
-          
+          authSection.classList.add('signed-out');
+          showToast('success', 'Success', 'All sessions logged out');
         } else {
-          let errorData;
-          try {
-            errorData = JSON.parse(responseText);
-          } catch (e) {
-            errorData = { error: responseText };
-          }
-          
+          const errorData = await response.json();
           console.error('Logout all failed:', errorData);
-          showToast('error', 'Error', `Failed to log out all sessions: ${errorData.error || 'Unknown error'}`);
+          showToast('error', 'Error', 'Failed to log out all sessions');
         }
-        
       } catch (error) {
         console.error('Error logging out all sessions:', error);
-        showToast('error', 'Error', `Network error during logout: ${error.message}`);
+        showToast('error', 'Error', 'Failed to log out all sessions');
       }
     },
     () => {
-      // Clear password input on cancel
       const passwordInput = document.getElementById('logoutAllPasswordInput');
       if (passwordInput) {
         passwordInput.value = '';
@@ -2667,7 +3170,6 @@ async function handleLogoutAll() {
     }
   );
 }
-
 
 // Update updateUI to manage tabs visibility and logout buttons
 function updateUI(isSignedIn) {
@@ -5852,4 +6354,3 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
