@@ -6409,49 +6409,52 @@ async function deleteSignatory(index) {
 
 
 /**
- * Fetches vacancies data using the bulletproof API manager
- * Replaces the original fetchVacanciesData() function
+ * Base function that performs the actual vacancies data fetch
+ * This is called by safeFetchVacanciesData() through the bulletproof manager
  */
 async function fetchVacanciesData() {
   try {
-    console.log('Fetching vacancies data via bulletproof manager...');
+    console.log('Executing base fetchVacanciesData...');
     
-    // Use the existing safeFetchVacanciesData wrapper that's already integrated
-    // with the bulletproof API manager
-    const response = await safeFetchVacanciesData();
-    
-    if (response && response.result && response.result.values) {
-      const values = response.result.values;
-      if (values.length > 1) {
-        // Store in global variable for backward compatibility
-        vacanciesData = values.slice(1); // Skip header row
-        console.log('Vacancies data loaded successfully:', vacanciesData.length, 'records');
-        return vacanciesData;
-      } else {
-        console.warn('Vacancies data is empty or has no data rows');
-        vacanciesData = [];
-        return vacanciesData;
-      }
-    } else {
-      console.warn('Invalid response structure from vacancies API');
-      // Try to preserve existing data if available
-      if (!vacanciesData) {
-        vacanciesData = [];
-      }
-      return vacanciesData;
+    if (!window.gapiInitialized) {
+      throw new Error('GAPI not initialized yet');
     }
+
+    // Ensure token is valid before making request
+    if (typeof isTokenValid === 'function' && !await isTokenValid()) {
+      if (typeof refreshAccessToken === 'function') {
+        await refreshAccessToken();
+      }
+    }
+    
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.VACANCIES,
+    });
+    
+    if (!response || !response.result || !response.result.values) {
+      throw new Error('Invalid response structure from Google Sheets API');
+    }
+    
+    const values = response.result.values;
+    if (values.length <= 1) {
+      console.warn('Vacancies sheet appears to be empty (only header row or no rows)');
+      vacanciesData = [];
+      return { result: { values: [] } };
+    }
+    
+    // Store in global variable for backward compatibility
+    vacanciesData = values.slice(1); // Skip header row
+    console.log('Vacancies data fetched successfully:', vacanciesData.length, 'records');
+    
+    // Return in the expected format for the bulletproof manager
+    return response;
+    
   } catch (error) {
-    console.error('Error fetching vacancies data:', error);
+    console.error('Error in base fetchVacanciesData:', error);
     
-    // Try to use any existing cached data as fallback
-    if (vacanciesData && vacanciesData.length > 0) {
-      console.warn('Using existing vacancies data as fallback');
-      return vacanciesData;
-    }
-    
-    // Initialize empty array if no fallback available
-    vacanciesData = [];
-    return vacanciesData;
+    // Don't update vacanciesData on error - let bulletproof manager handle fallbacks
+    throw error;
   }
 }
 
@@ -6643,4 +6646,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
