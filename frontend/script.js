@@ -3622,7 +3622,7 @@ async function loadSheetData(maxRetries = 3) {
       console.error(`Attempt ${attempt} failed:`, error);
       if (attempt === maxRetries) {
         elements.authStatus.textContent = 'Error loading sheet data. Retrying soon...';
-        showToast('error', 'Error', 'Failed to load sheet data, retrying in the background.');
+        showToast('error', 'Note', 'Secretariat Tab not accessible.');
         setTimeout(() => loadSheetData(), 300000);
       } else {
         await delay(Math.pow(2, attempt) * 1000);
@@ -6371,7 +6371,7 @@ async function loadSignatories() { // Keeping your preferred function name
     console.log('Signatories loaded from sheet:', SIGNATORIES);
   } catch (error) {
     console.error('Error loading signatories from sheet:', error);
-    showToast('error', 'Error', 'Failed to load signatories from Google Sheet.');
+    showToast('error', 'Note', 'Secretariat Tab not accessible.');
     SIGNATORIES = []; // Initialize empty if loading fails
   }
 }
@@ -6571,6 +6571,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
