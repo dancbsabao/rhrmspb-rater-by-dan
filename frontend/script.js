@@ -2726,86 +2726,153 @@ function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
-// Update handleSignOutClick to make it robust
+// Fixed handleSignOutClick to handle errors gracefully
 async function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
   const result = await showModal('Confirm Sign Out', modalContent, async () => {
     try {
       const accessToken = gapi.client.getToken()?.access_token;
+      
+      // Try to revoke the access token (ignore errors)
       if (accessToken) {
-        // Revoke the access token
-        await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
+        try {
+          await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          });
+          console.log('Access token revoked successfully');
+        } catch (revokeError) {
+          console.warn('Failed to revoke access token (non-critical):', revokeError.message);
+        }
       }
-      // Clear refresh token cookie on backend
-      await fetch(`${API_BASE_URL}/clear-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({ sessionId }),
-        credentials: 'include'
-      });
-      // Reset client-side state
+      
+      // Try to clear refresh token cookie on backend (ignore errors)
+      try {
+        await fetch(`${API_BASE_URL}/clear-session`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(accessToken && { 'Authorization': `Bearer ${accessToken}` })
+          },
+          body: JSON.stringify({ sessionId: window.sessionId }),
+          credentials: 'include'
+        });
+        console.log('Session cleared on backend');
+      } catch (backendError) {
+        console.warn('Failed to clear backend session (non-critical):', backendError.message);
+      }
+      
+      // Reset client-side state (this always works)
       gapi.client.setToken(null);
       localStorage.clear();
       console.log('All localStorage cleared');
-      currentEvaluator = null;
-      sessionId = null;
-      secretariatMemberId = null;
-      vacancies = [];
-      candidates = [];
-      compeCodes = [];
-      competencies = [];
-      submissionQueue = [];
+      
+      // Reset global variables (use window object to avoid const errors)
+      window.currentEvaluator = null;
+      window.sessionId = null;
+      window.secretariatMemberId = null;
+      
+      // Reset arrays (clear contents instead of reassigning)
+      if (window.vacancies) window.vacancies.length = 0;
+      if (window.candidates) window.candidates.length = 0;
+      if (window.compeCodes) window.compeCodes.length = 0;
+      if (window.competencies) window.competencies.length = 0;
+      if (window.submissionQueue) window.submissionQueue.length = 0;
+      
       console.log('Global variables reset');
-      updateUI(false);
-      resetDropdowns([]);
-      elements.competencyContainer.innerHTML = '';
-      clearRatings();
+      
+      // Clear API manager cache
+      if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
+        window.apiManager.clearCache();
+      }
+      
+      // Update UI
+      if (typeof updateUI === 'function') updateUI(false);
+      if (typeof resetDropdowns === 'function') resetDropdowns([]);
+      if (typeof clearRatings === 'function') clearRatings();
+      
+      // Clean up UI elements
+      if (window.elements?.competencyContainer) {
+        window.elements.competencyContainer.innerHTML = '';
+      }
+      
+      // Remove evaluator selector
       const evaluatorSelect = document.getElementById('evaluatorSelect');
-      if (evaluatorSelect) {
-        evaluatorSelect.value = '';
+      if (evaluatorSelect && evaluatorSelect.parentElement) {
         evaluatorSelect.parentElement.remove();
       }
-      if (elements.submitRatings) {
-        elements.submitRatings.disabled = true;
+      
+      // Disable submit button
+      if (window.elements?.submitRatings) {
+        window.elements.submitRatings.disabled = true;
       }
-      if (fetchTimeout) {
-        clearTimeout(fetchTimeout);
-        fetchTimeout = null;
+      
+      // Clear timeouts
+      if (window.fetchTimeout) {
+        clearTimeout(window.fetchTimeout);
+        window.fetchTimeout = null;
       }
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
+      if (window.refreshTimer) {
+        clearTimeout(window.refreshTimer);
+        window.refreshTimer = null;
       }
+      
+      // Clean up results area
       const resultsArea = document.querySelector('.results-area');
       if (resultsArea) {
         resultsArea.remove();
       }
+      
+      // Reset container styling
       const container = document.querySelector('.container');
-      container.style.marginTop = '20px';
+      if (container) {
+        container.style.marginTop = '20px';
+      }
+      
+      // Update auth section
       const authSection = document.querySelector('.auth-section');
-      authSection.classList.add('signed-out');
-      showToast('success', 'Signed Out', 'You have been successfully signed out.');
+      if (authSection) {
+        authSection.classList.add('signed-out');
+      }
+      
+      if (typeof showToast === 'function') {
+        showToast('success', 'Signed Out', 'You have been successfully signed out.');
+      }
+      
     } catch (error) {
       console.error('Error during sign out:', error);
-      showToast('error', 'Error', 'Failed to sign out completely. Please try again.');
+      
+      // Even if there's an error, try to clean up locally
+      try {
+        gapi.client.setToken(null);
+        localStorage.clear();
+        window.currentEvaluator = null;
+        window.sessionId = null;
+        if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
+          window.apiManager.clearCache();
+        }
+        if (typeof showToast === 'function') {
+          showToast('warning', 'Partial Sign Out', 'Local data cleared, but server cleanup may have failed.');
+        }
+      } catch (cleanupError) {
+        console.error('Failed to clean up even locally:', cleanupError);
+        if (typeof showToast === 'function') {
+          showToast('error', 'Sign Out Error', 'Failed to sign out properly. Please refresh the page.');
+        }
+      }
     }
   }, () => {
     console.log('Sign out canceled');
   });
 }
 
-// Update handleLogoutAll to ensure correct password handling
+// Fixed handleLogoutAll to handle errors and const variables properly
 async function handleLogoutAll() {
   const contentHTML = `
     <p>Enter the admin password to log out all sessions:</p>
     <input type="password" id="logoutAllPasswordInput" placeholder="Enter password">
   `;
+  
   const result = await showModal(
     'Confirm Logout All Sessions',
     contentHTML,
@@ -2813,80 +2880,130 @@ async function handleLogoutAll() {
       const passwordInput = document.getElementById('logoutAllPasswordInput');
       if (!passwordInput) {
         console.error('Password input not found');
-        showToast('error', 'Error', 'Password input not found. Please try again.');
+        if (typeof showToast === 'function') {
+          showToast('error', 'Error', 'Password input not found. Please try again.');
+        }
         return;
       }
+      
       const password = passwordInput.value.trim();
       if (password !== 'admindan') {
-        console.warn('Invalid password entered:', password);
-        showToast('error', 'Error', 'Invalid password');
+        console.warn('Invalid password entered');
+        if (typeof showToast === 'function') {
+          showToast('error', 'Error', 'Invalid password');
+        }
         return;
       }
+      
       try {
         const accessToken = gapi.client.getToken()?.access_token;
         if (!accessToken) {
-          showToast('error', 'Error', 'No valid session found');
+          if (typeof showToast === 'function') {
+            showToast('error', 'Error', 'No valid session found');
+          }
           return;
         }
+        
         const response = await fetch(`${API_BASE_URL}/logout-all`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
           },
-          body: JSON.stringify({ sessionId })
+          body: JSON.stringify({ sessionId: window.sessionId })
         });
+        
         if (response.ok) {
           // Reset client-side state
           gapi.client.setToken(null);
           localStorage.clear();
           console.log('All localStorage cleared');
-          currentEvaluator = null;
-          sessionId = null;
-          secretariatMemberId = null;
-          vacancies = [];
-          candidates = [];
-          compeCodes = [];
-          competencies = [];
-          submissionQueue = [];
+          
+          // Reset global variables (use window object to avoid const errors)
+          window.currentEvaluator = null;
+          window.sessionId = null;
+          window.secretariatMemberId = null;
+          
+          // Reset arrays (clear contents instead of reassigning)
+          if (window.vacancies) window.vacancies.length = 0;
+          if (window.candidates) window.candidates.length = 0;
+          if (window.compeCodes) window.compeCodes.length = 0;
+          if (window.competencies) window.competencies.length = 0;
+          if (window.submissionQueue) window.submissionQueue.length = 0;
+          
           console.log('Global variables reset');
-          updateUI(false);
-          resetDropdowns([]);
-          elements.competencyContainer.innerHTML = '';
-          clearRatings();
+          
+          // Clear API manager cache
+          if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
+            window.apiManager.clearCache();
+          }
+          
+          // Update UI
+          if (typeof updateUI === 'function') updateUI(false);
+          if (typeof resetDropdowns === 'function') resetDropdowns([]);
+          if (typeof clearRatings === 'function') clearRatings();
+          
+          // Clean up UI elements
+          if (window.elements?.competencyContainer) {
+            window.elements.competencyContainer.innerHTML = '';
+          }
+          
+          // Remove evaluator selector
           const evaluatorSelect = document.getElementById('evaluatorSelect');
-          if (evaluatorSelect) {
-            evaluatorSelect.value = '';
+          if (evaluatorSelect && evaluatorSelect.parentElement) {
             evaluatorSelect.parentElement.remove();
           }
-          if (elements.submitRatings) {
-            elements.submitRatings.disabled = true;
+          
+          // Disable submit button
+          if (window.elements?.submitRatings) {
+            window.elements.submitRatings.disabled = true;
           }
-          if (fetchTimeout) {
-            clearTimeout(fetchTimeout);
-            fetchTimeout = null;
+          
+          // Clear timeouts
+          if (window.fetchTimeout) {
+            clearTimeout(window.fetchTimeout);
+            window.fetchTimeout = null;
           }
-          if (refreshTimer) {
-            clearTimeout(refreshTimer);
-            refreshTimer = null;
+          if (window.refreshTimer) {
+            clearTimeout(window.refreshTimer);
+            window.refreshTimer = null;
           }
+          
+          // Clean up results area
           const resultsArea = document.querySelector('.results-area');
           if (resultsArea) {
             resultsArea.remove();
           }
+          
+          // Reset container styling
           const container = document.querySelector('.container');
-          container.style.marginTop = '20px';
+          if (container) {
+            container.style.marginTop = '20px';
+          }
+          
+          // Update auth section
           const authSection = document.querySelector('.auth-section');
-          authSection.classList.add('signed-out');
-          showToast('success', 'Success', 'All sessions logged out');
+          if (authSection) {
+            authSection.classList.add('signed-out');
+          }
+          
+          if (typeof showToast === 'function') {
+            showToast('success', 'Success', 'All sessions logged out');
+          }
+          
         } else {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({}));
           console.error('Logout all failed:', errorData);
-          showToast('error', 'Error', 'Failed to log out all sessions');
+          if (typeof showToast === 'function') {
+            showToast('error', 'Error', 'Failed to log out all sessions');
+          }
         }
+        
       } catch (error) {
         console.error('Error logging out all sessions:', error);
-        showToast('error', 'Error', 'Failed to log out all sessions');
+        if (typeof showToast === 'function') {
+          showToast('error', 'Error', 'Failed to log out all sessions');
+        }
       }
     },
     () => {
@@ -5970,3 +6087,4 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
