@@ -531,700 +531,756 @@ function startUIMonitoring() {
 }
 
 
+// ===========================
+// ENHANCED LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
+// ===========================
+let apiNotifierEl = null;
+let updateInterval = null;
+let isMinimized = false;
+let lastUpdateTime = null;
+
+// Create or get the notifier element
+function createApiNotifier() {
+  if (!apiNotifierEl) {
+    apiNotifierEl = document.createElement("div");
+    apiNotifierEl.id = "apiNotifier";
+    apiNotifierEl.style.position = "fixed";
+    apiNotifierEl.style.bottom = "10px";
+    apiNotifierEl.style.right = "10px";
+    apiNotifierEl.style.padding = "12px 16px";
+    apiNotifierEl.style.background = "linear-gradient(135deg, #2d3748, #4a5568)";
+    apiNotifierEl.style.color = "white";
+    apiNotifierEl.style.borderRadius = "12px";
+    apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
+    apiNotifierEl.style.fontSize = "13px";
+    apiNotifierEl.style.fontFamily = "system-ui, -apple-system, sans-serif";
+    apiNotifierEl.style.zIndex = "9999";
+    apiNotifierEl.style.cursor = "pointer";
+    apiNotifierEl.style.transition = "all 0.3s ease";
+    apiNotifierEl.style.border = "1px solid rgba(255,255,255,0.1)";
+    apiNotifierEl.style.backdropFilter = "blur(10px)";
+    apiNotifierEl.style.userSelect = "none";
+    
+    // Click handler for minimize/expand
+    apiNotifierEl.addEventListener('click', toggleMinimize);
+    
+    // Hover effects
+    apiNotifierEl.addEventListener('mouseenter', () => {
+      apiNotifierEl.style.transform = "translateY(-2px)";
+      apiNotifierEl.style.boxShadow = "0 8px 25px rgba(0,0,0,0.4)";
+    });
+    
+    apiNotifierEl.addEventListener('mouseleave', () => {
+      apiNotifierEl.style.transform = "translateY(0)";
+      apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
+    });
+    
+    document.body.appendChild(apiNotifierEl);
+  }
+
+  function update(status) {
+    const quotaRemaining = status.quota ?? "?";
+    const resetTimeFormatted = status.resetTime ? new Date(status.resetTime).toLocaleString() : "?";
+    const lastRequestFormatted = status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?";
+    const connectionStatus = getConnectionStatus(status);
+    const quotaDisplay = getQuotaDisplay(status);
+    
+    lastUpdateTime = new Date();
+    
+    if (isMinimized) {
+      apiNotifierEl.innerHTML = `
+        <div style="font-weight:bold; font-size:12px;">
+          ${connectionStatus.icon} API ${connectionStatus.short}
+          <span style="opacity:0.7; margin-left:8px;">↗️</span>
+        </div>
+      `;
+      apiNotifierEl.style.padding = "8px 12px";
+    } else {
+      apiNotifierEl.innerHTML = `
+        <div style="font-weight:bold; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>${connectionStatus.icon} API Status: ${connectionStatus.text}</span>
+          <span style="opacity:0.6; font-size:11px; cursor:pointer;">↙️</span>
+        </div>
+        <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 12px; font-size:12px;">
+          <span style="opacity:0.8;"><strong>Device:</strong></span>
+          <span>${status.deviceId || "N/A"}</span>
+          
+          <span style="opacity:0.8;"><strong>Quota:</strong></span>
+          <span>${quotaDisplay}</span>
+          
+          <span style="opacity:0.8;"><strong>Reset:</strong></span>
+          <span>${resetTimeFormatted}</span>
+          
+          <span style="opacity:0.8;"><strong>Last Request:</strong></span>
+          <span>${lastRequestFormatted}</span>
+        </div>
+        ${status.message ? `<div style="margin-top:8px; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; font-size:11px; opacity:0.9;">${status.message}</div>` : ''}
+        <div style="margin-top:6px; font-size:10px; opacity:0.5; text-align:center;">
+          Updated: ${lastUpdateTime.toLocaleTimeString()}
+        </div>
+      `;
+      apiNotifierEl.style.padding = "12px 16px";
+    }
+  }
+
+  return { update };
+}
+
+// Helper functions for status display
+function getConnectionStatus(status) {
+  if (!status.ready) {
+    return { icon: "🔴", text: "NOT READY ❌", short: "DOWN" };
+  }
+  
+  if (status.isExceeded) {
+    return { icon: "⚠️", text: "QUOTA EXCEEDED ⚠️", short: "LIMIT" };
+  }
+  
+  if (status.hasError) {
+    return { icon: "🟡", text: "WARNING ⚠️", short: "WARN" };
+  }
+  
+  return { icon: "🟢", text: "READY ✅", short: "OK" };
+}
+
+function getQuotaDisplay(status) {
+  if (status.isExceeded) {
+    return "⚠️ EXCEEDED";
+  }
+  
+  if (typeof status.requestsToday === 'number' && status.quotaLimit) {
+    const remaining = status.quotaLimit - status.requestsToday;
+    const percentage = Math.round((remaining / status.quotaLimit) * 100);
+    return `${remaining} left (${percentage}%)`;
+  }
+  
+  return status.quota || "Unknown";
+}
+
+// Toggle minimize/expand
+function toggleMinimize() {
+  isMinimized = !isMinimized;
+  // Trigger immediate update to refresh display
+  liveUpdateNotifier();
+}
+
+// ✅ Backward compatibility shim
+function updateApiNotifier(status, message, extra = {}) {
+  const apiNotifier = createApiNotifier();
+  apiNotifier.update({
+    ready: status === "ready",
+    deviceId: extra.deviceId,
+    quota: extra.quota ?? "?",
+    quotaLimit: extra.quotaLimit,
+    requestsToday: extra.requestsToday,
+    resetTime: extra.resetTime ?? null,
+    lastRequest: extra.lastRequest ?? null,
+    isExceeded: extra.isExceeded ?? false,
+    hasError: extra.hasError ?? false,
+    message: message || "",
+  });
+}
+
+// ===========================
+// Fetch live device info from apiManager
+// ===========================
+async function fetchDeviceInfo() {
+  try {
+    // Check if apiManager exists
+    if (typeof apiManager === 'undefined') {
+      return {
+        requestsToday: "?",
+        isExceeded: false,
+        activeDevices: "?",
+        quotaResetTime: null,
+        lastQuotaError: "API Manager not found",
+        lastRequestTime: Date.now(),
+        deviceId: "unknown_device",
+        hasError: true
+      };
+    }
+
+    const metrics = apiManager.getMetrics();
+    const globalQuota = metrics.globalQuotaState || {};
+    
+    return {
+      requestsToday: globalQuota.requestsToday ?? 0,
+      quotaLimit: globalQuota.quotaLimit ?? 100, // Assume default limit
+      isExceeded: !!globalQuota.quotaExceededAt,
+      activeDevices: metrics.activeDevices ?? 1,
+      quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
+      lastQuotaError: globalQuota.lastQuotaError ?? null,
+      lastRequestTime: Date.now(),
+      deviceId: metrics.deviceId ?? "unknown_device",
+      hasError: false
+    };
+  } catch (err) {
+    console.error("❌ Failed to fetch device info:", err);
+    return {
+      requestsToday: "?",
+      quotaLimit: null,
+      isExceeded: false,
+      activeDevices: "?",
+      quotaResetTime: null,
+      lastQuotaError: err.message,
+      lastRequestTime: Date.now(),
+      deviceId: "error_device",
+      hasError: true
+    };
+  }
+}
+
+// ===========================
+// Live auto-update with smart intervals
+// ===========================
+async function liveUpdateNotifier() {
+  // Skip update if page is hidden (performance optimization)
+  if (document.hidden) return;
+  
+  const info = await fetchDeviceInfo();
+  const apiNotifier = createApiNotifier();
+  
+  let message = "";
+  if (info.hasError && info.lastQuotaError) {
+    message = `⚠️ ${info.lastQuotaError}`;
+  } else if (info.isExceeded) {
+    message = `🚫 Quota exceeded. Resets at ${new Date(info.quotaResetTime).toLocaleTimeString()}`;
+  }
+  
+  apiNotifier.update({
+    ready: !info.hasError && !info.isExceeded,
+    deviceId: info.deviceId,
+    quota: info.requestsToday >= 0 ? `${info.requestsToday}/${info.quotaLimit || '?'}` : "?",
+    quotaLimit: info.quotaLimit,
+    requestsToday: info.requestsToday,
+    resetTime: info.quotaResetTime,
+    lastRequest: info.lastRequestTime,
+    isExceeded: info.isExceeded,
+    hasError: info.hasError,
+    message: message
+  });
+}
+
+// ===========================
+// Lifecycle management
+// ===========================
+function startLiveUpdates() {
+  if (updateInterval) return; // Already running
+  
+  liveUpdateNotifier(); // Initial call
+  updateInterval = setInterval(liveUpdateNotifier, 5000);
+  
+  // Pause updates when page is hidden, resume when visible
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      liveUpdateNotifier(); // Immediate update when tab becomes visible
+    }
+  });
+  
+  console.log("🔔 API Notifier started");
+}
+
+function stopLiveUpdates() {
+  if (updateInterval) {
+    clearInterval(updateInterval);
+    updateInterval = null;
+    console.log("🔔 API Notifier stopped");
+  }
+}
+
+function removeNotifier() {
+  stopLiveUpdates();
+  if (apiNotifierEl) {
+    apiNotifierEl.remove();
+    apiNotifierEl = null;
+  }
+}
+
+// ===========================
+// Initialization integration
+// ===========================
+async function initializeApiNotifier() {
+  try {
+    console.log('🔔 Initializing API Notifier...');
+    
+    // Wait for apiManager to be available before starting
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds maximum wait
+    
+    while (typeof apiManager === 'undefined' && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
+    if (typeof apiManager === 'undefined') {
+      console.warn('⚠️ API Manager not found after 5s, starting notifier anyway...');
+    }
+    
+    // Start the live updates
+    startLiveUpdates();
+    console.log('✅ API Notifier initialized successfully');
+    
+    return true;
+  } catch (error) {
+    console.error('❌ API Notifier initialization failed:', error);
+    return false;
+  }
+}
+
+// ===========================
+// Auto-start and cleanup
+// ===========================
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', stopLiveUpdates);
+
+// Export functions for manual control
+window.apiNotifierControl = {
+  init: initializeApiNotifier,
+  start: startLiveUpdates,
+  stop: stopLiveUpdates,
+  remove: removeNotifier,
+  toggle: toggleMinimize,
+  update: liveUpdateNotifier,
+  isRunning: () => updateInterval !== null
+};
 
 
 
 
 
 
-// Simple API Request Queue Manager
-class SimpleApiQueue {
+
+
+
+
+
+// ============================================================================
+//
+//      SIMPLIFIED SEQUENTIAL API QUEUE MANAGER
+//      Simple, reliable, sequential data loading with cache fallback
+//
+// ============================================================================
+
+class SequentialAPIManager {
   constructor() {
-    this.queue = [];
-    this.isProcessing = false;
+    this.deviceId = this._generateDeviceId();
     this.cache = new Map();
-    this.currentToken = null;
-    this.retryTimeouts = new Map();
-    this.retryInterval = 60 * 1000; // 1 minute
+    this.isLoading = false;
+    this.retryQueue = [];
+    this.retryTimer = null;
   }
 
-  async init(token) {
-    this.currentToken = token;
-    this.clearCache();
-    this.loadCacheFromStorage();
-    await this.loadInitialData();
-    this.updateLog('Initialization complete.');
+  /**
+   * Initialize the manager
+   */
+  async init() {
+    console.log(`Sequential API Manager initialized. Device ID: ${this.deviceId}`);
+    updateApiNotifier("ready", `Device ${this.deviceId} ready`);
   }
 
-  clearCache() {
-    this.cache.clear();
-    this.retryTimeouts.forEach(clearTimeout);
-    this.retryTimeouts.clear();
-    this.queue = [];
-    this.isProcessing = false;
-    if (this.currentToken) {
-      localStorage.removeItem(`cache_${this.currentToken}`);
+  /**
+   * Load data sequentially on login
+   */
+  async loadAllDataSequentially() {
+    if (this.isLoading) {
+      console.log("Already loading data, skipping duplicate request");
+      return;
     }
-    this.updateLog('Cache cleared.');
-  }
 
-  queueRequest(key, fetchFunction) {
-    if (!this.currentToken) {
-      throw new Error('No active session. Please log in.');
-    }
-    this.queue.push({ key, fetchFunction });
-    this.updateLog(`Queued request: ${key}`);
-    this.processQueue();
-  }
+    this.isLoading = true;
+    updateApiNotifier("loading", "Loading data sequentially...");
 
-  async processQueue() {
-    if (this.isProcessing || this.queue.length === 0) return;
-    this.isProcessing = true;
+    const dataRequests = [
+      { key: 'vacanciesData', fetchFunction: fetchVacanciesData, label: 'Vacancies' },
+      { key: 'candidatesData', fetchFunction: loadSheetData, label: 'Sheet Data' },
+      // Secretariat and signatory data ignored as requested
+    ];
 
-    while (this.queue.length > 0) {
-      const { key, fetchFunction } = this.queue[0];
-      this.updateLog(`Processing: ${key}`);
+    console.log(`Starting sequential load of ${dataRequests.length} data sources`);
+
+    for (let i = 0; i < dataRequests.length; i++) {
+      const request = dataRequests[i];
+      
+      updateApiNotifier("loading", `Loading ${request.label}... (${i + 1}/${dataRequests.length})`);
+      console.log(`Loading ${request.label}...`);
 
       try {
-        const data = await fetchFunction();
-        this.cache.set(this.getCacheKey(key), { data, timestamp: Date.now() });
-        this.saveCacheToStorage();
-        this.updateLog(`Success: ${key}`);
-        this.queue.shift();
+        const data = await request.fetchFunction();
+        this._setCachedData(request.key, data);
+        console.log(`✅ Successfully loaded ${request.label}`);
+        
+        // Small delay between requests to be gentle on the API
+        if (i < dataRequests.length - 1) {
+          await this._wait(1000);
+        }
+        
       } catch (error) {
-        this.updateLog(`Failed: ${key} - ${error.message}`);
-        const cached = this.getCachedData(key);
-        if (cached) {
-          this.updateLog(`Using cached data for: ${key}`);
-          this.queue.shift();
+        console.error(`❌ Failed to load ${request.label}:`, error.message);
+        
+        // Try to use cached data
+        const cachedData = this._getCachedData(request.key);
+        if (cachedData) {
+          console.log(`📦 Using cached data for ${request.label}`);
+          updateApiNotifier("warning", `Using cached ${request.label}`);
         } else {
-          this.scheduleRetry(key, fetchFunction);
-          this.queue.shift();
+          console.log(`⏰ Adding ${request.label} to retry queue`);
+          this.retryQueue.push(request);
         }
       }
     }
 
-    this.isProcessing = false;
+    this.isLoading = false;
+    
+    if (this.retryQueue.length > 0) {
+      console.log(`${this.retryQueue.length} items failed, will retry in 1 minute`);
+      updateApiNotifier("warning", `${this.retryQueue.length} items will retry in 1 minute`);
+      this._scheduleRetry();
+    } else {
+      console.log("✅ All data loaded successfully");
+      updateApiNotifier("success", "All data loaded successfully");
+    }
   }
 
-  scheduleRetry(key, fetchFunction) {
-    const timeout = setTimeout(() => {
-      this.updateLog(`Retrying: ${key}`);
-      this.queueRequest(key, fetchFunction);
-      this.retryTimeouts.delete(key);
-    }, this.retryInterval);
-    this.retryTimeouts.set(key, timeout);
+  /**
+   * Get data - returns cached data or null
+   */
+  getData(key) {
+    return this._getCachedData(key);
   }
 
-  async loadInitialData() {
-    this.updateLog('Starting initial data load...');
-    const requests = [
-      {
-        key: 'vacanciesData',
-        fetchFunction: async () => {
-          if (!await isTokenValid()) await refreshAccessToken();
-          const response = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: SHEET_RANGES.VACANCIES,
-          });
-          return response.result.values || [];
+  /**
+   * Check if data exists in cache
+   */
+  hasData(key) {
+    return this.cache.has(key);
+  }
+
+  /**
+   * Clear all data on logout
+   */
+  clearAllData() {
+    this.cache.clear();
+    this.retryQueue = [];
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    console.log("🗑️ All data cleared");
+    updateApiNotifier("info", "All data cleared");
+  }
+
+  /**
+   * Get current status
+   */
+  getStatus() {
+    return {
+      deviceId: this.deviceId,
+      isLoading: this.isLoading,
+      cacheSize: this.cache.size,
+      retryQueueSize: this.retryQueue.length,
+      cachedKeys: Array.from(this.cache.keys())
+    };
+  }
+
+  // ========================================================================
+  // PRIVATE METHODS
+  // ========================================================================
+
+  _generateDeviceId() {
+    const storedId = localStorage.getItem('device_id');
+    if (storedId) return storedId;
+    const newId = `device_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
+    localStorage.setItem('device_id', newId);
+    return newId;
+  }
+
+  _setCachedData(key, data) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+    console.log(`📦 Cached data for: ${key}`);
+  }
+
+  _getCachedData(key) {
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+    return cached.data;
+  }
+
+  _wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  _scheduleRetry() {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+    }
+
+    this.retryTimer = setTimeout(async () => {
+      if (this.retryQueue.length === 0) return;
+
+      console.log(`🔄 Retrying ${this.retryQueue.length} failed requests`);
+      updateApiNotifier("loading", "Retrying failed requests...");
+
+      const failedRequests = [...this.retryQueue];
+      this.retryQueue = [];
+
+      for (const request of failedRequests) {
+        try {
+          console.log(`🔄 Retrying ${request.label}...`);
+          const data = await request.fetchFunction();
+          this._setCachedData(request.key, data);
+          console.log(`✅ Successfully retried ${request.label}`);
+        } catch (error) {
+          console.error(`❌ Retry failed for ${request.label}:`, error.message);
+          this.retryQueue.push(request);
         }
-      },
-      {
-        key: 'ratingsData',
-        fetchFunction: async () => {
-          if (!await isTokenValid()) await refreshAccessToken();
-          const response = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: SHEET_RANGES.RATELOG,
-          });
-          return response.result.values || [];
-        }
+        
+        // Small delay between retries
+        await this._wait(2000);
       }
-    ];
 
-    for (const req of requests) {
-      await this.queueRequest(req.key, req.fetchFunction);
-    }
-  }
-
-  async loadSecretariatData() {
-    this.updateLog('Loading secretariat and signatory data...');
-    const requests = [
-      {
-        key: 'secretariatMembers',
-        fetchFunction: async () => {
-          if (!await isTokenValid()) await refreshAccessToken();
-          const response = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: SHEET_RANGES.SECRETARIAT,
-          });
-          return response.result.values || [];
-        }
-      },
-      {
-        key: 'signatories',
-        fetchFunction: async () => {
-          if (!await isTokenValid()) await refreshAccessToken();
-          const response = await gapi.client.sheets.spreadsheets.values.get({
-            spreadsheetId: SHEET_ID,
-            range: SHEET_RANGES.SIGNATORIES,
-          });
-          return response.result.values || [];
-        }
+      if (this.retryQueue.length > 0) {
+        console.log(`${this.retryQueue.length} items still failed, scheduling another retry`);
+        this._scheduleRetry();
+      } else {
+        console.log("✅ All retries completed successfully");
+        updateApiNotifier("success", "All data loaded after retry");
       }
-    ];
-
-    for (const req of requests) {
-      await this.queueRequest(req.key, req.fetchFunction);
-    }
-  }
-
-  getCacheKey(key) {
-    return `${this.currentToken}_${key}`;
-  }
-
-  getCachedData(key) {
-    const cacheKey = this.getCacheKey(key);
-    const cached = this.cache.get(cacheKey);
-    return cached ? cached.data : null;
-  }
-
-  saveCacheToStorage() {
-    if (!this.currentToken) return;
-    const serializableCache = {};
-    for (const [key, value] of this.cache) {
-      serializableCache[key] = value;
-    }
-    try {
-      localStorage.setItem(`cache_${this.currentToken}`, JSON.stringify(serializableCache));
-    } catch (e) {
-      this.updateLog(`Failed to save cache: ${e.message}`);
-    }
-  }
-
-  loadCacheFromStorage() {
-    if (!this.currentToken) return;
-    try {
-      const stored = localStorage.getItem(`cache_${this.currentToken}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        for (const key in parsed) {
-          this.cache.set(key, parsed[key]);
-        }
-      }
-    } catch (e) {
-      this.updateLog(`Failed to load cache: ${e.message}`);
-    }
-  }
-
-  updateLog(message) {
-    console.log(message);
-    const logContainer = document.getElementById('api-log');
-    if (logContainer) {
-      const logEntry = document.createElement('div');
-      logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-      logContainer.appendChild(logEntry);
-      logContainer.scrollTop = logContainer.scrollHeight;
-    }
+    }, 60000); // 1 minute retry delay
   }
 }
 
-// Singleton instance
-const apiQueue = new SimpleApiQueue();
+// ============================================================================
+// SINGLETON INSTANCE
+// ============================================================================
 
-// UI setup for log display
+const apiManager = new SequentialAPIManager();
+
+// ============================================================================
+// SIMPLIFIED INITIALIZATION
+// ============================================================================
+
+let appInitializationPromise = null;
+
+async function initializeApp() {
+  if (appInitializationPromise) {
+    console.warn("Initialization already in progress");
+    return appInitializationPromise;
+  }
+
+  appInitializationPromise = (async () => {
+    try {
+      showSpinner(true);
+      
+      // 1. Initialize API Manager
+      await apiManager.init();
+      
+      // 2. Initialize API Notifier
+      await initializeApiNotifier();
+      
+      // 3. Initialize GAPI
+      await new Promise((resolve, reject) => {
+        gapi.load('client', async () => {
+          try {
+            await initializeGapiClient();
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+      
+      // 4. Setup UI
+      setupUI();
+      
+      console.log("✅ App initialization complete");
+      updateApiNotifier("success", "App initialized - ready to load data");
+      
+    } catch (error) {
+      console.error('❌ App initialization failed:', error);
+      updateApiNotifier("error", `Initialization failed: ${error.message}`);
+      showErrorNotification(`Initialization failed: ${error.message}`);
+      throw error;
+    } finally {
+      showSpinner(false);
+      appInitializationPromise = null;
+    }
+  })();
+
+  return appInitializationPromise;
+}
+
+/**
+ * Load data after login - this replaces the complex loadInitialData
+ */
+async function loadDataAfterLogin() {
+  console.log("🚀 Starting data load after login");
+  await apiManager.loadAllDataSequentially();
+}
+
+/**
+ * Clear data on logout
+ */
+function clearDataOnLogout() {
+  console.log("🗑️ Clearing data on logout");
+  apiManager.clearAllData();
+}
+
+// ============================================================================
+// SIMPLE DATA ACCESS FUNCTIONS
+// ============================================================================
+
+/**
+ * Get cached data by key
+ */
+function getCachedData(key) {
+  return apiManager.getData(key);
+}
+
+/**
+ * Check if data is available
+ */
+function hasData(key) {
+  return apiManager.hasData(key);
+}
+
+/**
+ * Get API manager status for debugging
+ */
+function getAPIStatus() {
+  return apiManager.getStatus();
+}
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
 function setupUI() {
-  const logContainer = document.createElement('div');
-  logContainer.id = 'api-log';
-  logContainer.style.cssText = `
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    width: 300px;
-    height: 200px;
-    overflow-y: auto;
-    background: #f0f0f0;
-    border: 1px solid #ccc;
-    padding: 10px;
-    font-size: 12px;
-  `;
-  document.body.appendChild(logContainer);
   if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
   if (typeof setupTabNavigation === 'function') setupTabNavigation();
+  console.log("UI setup complete");
 }
 
-// Tab-switching logic
-async function switchTab(tab) {
-  window.currentTab = tab;
-  localStorage.setItem('currentTab', tab);
-  apiQueue.updateLog(`Switching to ${tab} tab.`);
-
-  if (tab === 'rater') {
-    localStorage.removeItem('secretariatAuthenticated');
-    window.secretariatMemberId = null;
-    if (gapi?.client?.getToken && typeof saveAuthState === 'function') {
-      saveAuthState(gapi.client.getToken(), window.currentEvaluator);
-    } else {
-      apiQueue.updateLog('GAPI not ready — skipping saveAuthState');
-    }
-    apiQueue.updateLog('Secretariat authentication cleared');
-  } else if (tab === 'secretariat') {
-    const isAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
-    if (isAuthenticated) {
-      await apiQueue.loadSecretariatData();
-      if (typeof initializeSecretariatDropdowns === 'function' &&
-          (!document.getElementById('secretariatAssignmentDropdown').options.length ||
-           document.getElementById('secretariatAssignmentDropdown').options.length === 1)) {
-        initializeSecretariatDropdowns();
-      }
-      if (document.getElementById('secretariatItemDropdown').value &&
-          typeof fetchSecretariatCandidates === 'function') {
-        fetchSecretariatCandidates(document.getElementById('secretariatItemDropdown').value);
-      }
-    } else {
-      apiQueue.updateLog('Secretariat tab accessed without authentication.');
-      showToast('error', 'Access Denied', 'Please authenticate to access the secretariat tab.');
-      switchTab('rater'); // Revert to rater tab if not authenticated
-      return;
-    }
-  }
-
-  document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
-  document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
-
-  document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
-  document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
-
-  const resultsArea = document.querySelector('.results-area');
-  if (resultsArea) {
-    resultsArea.style.display = tab === 'rater' ? 'block' : 'none';
-    resultsArea.classList.toggle('active', tab === 'rater');
-  }
-
-  setDropdownState(document.getElementById('assignmentDropdown'), tab === 'rater');
-  setDropdownState(document.getElementById('positionDropdown'), tab === 'rater');
-  setDropdownState(document.getElementById('itemDropdown'), tab === 'rater');
-  setDropdownState(document.getElementById('nameDropdown'), tab === 'rater');
-
-  const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
-  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
-  const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
-  setDropdownState(secretariatAssignmentDropdown, tab === 'secretariat');
-  setDropdownState(secretariatPositionDropdown, tab === 'secretariat');
-  setDropdownState(secretariatItemDropdown, tab === 'secretariat');
-
-  if (tab === 'rater') {
-    if (typeof initializeDropdowns === 'function') {
-      initializeDropdowns(window.vacancies);
-    }
-    if (document.getElementById('nameDropdown').value &&
-        document.getElementById('itemDropdown').value &&
-        typeof fetchSubmittedRatings === 'function' &&
-        typeof displayCandidatesTable === 'function') {
-      fetchSubmittedRatings();
-      displayCandidatesTable(
-        document.getElementById('nameDropdown').value,
-        document.getElementById('itemDropdown').value
-      );
-    }
-    if (typeof updateUI === 'function') updateUI(true);
-  }
-
-  const container = document.querySelector('.container');
-  if (resultsArea && tab === 'rater') {
-    const resultsHeight = resultsArea.offsetHeight + 20;
-    container.style.marginTop = `${resultsHeight}px`;
-  } else {
-    container.style.marginTop = '20px';
-  }
+function showSpinner(show) {
+  const spinner = document.getElementById('loadingSpinner');
+  const pageWrapper = document.querySelector('.page-wrapper');
+  if (spinner) spinner.style.opacity = show ? '1' : '0';
+  if (pageWrapper) pageWrapper.style.opacity = show ? '0.3' : '1';
+  if (!show && spinner) setTimeout(() => spinner.style.display = 'none', 300);
 }
 
-// Login handler
-async function handleAuthClick() {
-  apiQueue.updateLog('Initiating authentication...');
-  window.location.href = `${API_BASE_URL}/auth/google`;
+function showErrorNotification(message) {
+  console.error('🚨 Error:', message);
+  if (typeof alert === 'function') alert(message);
 }
 
-// Token callback
-async function handleTokenCallback(tokenResponse) {
-  if (tokenResponse.error) {
-    console.error('Token error:', tokenResponse.error);
-    apiQueue.updateLog(`Authentication failed: ${tokenResponse.error}`);
-    if (window.elements?.authStatus) elements.authStatus.textContent = 'Error during sign-in';
-    showToast('error', 'Error', 'Authentication failed. Please try again.');
-    return;
-  }
+// ============================================================================
+// LIFECYCLE HOOKS
+// ============================================================================
 
-  try {
-    const authState = {
-      access_token: tokenResponse.access_token,
-      expires_at: Date.now() + ((tokenResponse.expires_in || 3600) * 1000),
-      session_id: tokenResponse.session_id || Math.random().toString(36).substring(2)
-    };
-    localStorage.setItem('authState', JSON.stringify(authState));
-    gapi.client.setToken({ access_token: tokenResponse.access_token });
+window.addEventListener('beforeunload', () => {
+  console.log("🧹 App shutting down");
+});
 
-    apiQueue.updateLog('Authentication successful, initializing data...');
-    setupUI();
-    await apiQueue.init(authState.session_id);
+// ============================================================================
+// AUTH/TOKEN HELPERS (simplified)
+// ============================================================================
 
-    const isAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
-    const savedTab = localStorage.getItem('currentTab') || 'rater';
-    await switchTab(isAuthenticated && savedTab === 'secretariat' ? 'secretariat' : 'rater');
-
-    if (typeof updateUI === 'function') updateUI(true);
-    await fetch(`${API_BASE_URL}/config`, { credentials: 'include' });
-    if (typeof loadSheetData === 'function') loadSheetData();
-    showToast('success', 'Welcome!', 'Successfully signed in.');
-    localStorage.setItem('hasWelcomed', 'true');
-  } catch (error) {
-    apiQueue.updateLog(`Initialization error: ${error.message}`);
-    showToast('error', 'Error', 'Failed to initialize after sign-in.');
-  }
-}
-
-// Logout handler
-async function handleSignOutClick() {
-  const modalContent = `<p>Are you sure you want to sign out?</p>`;
-  await showModal('Confirm Sign Out', modalContent, async () => {
-    try {
-      const authState = JSON.parse(localStorage.getItem('authState'));
-      const accessToken = authState?.access_token;
-      const sessionId = authState?.session_id;
-
-      if (accessToken) {
-        await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
-        apiQueue.updateLog('Access token revoked.');
-      }
-
-      if (sessionId) {
-        await fetch(`${API_BASE_URL}/clear-session`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({ sessionId }),
-          credentials: 'include'
-        });
-        apiQueue.updateLog('Session cleared on server.');
-      }
-
-      apiQueue.clearCache();
-      gapi.client.setToken(null);
-      localStorage.clear();
-      apiQueue.updateLog('All localStorage cleared.');
-      window.currentEvaluator = null;
-      window.sessionId = null;
-      window.secretariatMemberId = null;
-      window.vacancies = [];
-      window.candidates = [];
-      window.compeCodes = [];
-      window.competencies = [];
-      window.submissionQueue = [];
-      apiQueue.updateLog('Global variables reset.');
-
-      if (typeof updateUI === 'function') updateUI(false);
-      if (typeof resetDropdowns === 'function') resetDropdowns([]);
-      if (window.elements?.competencyContainer) {
-        window.elements.competencyContainer.innerHTML = '';
-      }
-      if (typeof clearRatings === 'function') clearRatings();
-      const evaluatorSelect = document.getElementById('evaluatorSelect');
-      if (evaluatorSelect) {
-        evaluatorSelect.value = '';
-        evaluatorSelect.parentElement.remove();
-      }
-      if (window.elements?.submitRatings) {
-        window.elements.submitRatings.disabled = true;
-      }
-      if (window.fetchTimeout) {
-        clearTimeout(window.fetchTimeout);
-        window.fetchTimeout = null;
-      }
-      if (window.refreshTimer) {
-        clearTimeout(window.refreshTimer);
-        window.refreshTimer = null;
-      }
-      const resultsArea = document.querySelector('.results-area');
-      if (resultsArea) resultsArea.remove();
-      const container = document.querySelector('.container');
-      if (container) container.style.marginTop = '20px';
-      const authSection = document.querySelector('.auth-section');
-      if (authSection) authSection.classList.add('signed-out');
-
-      showToast('success', 'Signed Out', 'You have been successfully signed out.');
-      apiQueue.updateLog('Sign out complete.');
-      await switchTab('rater');
-    } catch (error) {
-      console.error('Error during sign out:', error);
-      apiQueue.updateLog(`Sign out error: ${error.message}`);
-      showToast('error', 'Error', 'Failed to sign out completely. Please try again.');
-    }
-  }, () => {
-    apiQueue.updateLog('Sign out canceled.');
-  });
-}
-
-// Logout all sessions
-async function handleLogoutAll() {
-  const contentHTML = `
-    <p>Enter the admin password to log out all sessions:</p>
-    <input type="password" id="logoutAllPasswordInput" placeholder="Enter password">
-  `;
-  await showModal('Confirm Logout All Sessions', contentHTML, async () => {
-    const passwordInput = document.getElementById('logoutAllPasswordInput');
-    if (!passwordInput) {
-      apiQueue.updateLog('Password input not found.');
-      showToast('error', 'Error', 'Password input not found. Please try again.');
-      return;
-    }
-    const password = passwordInput.value.trim();
-    if (password !== 'admindan') {
-      apiQueue.updateLog('Invalid password entered.');
-      showToast('error', 'Error', 'Invalid password');
-      return;
-    }
-
-    try {
-      const authState = JSON.parse(localStorage.getItem('authState'));
-      const accessToken = authState?.access_token;
-      const sessionId = authState?.session_id;
-
-      if (!accessToken) {
-        apiQueue.updateLog('No valid session found.');
-        showToast('error', 'Error', 'No valid session found');
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/logout-all`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`
-        },
-        body: JSON.stringify({ sessionId })
-      });
-
-      if (response.ok) {
-        apiQueue.clearCache();
-        gapi.client.setToken(null);
-        localStorage.clear();
-        apiQueue.updateLog('All localStorage cleared.');
-        window.currentEvaluator = null;
-        window.sessionId = null;
-        window.secretariatMemberId = null;
-        window.vacancies = [];
-        window.candidates = [];
-        window.compeCodes = [];
-        window.competencies = [];
-        window.submissionQueue = [];
-        apiQueue.updateLog('Global variables reset.');
-
-        if (typeof updateUI === 'function') updateUI(false);
-        if (typeof resetDropdowns === 'function') resetDropdowns([]);
-        if (window.elements?.competencyContainer) {
-          window.elements.competencyContainer.innerHTML = '';
-        }
-        if (typeof clearRatings === 'function') clearRatings();
-        const evaluatorSelect = document.getElementById('evaluatorSelect');
-        if (evaluatorSelect) {
-          evaluatorSelect.value = '';
-          evaluatorSelect.parentElement.remove();
-        }
-        if (window.elements?.submitRatings) {
-          window.elements.submitRatings.disabled = true;
-        }
-        if (window.fetchTimeout) {
-          clearTimeout(window.fetchTimeout);
-          window.fetchTimeout = null;
-        }
-        if (window.refreshTimer) {
-          clearTimeout(window.refreshTimer);
-          window.refreshTimer = null;
-        }
-        const resultsArea = document.querySelector('.results-area');
-        if (resultsArea) resultsArea.remove();
-        const container = document.querySelector('.container');
-        if (container) container.style.marginTop = '20px';
-        const authSection = document.querySelector('.auth-section');
-        if (authSection) authSection.classList.add('signed-out');
-
-        showToast('success', 'Success', 'All sessions logged out');
-        apiQueue.updateLog('All sessions logged out.');
-        await switchTab('rater');
-      } else {
-        const errorData = await response.json();
-        apiQueue.updateLog(`Logout all failed: ${errorData.error || 'Unknown error'}`);
-        showToast('error', 'Error', 'Failed to log out all sessions');
-      }
-    } catch (error) {
-      console.error('Error logging out all sessions:', error);
-      apiQueue.updateLog(`Logout all error: ${error.message}`);
-      showToast('error', 'Error', 'Failed to log out all sessions');
-    }
-  }, () => {
-    const passwordInput = document.getElementById('logoutAllPasswordInput');
-    if (passwordInput) passwordInput.value = '';
-    apiQueue.updateLog('Logout all canceled.');
-  });
-}
-
-// GAPI initialization
 async function initializeGapiClient() {
   try {
     await gapi.client.init({
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
+
     const authState = JSON.parse(localStorage.getItem('authState'));
     if (authState?.access_token) {
       gapi.client.setToken({ access_token: authState.access_token });
-      apiQueue.updateLog('Loaded token from localStorage.');
-      if (!await isTokenValid()) {
-        apiQueue.updateLog('Token invalid, attempting refresh.');
-      } else {
-        apiQueue.updateLog('Loaded token is valid.');
-      }
+      console.log('Token loaded from localStorage');
     }
+
     window.gapiInitialized = true;
-    apiQueue.updateLog('GAPI client initialized.');
+    console.log('GAPI client initialized');
+
   } catch (error) {
-    console.error('Error initializing GAPI client:', error);
-    apiQueue.updateLog(`GAPI initialization error: ${error.message}`);
+    console.error('GAPI initialization error:', error);
+    throw error;
   }
 }
 
-// Token validation and refresh
 async function isTokenValid() {
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.access_token || !authState?.expires_at) {
     return false;
   }
+
   const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft <= 300000) {
-    apiQueue.updateLog('Token expiring soon, refreshing.');
+  if (timeLeft <= 300000) { // 5 minutes
+    console.log('Token expiring, attempting refresh');
     return await refreshAccessToken();
   }
+
   return true;
 }
 
-async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
+async function refreshAccessToken() {
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.session_id) {
-    apiQueue.updateLog('No session ID for refresh.');
+    console.warn('No session ID for refresh');
     return false;
   }
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      apiQueue.updateLog(`Attempt ${attempt} to refresh token.`);
-      const response = await fetch(`${API_BASE_URL}/refresh-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ session_id: authState.session_id }),
-      });
-      const newToken = await response.json();
-      if (!response.ok || newToken.error) {
-        if (newToken.error === 'No refresh token') {
-          apiQueue.updateLog('No refresh token, prompting re-auth.');
-          showToast('error', 'Session Expired', 'Please sign in again.');
-          authState.access_token = null;
-          localStorage.setItem('authState', JSON.stringify(authState));
-          handleAuthClick();
-          return false;
-        }
-        throw new Error(newToken.error || `Refresh failed: ${response.status}`);
-      }
-      authState.access_token = newToken.access_token;
-      authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
-      localStorage.setItem('authState', JSON.stringify(authState));
-      gapi.client.setToken({ access_token: newToken.access_token });
-      apiQueue.updateLog('Token refreshed successfully.');
-      scheduleTokenRefresh();
-      return true;
-    } catch (error) {
-      apiQueue.updateLog(`Refresh attempt ${attempt} failed: ${error.message}`);
-      if (attempt === maxRetries) {
-        showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
-        authState.access_token = null;
-        localStorage.setItem('authState', JSON.stringify(authState));
-        handleAuthClick();
-        return false;
-      }
-      await new Promise(resolve => setTimeout(resolve, retryDelay * Math.pow(2, attempt - 1)));
+  try {
+    const response = await fetch(`${API_BASE_URL}/refresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ session_id: authState.session_id }),
+    });
+
+    const newToken = await response.json();
+    if (!response.ok || newToken.error) {
+      console.error('Token refresh failed:', newToken.error);
+      return false;
     }
+
+    authState.access_token = newToken.access_token;
+    authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
+    localStorage.setItem('authState', JSON.stringify(authState));
+    gapi.client.setToken({ access_token: newToken.access_token });
+    
+    console.log('Token refreshed successfully');
+    return true;
+
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    return false;
   }
-  return false;
 }
 
-function scheduleTokenRefresh(maxRetries = 5) {
-  if (window.refreshTimer) clearTimeout(window.refreshTimer);
-  const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.expires_at || !authState.session_id) {
-    apiQueue.updateLog('No valid auth state for refresh.');
-    return;
-  }
-  const timeToExpiry = authState.expires_at - Date.now();
-  const refreshInterval = Math.max(300000, timeToExpiry - 900000);
-  let retryCount = 0;
+// ============================================================================
+// USAGE EXAMPLES
+// ============================================================================
 
-  window.refreshTimer = setTimeout(async function refresh() {
-    apiQueue.updateLog(`Scheduled token refresh (retry ${retryCount + 1})`);
-    const success = await refreshAccessToken();
-    if (!success) {
-      retryCount++;
-      if (retryCount < maxRetries) {
-        apiQueue.updateLog(`Refresh failed, retrying in 1 minute (attempt ${retryCount + 1}/${maxRetries})`);
-        window.refreshTimer = setTimeout(refresh, 60000);
-      } else {
-        apiQueue.updateLog('Max refresh retries reached, prompting re-auth.');
-        showToast('error', 'Session Expired', 'Please sign in again.');
-        handleAuthClick();
-      }
-    }
-  }, refreshInterval);
-  apiQueue.updateLog(`Token refresh scheduled in ${Math.round(refreshInterval / 60000)} minutes`);
+/*
+// After login:
+await loadDataAfterLogin();
+
+// Check if data is available:
+if (hasData('vacanciesData')) {
+  const vacancies = getCachedData('vacanciesData');
+  // Use the data
 }
 
-// Initialize and set up event listeners
-document.addEventListener('DOMContentLoaded', () => {
-  gapi.load('client', async () => {
-    await initializeGapiClient();
-    const authState = JSON.parse(localStorage.getItem('authState'));
-    if (authState?.session_id) {
-      setupUI();
-      await apiQueue.init(authState.session_id);
-      const isAuthenticated = localStorage.getItem('secretariatAuthenticated') === 'true';
-      const savedTab = localStorage.getItem('currentTab') || 'rater';
-      await switchTab(isAuthenticated && savedTab === 'secretariat' ? 'secretariat' : 'rater');
-    }
-  });
+// On logout:
+clearDataOnLogout();
 
-  // Bind auth buttons
-  const signInButton = document.querySelector('#signInButton');
-  if (signInButton) signInButton.addEventListener('click', handleAuthClick);
-  const signOutButton = document.querySelector('#signOutButton');
-  if (signOutButton) signOutButton.addEventListener('click', handleSignOutClick);
-  const logoutAllButton = document.querySelector('#logoutAllButton');
-  if (logoutAllButton) logoutAllButton.addEventListener('click', handleLogoutAll);
-
-  // Bind tab buttons
-  const raterTab = document.getElementById('raterTab');
-  if (raterTab) raterTab.addEventListener('click', () => switchTab('rater'));
-  const secretariatTab = document.getElementById('secretariatTab');
-  if (secretariatTab) secretariatTab.addEventListener('click', () => switchTab('secretariat'));
-});
-
-
-
-
-
+// Check status for debugging:
+console.log(getAPIStatus());
+*/
 
 
 
@@ -1276,7 +1332,7 @@ function setupTabNavigation() {
             saveAuthState(gapi.client.getToken(), currentEvaluator);
             switchTab('secretariat');
             showToast('success', 'Success', `Logged in as ${member.name}`);
-            setTimeout(() => location.reload(), 1000);
+            //setTimeout(() => location.reload(), 1000);
         } else {
           showToast('error', 'Error', 'Incorrect credentials');
         }
@@ -1298,13 +1354,13 @@ function setupTabNavigation() {
         async () => {
           const name = document.getElementById('newMemberName').value.trim();
           const password = document.getElementById('newMemberPassword').value.trim();
-          const vacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
+          const memberVacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
           if (!name || !password || !vacancies.length) {
             showToast('error', 'Error', 'All fields are required');
             return;
           }
           const id = Date.now().toString();
-          await saveSecretariatMember({ id, name, password, vacancies });
+          await saveSecretariatMember({ id, name, password, vacancies: memberVacancies }); // Use memberVacancies here
           showToast('success', 'Success', 'Member added successfully');
         }
       );
@@ -1313,7 +1369,74 @@ function setupTabNavigation() {
 }
 
 
+function switchTab(tab) {
+  currentTab = tab;
+  localStorage.setItem('currentTab', tab);
 
+  if (tab === 'rater') {
+    localStorage.removeItem('secretariatAuthenticated');
+    secretariatMemberId = null;
+  
+    if (gapi?.client?.getToken) {
+      saveAuthState(gapi.client.getToken(), currentEvaluator);
+    } else {
+      console.warn('GAPI not ready — skipping saveAuthState in switchTab');
+    }
+  
+    console.log('Secretariat authentication cleared');
+  }
+
+
+  document.getElementById('raterTab').classList.toggle('active', tab === 'rater');
+  document.getElementById('secretariatTab').classList.toggle('active', tab === 'secretariat');
+
+  document.getElementById('raterContent').style.display = tab === 'rater' ? 'block' : 'none';
+  document.getElementById('secretariatContent').style.display = tab === 'secretariat' ? 'block' : 'none';
+
+  const resultsArea = document.querySelector('.results-area');
+  if (resultsArea) {
+    resultsArea.style.display = tab === 'rater' ? 'block' : 'none';
+    resultsArea.classList.toggle('active', tab === 'rater');
+  }
+
+  setDropdownState(elements.assignmentDropdown, tab === 'rater');
+  setDropdownState(elements.positionDropdown, tab === 'rater');
+  setDropdownState(elements.itemDropdown, tab === 'rater');
+  setDropdownState(elements.nameDropdown, tab === 'rater');
+
+  const secretariatAssignmentDropdown = document.getElementById('secretariatAssignmentDropdown');
+  const secretariatPositionDropdown = document.getElementById('secretariatPositionDropdown');
+  const secretariatItemDropdown = document.getElementById('secretariatItemDropdown');
+  setDropdownState(secretariatAssignmentDropdown, tab === 'secretariat');
+  setDropdownState(secretariatPositionDropdown, tab === 'secretariat');
+  setDropdownState(secretariatItemDropdown, tab === 'secretariat');
+
+  if (tab === 'rater') {
+    initializeDropdowns(vacancies);
+    if (elements.nameDropdown.value && elements.itemDropdown.value) {
+      fetchSubmittedRatings();
+      displayCandidatesTable(elements.nameDropdown.value, elements.itemDropdown.value);
+    }
+    updateUI(true);
+  } else if (tab === 'secretariat') {
+    // Only initialize if dropdowns are empty
+    if (!secretariatAssignmentDropdown.options.length || secretariatAssignmentDropdown.options.length === 1) {
+      initializeSecretariatDropdowns();
+    }
+    if (secretariatItemDropdown.value) {
+      fetchSecretariatCandidates(secretariatItemDropdown.value);
+    }
+    updateUI(true);
+  }
+
+  const container = document.querySelector('.container');
+  if (resultsArea && tab === 'rater') {
+    const resultsHeight = resultsArea.offsetHeight + 20;
+    container.style.marginTop = `${resultsHeight}px`;
+  } else {
+    container.style.marginTop = '20px';
+  }
+}
 
 
 
@@ -2363,7 +2486,182 @@ async function handleEvaluatorSelection(event) {
   });
 }
 
+function handleAuthClick() {
+  window.location.href = `${API_BASE_URL}/auth/google`;
+}
 
+// Update handleSignOutClick to make it robust
+async function handleSignOutClick() {
+  const modalContent = `<p>Are you sure you want to sign out?</p>`;
+  const result = await showModal('Confirm Sign Out', modalContent, async () => {
+    try {
+      const accessToken = gapi.client.getToken()?.access_token;
+      if (accessToken) {
+        // Revoke the access token
+        await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+      }
+      // Clear refresh token cookie on backend
+      await fetch(`${API_BASE_URL}/clear-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ sessionId }),
+        credentials: 'include'
+      });
+      // Reset client-side state
+      gapi.client.setToken(null);
+      localStorage.clear();
+      console.log('All localStorage cleared');
+      currentEvaluator = null;
+      sessionId = null;
+      secretariatMemberId = null;
+      vacancies = [];
+      candidates = [];
+      compeCodes = [];
+      competencies = [];
+      submissionQueue = [];
+      console.log('Global variables reset');
+      updateUI(false);
+      resetDropdowns([]);
+      elements.competencyContainer.innerHTML = '';
+      clearRatings();
+      const evaluatorSelect = document.getElementById('evaluatorSelect');
+      if (evaluatorSelect) {
+        evaluatorSelect.value = '';
+        evaluatorSelect.parentElement.remove();
+      }
+      if (elements.submitRatings) {
+        elements.submitRatings.disabled = true;
+      }
+      if (fetchTimeout) {
+        clearTimeout(fetchTimeout);
+        fetchTimeout = null;
+      }
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+      const resultsArea = document.querySelector('.results-area');
+      if (resultsArea) {
+        resultsArea.remove();
+      }
+      const container = document.querySelector('.container');
+      container.style.marginTop = '20px';
+      const authSection = document.querySelector('.auth-section');
+      authSection.classList.add('signed-out');
+      showToast('success', 'Signed Out', 'You have been successfully signed out.');
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      showToast('error', 'Error', 'Failed to sign out completely. Please try again.');
+    }
+  }, () => {
+    console.log('Sign out canceled');
+  });
+}
+
+// Update handleLogoutAll to ensure correct password handling
+async function handleLogoutAll() {
+  const contentHTML = `
+    <p>Enter the admin password to log out all sessions:</p>
+    <input type="password" id="logoutAllPasswordInput" placeholder="Enter password">
+  `;
+  const result = await showModal(
+    'Confirm Logout All Sessions',
+    contentHTML,
+    async () => {
+      const passwordInput = document.getElementById('logoutAllPasswordInput');
+      if (!passwordInput) {
+        console.error('Password input not found');
+        showToast('error', 'Error', 'Password input not found. Please try again.');
+        return;
+      }
+      const password = passwordInput.value.trim();
+      if (password !== 'admindan') {
+        console.warn('Invalid password entered:', password);
+        showToast('error', 'Error', 'Invalid password');
+        return;
+      }
+      try {
+        const accessToken = gapi.client.getToken()?.access_token;
+        if (!accessToken) {
+          showToast('error', 'Error', 'No valid session found');
+          return;
+        }
+        const response = await fetch(`${API_BASE_URL}/logout-all`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({ sessionId })
+        });
+        if (response.ok) {
+          // Reset client-side state
+          gapi.client.setToken(null);
+          localStorage.clear();
+          console.log('All localStorage cleared');
+          currentEvaluator = null;
+          sessionId = null;
+          secretariatMemberId = null;
+          vacancies = [];
+          candidates = [];
+          compeCodes = [];
+          competencies = [];
+          submissionQueue = [];
+          console.log('Global variables reset');
+          updateUI(false);
+          resetDropdowns([]);
+          elements.competencyContainer.innerHTML = '';
+          clearRatings();
+          const evaluatorSelect = document.getElementById('evaluatorSelect');
+          if (evaluatorSelect) {
+            evaluatorSelect.value = '';
+            evaluatorSelect.parentElement.remove();
+          }
+          if (elements.submitRatings) {
+            elements.submitRatings.disabled = true;
+          }
+          if (fetchTimeout) {
+            clearTimeout(fetchTimeout);
+            fetchTimeout = null;
+          }
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+          }
+          const resultsArea = document.querySelector('.results-area');
+          if (resultsArea) {
+            resultsArea.remove();
+          }
+          const container = document.querySelector('.container');
+          container.style.marginTop = '20px';
+          const authSection = document.querySelector('.auth-section');
+          authSection.classList.add('signed-out');
+          showToast('success', 'Success', 'All sessions logged out');
+        } else {
+          const errorData = await response.json();
+          console.error('Logout all failed:', errorData);
+          showToast('error', 'Error', 'Failed to log out all sessions');
+        }
+      } catch (error) {
+        console.error('Error logging out all sessions:', error);
+        showToast('error', 'Error', 'Failed to log out all sessions');
+      }
+    },
+    () => {
+      const passwordInput = document.getElementById('logoutAllPasswordInput');
+      if (passwordInput) {
+        passwordInput.value = '';
+      }
+      console.log('Logout all canceled');
+    }
+  );
+}
 
 // Update updateUI to manage tabs visibility and logout buttons
 function updateUI(isSignedIn) {
@@ -2900,12 +3198,40 @@ class SubmissionQueue {
       if (!submission) break;
 
       try {
+        showSubmittingIndicator();
+        console.log('🔄 Starting submission process');
+
         const result = await this.processSubmission(submission);
+        
+        // Always hide indicator immediately after submission attempt
+        hideSubmittingIndicator();
+        console.log('🔄 Submitting indicator hidden');
+
         if (result.success) {
+          const candidateName = submission.ratings[0][2];
+          const item = submission.ratings[0][1];
+          
+          // Clear stored data
+          localStorage.removeItem(`radioState_${candidateName}_${item}`);
           handleSuccessfulSubmission(submission.ratings);
-          showToastOptimized('success', 'Success', result.message);
+          
+          // Show success modal
+          await new Promise((resolve) => {
+            showModal(
+              'Submission Successful',
+              `<p>${result.message}</p>`,
+              () => {
+                console.log('Success modal closed');
+                fetchSubmittedRatings({ forceRefresh: true });
+                resolve();
+              },
+              null,
+              false
+            );
+          });
         }
       } catch (error) {
+        hideSubmittingIndicator(); // Ensure indicator is hidden on error
         await this.handleFailedSubmission(submission, error);
       }
     }
@@ -2946,22 +3272,27 @@ class SubmissionQueue {
       console.error('Final submission failure:', error);
     }
   }
+
+  isEmpty() {
+    return this.queue.length === 0 && this.retryQueue.length === 0;
+  }
 }
 
 // Global queue instance
 const submissionQueue = new SubmissionQueue();
 
 // =====================================
-// MAIN SUBMISSION FUNCTION (OPTIMIZED)
+// MAIN SUBMISSION FUNCTION
 // =====================================
 
 async function submitRatings() {
-  if (isSubmitting) {
-    showToastOptimized('info', 'Info', 'Submission already queued');
+  if (submissionQueue.processing) {
+    showToastOptimized('info', 'Info', 'Submission already in progress');
     return;
   }
 
   try {
+    // Validate authentication
     const token = gapi.client.getToken();
     if (!token || !await isTokenValid()) {
       await refreshAccessToken();
@@ -2972,23 +3303,25 @@ async function submitRatings() {
       }
     }
 
+    // Validate evaluator
     if (!currentEvaluator) {
       showToastOptimized('warning', 'Warning', 'Please select an evaluator');
       return;
     }
 
+    // Validate form data
     const item = elements.itemDropdown.value;
     const candidateName = elements.nameDropdown.value;
-
     if (!item || !candidateName) {
       showToastOptimized('error', 'Error', 'Please select both item and candidate');
       return;
     }
 
+    // Check for existing ratings
     const existingRatings = await checkExistingRatingsCached(item, candidateName, currentEvaluator);
     const isUpdate = existingRatings.length > 0;
 
-    let tempRatings = {};
+    // Handle updates with password verification
     if (isUpdate) {
       const isVerified = await verifyEvaluatorPassword(existingRatings);
       if (!isVerified) {
@@ -2996,15 +3329,9 @@ async function submitRatings() {
         showToastOptimized('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
-      // Store current ratings before update
-      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-      Array.from(competencyItems).forEach(item => {
-        const competencyName = item.querySelector('label').textContent.split('. ')[1];
-        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
-        if (rating) tempRatings[competencyName] = rating;
-      });
     }
 
+    // Prepare ratings data
     const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
     if (error) {
       showToastOptimized('error', 'Error', error);
@@ -3018,13 +3345,12 @@ async function submitRatings() {
         revertToExistingRatings(existingRatings);
         showToastOptimized('info', 'Canceled', 'Ratings reverted to original values');
       } else {
-        console.log('Submission canceled');
         showToastOptimized('info', 'Canceled', 'Ratings submission aborted');
       }
       return;
     }
 
-    // Add to optimized queue instead of direct submission
+    // Add to queue and process
     submissionQueue.add(ratings, 'normal');
     showToastOptimized('info', 'Queued', 'Submission queued for processing');
 
@@ -3036,28 +3362,26 @@ async function submitRatings() {
 }
 
 // =====================================
-// OPTIMIZED CORE SUBMISSION LOGIC
+// OPTIMIZED SUBMISSION LOGIC
 // =====================================
 
 async function submitRatingsOptimized(ratings) {
-  // Try lockless submission first for better performance
   try {
+    // Try lockless submission first for better performance
     const result = await tryLocklessSubmission(ratings);
     if (result.success) return result;
   } catch (error) {
     console.log('Lockless failed, trying with lock:', error.message);
   }
 
-  // Fall back to optimized locked submission
-  return await submitWithOptimizedLock(ratings);
+  // Fall back to locked submission
+  return await submitWithLock(ratings);
 }
 
 async function tryLocklessSubmission(ratings) {
-  // For new submissions only, we can avoid locks
   const hasUpdates = await checkForUpdates(ratings);
   
   if (!hasUpdates) {
-    // Pure append operation - no lock needed
     if (!await isTokenValid()) await refreshAccessToken();
     
     await gapi.client.sheets.spreadsheets.values.append({
@@ -3074,7 +3398,7 @@ async function tryLocklessSubmission(ratings) {
   throw new Error('Updates detected, lock required');
 }
 
-async function submitWithOptimizedLock(ratings) {
+async function submitWithLock(ratings) {
   const lockData = {
     sessionId: sessionId,
     timestamp: Date.now(),
@@ -3084,7 +3408,7 @@ async function submitWithOptimizedLock(ratings) {
   let lockAcquired = false;
   
   try {
-    lockAcquired = await acquireOptimizedLock(lockData);
+    lockAcquired = await acquireLock(lockData);
     if (!lockAcquired) {
       throw new Error('Could not acquire lock - system busy');
     }
@@ -3094,16 +3418,16 @@ async function submitWithOptimizedLock(ratings) {
     
   } finally {
     if (lockAcquired) {
-      await releaseOptimizedLock(lockData);
+      await releaseLock(lockData);
     }
   }
 }
 
 // =====================================
-// OPTIMIZED LOCK SYSTEM
+// LOCK SYSTEM
 // =====================================
 
-async function acquireOptimizedLock(lockData) {
+async function acquireLock(lockData) {
   const lockRange = "RATELOG!G1:J1";
   const maxAttempts = 3;
   
@@ -3156,7 +3480,7 @@ async function acquireOptimizedLock(lockData) {
   return false;
 }
 
-async function releaseOptimizedLock(lockData) {
+async function releaseLock(lockData) {
   try {
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -3245,7 +3569,7 @@ async function processRatingsBatch(ratings) {
 }
 
 // =====================================
-// HELPER FUNCTIONS (NEW)
+// HELPER FUNCTIONS
 // =====================================
 
 async function checkExistingRatingsCached(item, candidateName, evaluator) {
@@ -3262,6 +3586,24 @@ async function checkExistingRatingsCached(item, candidateName, evaluator) {
   return ratings;
 }
 
+async function checkExistingRatings(item, candidateName, evaluator) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const existingData = response.result.values || [];
+    return existingData.filter(row =>
+      matchesRatingRow(row, item, candidateName, evaluator)
+    );
+  } catch (error) {
+    console.error('Error checking ratings:', error);
+    return [];
+  }
+}
+
 async function checkForUpdates(ratings) {
   const firstRating = ratings[0];
   if (!firstRating) return false;
@@ -3275,12 +3617,73 @@ async function checkForUpdates(ratings) {
   return existingRatings.length > 0;
 }
 
+function prepareRatingsData(item, candidateName, currentEvaluator) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  const ratings = [];
+
+  for (let itemElement of competencyItems) {
+    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
+    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
+      .find(radio => radio.checked)?.value;
+
+    if (!rating) {
+      return { error: 'Please rate all competencies' };
+    }
+
+    const competencyCode = getCompetencyCode(competencyName);
+    const candidateInitials = getInitials(candidateName);
+    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
+    
+    ratings.push([
+      ratingCode,
+      item,
+      candidateName,
+      competencyName,
+      rating,
+      currentEvaluator,
+      '',
+      ''
+    ]);
+  }
+  console.log('Ratings to submit:', ratings);
+  return { ratings };
+}
+
 function showSubmissionProgress(submission) {
   const message = submission.attempts > 1 
     ? `Submitting... (attempt ${submission.attempts})`
     : 'Submitting...';
     
   showToastOptimized('info', 'Processing', message);
+}
+
+// =====================================
+// UI FUNCTIONS
+// =====================================
+
+function showSubmittingIndicator() {
+  // Remove any existing indicator first
+  hideSubmittingIndicator();
+  
+  const indicator = document.createElement('div');
+  indicator.id = 'submittingIndicator';
+  indicator.className = 'submitting-indicator';
+  indicator.innerHTML = `
+    <div class="submitting-content">
+      <span class="spinner"></span>
+      <span>SUBMITTING...</span>
+    </div>
+  `;
+  document.body.appendChild(indicator);
+  console.log('🔄 Submitting indicator shown');
+}
+
+function hideSubmittingIndicator() {
+  const indicator = document.getElementById('submittingIndicator');
+  if (indicator) {
+    indicator.remove();
+    console.log('🔄 Submitting indicator removed');
+  }
 }
 
 async function showConfirmationModal(ratings, existingRatings, isUpdate) {
@@ -3333,6 +3736,44 @@ async function showConfirmationModal(ratings, existingRatings, isUpdate) {
   });
 }
 
+async function verifyEvaluatorPassword(existingRatings) {
+  return new Promise((resolve) => {
+    const modalContent = `
+      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
+      <input type="password" id="verificationPassword" class="modal-input">
+    `;
+    showModal('Password Verification', modalContent, () => {
+      const password = document.getElementById('verificationPassword').value;
+      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    }, () => {
+      revertToExistingRatings(existingRatings);
+      resolve(false);
+    });
+  });
+}
+
+function revertToExistingRatings(existingRatings) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
+    if (existingRating) {
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    } else {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => radio.checked = false);
+    }
+  });
+}
+
 function showToastOptimized(type, title, message) {
   // Remove existing toasts of the same type to prevent spam
   const existingToasts = document.querySelectorAll(`.toast.${type}`);
@@ -3346,102 +3787,8 @@ function showToastOptimized(type, title, message) {
 }
 
 // =====================================
-// CORE SUBMISSION LOGIC (OPTIMIZED)
+// SUCCESS HANDLING
 // =====================================
-
-async function submitRatingsOptimized(ratings) {
-  // Try lockless submission first
-  try {
-    const result = await tryLocklessSubmission(ratings);
-    if (result.success) return result;
-  } catch (error) {
-    console.log('Lockless failed, using lock:', error.message);
-  }
-
-  // Fall back to locked submission
-  return await submitRatingsWithLock(ratings, SUBMISSION_CONFIG.MAX_RETRIES);
-}
-
-async function tryLocklessSubmission(ratings) {
-  const hasUpdates = await checkForUpdates(ratings);
-  
-  if (!hasUpdates) {
-    if (!await isTokenValid()) await refreshAccessToken();
-    
-    await gapi.client.sheets.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-      valueInputOption: 'RAW',
-      insertDataOption: 'INSERT_ROWS',
-      resource: { values: ratings },
-    });
-    
-    return { success: true, message: 'Ratings submitted successfully' };
-  }
-  
-  throw new Error('Updates detected, lock required');
-}
-
-// =====================================
-// ORIGINAL FUNCTIONS (KEEP AS-IS)
-// =====================================
-
-function showSubmittingIndicator() {
-  let indicator = document.getElementById('submittingIndicator');
-  if (!indicator) {
-    indicator = document.createElement('div');
-    indicator.id = 'submittingIndicator';
-    indicator.className = 'submitting-indicator';
-    indicator.innerHTML = `
-      <div class="submitting-content">
-        <span class="spinner"></span>
-        <span>SUBMITTING...</span>
-      </div>
-    `;
-    document.body.appendChild(indicator);
-  }
-}
-
-function hideSubmittingIndicator() {
-  const indicator = document.getElementById('submittingIndicator');
-  if (indicator) indicator.remove();
-}
-
-async function processSubmissionQueue() {
-  if (isSubmitting || !submissionQueue.length) return;
-  isSubmitting = true;
-
-  const ratings = submissionQueue.shift();
-
-  try {
-    const result = await submitRatingsWithLock(ratings);
-    if (result.success) {
-      const candidateName = ratings[0][2];
-      const item = ratings[0][1];
-      localStorage.removeItem(`radioState_${candidateName}_${item}`);
-      showModal(
-        'Submission Successful',
-        `<p>${result.message}</p>`,
-        () => {
-          console.log('Success modal closed');
-          fetchSubmittedRatings({ forceRefresh: true });
-          handleSuccessfulSubmission(ratings);
-        },
-        null,
-        false
-      );
-    }
-  } catch (error) {
-    console.error('Queue submission failed:', error);
-    showToast('error', 'Error', error.message);
-    submissionQueue.unshift(ratings);
-    setTimeout(processSubmissionQueue, 5000);
-  } finally {
-    isSubmitting = false;
-    hideSubmittingIndicator();
-    processSubmissionQueue();
-  }
-}
 
 function handleSuccessfulSubmission(ratings) {
   const candidateName = ratings[0][2];
@@ -3456,6 +3803,10 @@ function handleSuccessfulSubmission(ratings) {
     evaluator, item, candidateName
   });
 }
+
+// =====================================
+// DEBUG FUNCTIONS
+// =====================================
 
 function debugRatingSync(evaluator, item, name) {
   console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
@@ -3484,229 +3835,11 @@ function debugRatingSync(evaluator, item, name) {
   console.groupEnd();
 }
 
+// Make debug function available globally
 window.debugRatingSync = debugRatingSync;
 
-async function checkExistingRatings(item, candidateName, evaluator) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const existingData = response.result.values || [];
-    return existingData.filter(row =>
-      matchesRatingRow(row, item, candidateName, evaluator)
-    );
-  } catch (error) {
-    console.error('Error checking ratings:', error);
-    return [];
-  }
-}
-
-function revertToExistingRatings(existingRatings) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
-    if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
-    } else {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => radio.checked = false);
-    }
-  });
-}
-
-async function verifyEvaluatorPassword(existingRatings) {
-  return new Promise((resolve) => {
-    const modalContent = `
-      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
-      <input type="password" id="verificationPassword" class="modal-input">
-    `;
-    showModal('Password Verification', modalContent, () => {
-      const password = document.getElementById('verificationPassword').value;
-      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    }, () => {
-      revertToExistingRatings(existingRatings);
-      resolve(false);
-    });
-  });
-}
-
-function prepareRatingsData(item, candidateName, currentEvaluator) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  const ratings = [];
-
-  for (let itemElement of competencyItems) {
-    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
-    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
-      .find(radio => radio.checked)?.value;
-
-    if (!rating) {
-      return { error: 'Please rate all competencies' };
-    }
-
-    const competencyCode = getCompetencyCode(competencyName);
-    const candidateInitials = getInitials(candidateName);
-    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
-    
-    ratings.push([
-      ratingCode,
-      item,
-      candidateName,
-      competencyName,
-      rating,
-      currentEvaluator,
-      '',
-      ''
-    ]);
-  }
-  console.log('Ratings to submit:', ratings);
-  return { ratings };
-}
-
-async function submitRatingsWithLock(ratings, maxRetries = 5) {
-  const lockRange = "RATELOG!G1:I1";
-  const LOCK_TIMEOUT = SUBMISSION_CONFIG.LOCK_TIMEOUT;
-  let retryCount = 0;
-  let lockAcquired = false;
-
-  while (retryCount < maxRetries) {
-    try {
-      if (!await isTokenValid()) await refreshAccessToken();
-      const { acquired, owner } = await acquireLock(sessionId);
-      if (!acquired) {
-        showToastOptimized('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
-        await delay(Math.pow(2, retryCount) * 1000);
-        retryCount++;
-        continue;
-      }
-      lockAcquired = true;
-
-      const result = await processRatings(ratings);
-      await releaseLock(sessionId);
-      return result;
-    } catch (error) {
-      console.error('Error in submitRatingsWithLock:', error);
-      retryCount++;
-      if (lockAcquired) await releaseLock(sessionId);
-      if (retryCount === maxRetries) {
-        throw new Error('Submission failed after retries—queued for later');
-      }
-      await delay(Math.pow(2, retryCount) * 1000);
-    }
-  }
-}
-
-async function acquireLock(sessionId) {
-  const lockRange = "RATELOG!G1:I1";
-  try {
-    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-    });
-    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
-    
-    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < SUBMISSION_CONFIG.LOCK_TIMEOUT) {
-      return { acquired: false, owner: lockOwner || 'unknown' };
-    }
-
-    const timestamp = new Date().toISOString();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: lockRange,
-      valueInputOption: 'RAW',
-      resource: { values: [['locked', timestamp, sessionId]] },
-    });
-    return { acquired: true };
-  } catch (error) {
-    console.error('Lock acquisition failed:', error);
-    return { acquired: false, owner: 'error' };
-  }
-}
-
-async function releaseLock(sessionId) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    await gapi.client.sheets.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID,
-      range: "RATELOG!G1:I1",
-      valueInputOption: 'RAW',
-      resource: { values: [['', '', '']] },
-    });
-  } catch (error) {
-    console.error('Failed to release lock:', error);
-    showToastOptimized('error', 'Lock Error', 'Lock release failed—may resolve in 8s');
-  }
-}
-
-async function processRatings(ratings) {
-  if (!await isTokenValid()) await refreshAccessToken();
-  const response = await gapi.client.sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: SHEET_RANGES.RATELOG,
-  });
-
-  let existingData = response.result.values || [];
-  const newRatings = [];
-  let isUpdated = false;
-
-  const existingRatingsMap = new Map();
-  existingData.forEach((row, index) => {
-    if (row[0]) existingRatingsMap.set(row[0], { row, index });
-  });
-
-  ratings.forEach(newRating => {
-    const ratingCode = newRating[0];
-    if (existingRatingsMap.has(ratingCode)) {
-      const { index } = existingRatingsMap.get(ratingCode);
-      existingData[index] = newRating;
-      isUpdated = true;
-    } else {
-      newRatings.push(newRating);
-    }
-  });
-
-  const batchUpdates = [];
-  if (isUpdated) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: existingData },
-      })
-    );
-  }
-  if (newRatings.length > 0) {
-    batchUpdates.push(
-      gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: SHEET_RANGES.RATELOG,
-        valueInputOption: 'RAW',
-        resource: { values: newRatings },
-      })
-    );
-  }
-
-  await Promise.all(batchUpdates);
-  return {
-    success: true,
-    message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
-  };
-}
-
 // =====================================
-// CACHE CLEANUP
+// CLEANUP AND UTILITIES
 // =====================================
 
 // Clean up cache periodically
@@ -4007,6 +4140,59 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
 
   loadRadioState(name, elements.itemDropdown.value);
 }
+
+
+
+
+// ------------------------------
+// Backwards-compatible pending-rating helpers
+// ------------------------------
+// Add these if older UI code calls savePendingRating/getPendingRating/clearPendingRating
+
+function savePendingRating(evaluator, item, name, ratingData) {
+  // Prefer the new manager if present
+  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.save) {
+    return pendingRatingsManager.save(evaluator, item, name, ratingData);
+  }
+  // Fallback: store in localStorage using same key format
+  try {
+    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
+    localStorage.setItem(key, JSON.stringify({ ...ratingData, evaluator, item, name, timestamp: Date.now() }));
+    console.log(`💾 (fallback) Saved pending rating for "${name}" on item "${item}".`);
+  } catch (e) {
+    console.warn('Failed to save pending rating fallback:', e);
+  }
+}
+
+function getPendingRating(evaluator, item, name) {
+  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.get) {
+    return pendingRatingsManager.get(evaluator, item, name);
+  }
+  try {
+    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : null;
+  } catch (e) {
+    console.warn('Failed to get pending rating fallback:', e);
+    return null;
+  }
+}
+
+function clearPendingRating(evaluator, item, name) {
+  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.clear) {
+    return pendingRatingsManager.clear(evaluator, item, name);
+  }
+  try {
+    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
+    localStorage.removeItem(key);
+    console.log(`🧹 (fallback) Cleared pending rating for "${name}" on item "${item}".`);
+  } catch (e) {
+    console.warn('Failed to clear pending rating fallback:', e);
+  }
+}
+
+
+
 
 
 
@@ -5548,4 +5734,3 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
