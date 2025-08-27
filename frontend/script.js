@@ -17,7 +17,7 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-const submissionQueue = []; // Queue for pending submissions
+//const submissionQueue = []; // Queue for pending submissions
 const loadingState = {
   gapi: false,
   dom: false,
@@ -6126,6 +6126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
