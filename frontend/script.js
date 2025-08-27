@@ -3540,7 +3540,7 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
 // CONFIGURATION
 // =====================================
 
-const SUBMISSION_CONFIG = {const SUBMISSION_CONFIG = {
+const SUBMISSION_CONFIG = {
   MAX_RETRIES: 5, // Changed from 3 to 5
   BASE_DELAY: 500,
   MAX_DELAY: 3000,
@@ -6198,6 +6198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
