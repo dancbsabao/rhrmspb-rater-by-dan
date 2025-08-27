@@ -537,7 +537,7 @@ function startUIMonitoring() {
 // ===========================
 let apiNotifierEl = null;
 let updateInterval = null;
-let isMinimized = false;
+let isMinimized = true;
 let lastUpdateTime = null;
 
 // Create or get the notifier element
@@ -6126,6 +6126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
