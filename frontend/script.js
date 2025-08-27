@@ -6,7 +6,7 @@ let fetchTimeout = null;
 let isSubmitting = false;
 let refreshTimer = null;
 let sessionId = null; // To track server session
-let submissionQueue = []; // Queue for pending submissions
+//let submissionQueue = []; // Queue for pending submissions
 let currentTab = 'rater'; // Track current tab ('rater' or 'secretariat')
 let generalList = [];
 let disqualified = [];
@@ -17,6 +17,7 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
+const submissionQueue = []; // Queue for pending submissions
 const loadingState = {
   gapi: false,
   dom: false,
@@ -6125,6 +6126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
