@@ -2772,12 +2772,22 @@ async function handleSignOutClick() {
       window.sessionId = null;
       window.secretariatMemberId = null;
       
-      // Reset arrays (clear contents instead of reassigning)
-      if (window.vacancies) window.vacancies.length = 0;
-      if (window.candidates) window.candidates.length = 0;
-      if (window.compeCodes) window.compeCodes.length = 0;
-      if (window.competencies) window.competencies.length = 0;
-      if (window.submissionQueue) window.submissionQueue.length = 0;
+      // Reset arrays (clear contents instead of reassigning to avoid const errors)
+      if (window.vacancies && Array.isArray(window.vacancies)) {
+        window.vacancies.length = 0;
+      }
+      if (window.candidates && Array.isArray(window.candidates)) {
+        window.candidates.length = 0;
+      }
+      if (window.compeCodes && Array.isArray(window.compeCodes)) {
+        window.compeCodes.length = 0;
+      }
+      if (window.competencies && Array.isArray(window.competencies)) {
+        window.competencies.length = 0;
+      }
+      if (window.submissionQueue && Array.isArray(window.submissionQueue)) {
+        window.submissionQueue.length = 0;
+      }
       
       console.log('Global variables reset');
       
@@ -2848,6 +2858,24 @@ async function handleSignOutClick() {
         localStorage.clear();
         window.currentEvaluator = null;
         window.sessionId = null;
+        
+        // Clear arrays safely
+        if (window.submissionQueue && Array.isArray(window.submissionQueue)) {
+          window.submissionQueue.length = 0;
+        }
+        if (window.vacancies && Array.isArray(window.vacancies)) {
+          window.vacancies.length = 0;
+        }
+        if (window.candidates && Array.isArray(window.candidates)) {
+          window.candidates.length = 0;
+        }
+        if (window.compeCodes && Array.isArray(window.compeCodes)) {
+          window.compeCodes.length = 0;
+        }
+        if (window.competencies && Array.isArray(window.competencies)) {
+          window.competencies.length = 0;
+        }
+        
         if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
           window.apiManager.clearCache();
         }
@@ -2924,12 +2952,22 @@ async function handleLogoutAll() {
           window.sessionId = null;
           window.secretariatMemberId = null;
           
-          // Reset arrays (clear contents instead of reassigning)
-          if (window.vacancies) window.vacancies.length = 0;
-          if (window.candidates) window.candidates.length = 0;
-          if (window.compeCodes) window.compeCodes.length = 0;
-          if (window.competencies) window.competencies.length = 0;
-          if (window.submissionQueue) window.submissionQueue.length = 0;
+          // Reset arrays (clear contents instead of reassigning to avoid const errors)
+          if (window.vacancies && Array.isArray(window.vacancies)) {
+            window.vacancies.length = 0;
+          }
+          if (window.candidates && Array.isArray(window.candidates)) {
+            window.candidates.length = 0;
+          }
+          if (window.compeCodes && Array.isArray(window.compeCodes)) {
+            window.compeCodes.length = 0;
+          }
+          if (window.competencies && Array.isArray(window.competencies)) {
+            window.competencies.length = 0;
+          }
+          if (window.submissionQueue && Array.isArray(window.submissionQueue)) {
+            window.submissionQueue.length = 0;
+          }
           
           console.log('Global variables reset');
           
@@ -6087,4 +6125,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
