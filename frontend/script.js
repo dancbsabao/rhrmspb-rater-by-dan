@@ -857,142 +857,190 @@ window.apiNotifierControl = {
 
 // ============================================================================
 //
-//      SIMPLIFIED SEQUENTIAL API QUEUE MANAGER
-//      Simple, reliable, sequential data loading with cache fallback
+//      SIMPLIFIED SEQUENTIAL API MANAGER
+//      Simplified version keeping original function names
 //
 // ============================================================================
 
-class SequentialAPIManager {
-  constructor() {
+class BulletproofAPIManager {
+  constructor(options = {}) {
+    this.config = {
+      baseDelay: options.baseDelay || 3000,
+      maxRetries: options.maxRetries || 3,
+    };
+
     this.deviceId = this._generateDeviceId();
     this.cache = new Map();
+    this.requestQueue = new Map();
     this.isLoading = false;
     this.retryQueue = [];
     this.retryTimer = null;
+    
+    this.metrics = {
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      cacheHits: 0,
+      deviceId: this.deviceId,
+    };
   }
 
-  /**
-   * Initialize the manager
-   */
   async init() {
-    console.log(`Sequential API Manager initialized. Device ID: ${this.deviceId}`);
-    updateApiNotifier("ready", `Device ${this.deviceId} ready`);
+    updateApiNotifier("loading", "Starting up...");
+    try {
+      console.log(`BulletproofAPIManager Initialized. Device ID: ${this.deviceId}`);
+      updateApiNotifier("ready", `Device ${this.deviceId}`);
+    } catch (err) {
+      console.error("Init failed:", err);
+      updateApiNotifier("error", err.message);
+    }
   }
 
   /**
-   * Load data sequentially on login
+   * Simplified bulletproof fetch - just cache and retry logic
    */
-  async loadAllDataSequentially() {
-    if (this.isLoading) {
-      console.log("Already loading data, skipping duplicate request");
-      return;
+  async bulletproofFetch(key, fetchFunction, options = {}) {
+    this.metrics.totalRequests++;
+
+    // Check cache first
+    const cachedData = this._getCachedData(key);
+    if (cachedData && !options.forceRefresh) {
+      this.metrics.cacheHits++;
+      return cachedData;
     }
 
-    this.isLoading = true;
-    updateApiNotifier("loading", "Loading data sequentially...");
+    // Coalesce concurrent requests
+    if (this.requestQueue.has(key)) {
+      console.log(`Waiting for existing request: "${key}"`);
+      return this.requestQueue.get(key);
+    }
 
-    const dataRequests = [
-      { key: 'vacanciesData', fetchFunction: fetchVacanciesData, label: 'Vacancies' },
-      { key: 'candidatesData', fetchFunction: loadSheetData, label: 'Sheet Data' },
-      // Secretariat and signatory data ignored as requested
-    ];
+    const requestPromise = this._executeWithRetry(key, fetchFunction, options);
+    this.requestQueue.set(key, requestPromise);
 
-    console.log(`Starting sequential load of ${dataRequests.length} data sources`);
+    try {
+      return await requestPromise;
+    } finally {
+      this.requestQueue.delete(key);
+    }
+  }
 
-    for (let i = 0; i < dataRequests.length; i++) {
-      const request = dataRequests[i];
+  /**
+   * Sequential batch fetch - loads items one by one
+   */
+  async batchFetch(requests, options = {}) {
+    console.log(`Starting sequential batch fetch for ${requests.length} items.`);
+    
+    const results = [];
+    const errors = [];
+
+    for (let i = 0; i < requests.length; i++) {
+      const request = requests[i];
       
-      updateApiNotifier("loading", `Loading ${request.label}... (${i + 1}/${dataRequests.length})`);
-      console.log(`Loading ${request.label}...`);
+      updateApiNotifier("loading", `Loading ${request.key}... (${i + 1}/${requests.length})`);
+      console.log(`Loading ${request.key}...`);
 
       try {
-        const data = await request.fetchFunction();
-        this._setCachedData(request.key, data);
-        console.log(`✅ Successfully loaded ${request.label}`);
+        const result = await this.bulletproofFetch(request.key, request.fetchFunction, request.options);
+        results.push({ key: request.key, data: result, success: true });
+        console.log(`Successfully loaded ${request.key}`);
         
-        // Small delay between requests to be gentle on the API
-        if (i < dataRequests.length - 1) {
+        // Small delay between requests
+        if (i < requests.length - 1) {
           await this._wait(1000);
         }
-        
       } catch (error) {
-        console.error(`❌ Failed to load ${request.label}:`, error.message);
+        console.error(`Failed to load ${request.key}:`, error.message);
+        errors.push({ key: request.key, error: error.message, success: false });
         
-        // Try to use cached data
+        // Add to retry queue if no cache available
         const cachedData = this._getCachedData(request.key);
-        if (cachedData) {
-          console.log(`📦 Using cached data for ${request.label}`);
-          updateApiNotifier("warning", `Using cached ${request.label}`);
-        } else {
-          console.log(`⏰ Adding ${request.label} to retry queue`);
+        if (!cachedData) {
+          console.log(`Adding ${request.key} to retry queue`);
           this.retryQueue.push(request);
         }
       }
     }
 
-    this.isLoading = false;
-    
     if (this.retryQueue.length > 0) {
-      console.log(`${this.retryQueue.length} items failed, will retry in 1 minute`);
-      updateApiNotifier("warning", `${this.retryQueue.length} items will retry in 1 minute`);
+      console.log(`${this.retryQueue.length} items will retry in 1 minute`);
       this._scheduleRetry();
-    } else {
-      console.log("✅ All data loaded successfully");
-      updateApiNotifier("success", "All data loaded successfully");
     }
+
+    console.log(`Sequential batch complete: ${results.length} successful, ${errors.length} failed.`);
+    return { results, errors, metrics: this.getMetrics() };
   }
 
-  /**
-   * Get data - returns cached data or null
-   */
-  getData(key) {
-    return this._getCachedData(key);
+  getMetrics() {
+    return {
+      ...this.metrics,
+      cacheSize: this.cache.size,
+      activeRequests: this.requestQueue.size,
+      retryQueueSize: this.retryQueue.length,
+    };
   }
 
-  /**
-   * Check if data exists in cache
-   */
-  hasData(key) {
-    return this.cache.has(key);
-  }
-
-  /**
-   * Clear all data on logout
-   */
-  clearAllData() {
+  clearCache() {
     this.cache.clear();
     this.retryQueue = [];
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
     }
-    console.log("🗑️ All data cleared");
-    updateApiNotifier("info", "All data cleared");
+    console.log('Cache cleared.');
   }
 
-  /**
-   * Get current status
-   */
-  getStatus() {
-    return {
-      deviceId: this.deviceId,
-      isLoading: this.isLoading,
-      cacheSize: this.cache.size,
-      retryQueueSize: this.retryQueue.length,
-      cachedKeys: Array.from(this.cache.keys())
-    };
+  cleanup() {
+    this.clearCache();
+    console.log(`Device ${this.deviceId} cleaned up.`);
   }
 
   // ========================================================================
   // PRIVATE METHODS
   // ========================================================================
 
-  _generateDeviceId() {
-    const storedId = localStorage.getItem('device_id');
-    if (storedId) return storedId;
-    const newId = `device_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
-    localStorage.setItem('device_id', newId);
-    return newId;
+  async _executeWithRetry(key, fetchFunction, options) {
+    let lastError = null;
+    const maxRetries = options.maxRetries ?? this.config.maxRetries;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt + 1}/${maxRetries + 1} for "${key}"`);
+        const result = await fetchFunction();
+
+        this.metrics.successfulRequests++;
+        this._setCachedData(key, result);
+        console.log(`Successfully fetched "${key}"`);
+        return result;
+
+      } catch (error) {
+        lastError = error;
+        this.metrics.failedRequests++;
+        console.error(`Attempt ${attempt + 1} failed for "${key}": ${error.message}`);
+
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        const delay = this.config.baseDelay * (attempt + 1);
+        console.log(`Waiting ${Math.round(delay/1000)}s before retry for "${key}"...`);
+        await this._wait(delay);
+      }
+    }
+
+    // Try to return cached data if available
+    const staleData = this._getCachedData(key);
+    if (staleData) {
+      console.warn(`All retries failed for "${key}". Returning cached data.`);
+      return staleData;
+    }
+
+    throw new Error(`All retry attempts failed for "${key}". Last error: ${lastError?.message || 'Unknown error'}`);
+  }
+
+  _getCachedData(key) {
+    const cached = this.cache.get(key);
+    return cached ? cached.data : null;
   }
 
   _setCachedData(key, data) {
@@ -1000,17 +1048,19 @@ class SequentialAPIManager {
       data,
       timestamp: Date.now()
     });
-    console.log(`📦 Cached data for: ${key}`);
-  }
-
-  _getCachedData(key) {
-    const cached = this.cache.get(key);
-    if (!cached) return null;
-    return cached.data;
+    console.log(`Cached data for: ${key}`);
   }
 
   _wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  _generateDeviceId() {
+    const storedId = localStorage.getItem('device_id');
+    if (storedId) return storedId;
+    const newId = `device_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
+    localStorage.setItem('device_id', newId);
+    return newId;
   }
 
   _scheduleRetry() {
@@ -1021,7 +1071,7 @@ class SequentialAPIManager {
     this.retryTimer = setTimeout(async () => {
       if (this.retryQueue.length === 0) return;
 
-      console.log(`🔄 Retrying ${this.retryQueue.length} failed requests`);
+      console.log(`Retrying ${this.retryQueue.length} failed requests`);
       updateApiNotifier("loading", "Retrying failed requests...");
 
       const failedRequests = [...this.retryQueue];
@@ -1029,16 +1079,14 @@ class SequentialAPIManager {
 
       for (const request of failedRequests) {
         try {
-          console.log(`🔄 Retrying ${request.label}...`);
-          const data = await request.fetchFunction();
-          this._setCachedData(request.key, data);
-          console.log(`✅ Successfully retried ${request.label}`);
+          console.log(`Retrying ${request.key}...`);
+          const result = await this.bulletproofFetch(request.key, request.fetchFunction, request.options);
+          console.log(`Successfully retried ${request.key}`);
         } catch (error) {
-          console.error(`❌ Retry failed for ${request.label}:`, error.message);
+          console.error(`Retry failed for ${request.key}:`, error.message);
           this.retryQueue.push(request);
         }
         
-        // Small delay between retries
         await this._wait(2000);
       }
 
@@ -1046,7 +1094,7 @@ class SequentialAPIManager {
         console.log(`${this.retryQueue.length} items still failed, scheduling another retry`);
         this._scheduleRetry();
       } else {
-        console.log("✅ All retries completed successfully");
+        console.log("All retries completed successfully");
         updateApiNotifier("success", "All data loaded after retry");
       }
     }, 60000); // 1 minute retry delay
@@ -1054,56 +1102,164 @@ class SequentialAPIManager {
 }
 
 // ============================================================================
-// SINGLETON INSTANCE
+// SINGLETON INSTANCE & EXISTING WRAPPERS
 // ============================================================================
 
-const apiManager = new SequentialAPIManager();
+const apiManager = new BulletproofAPIManager({
+  baseDelay: 3000,
+  maxRetries: 3,
+});
+
+// Keep existing wrapper functions
+async function safeFetchSecretariatMembers() {
+  // Skip as requested - secretariat data is not a priority
+  console.log('Skipping secretariat members (not priority)');
+  return null;
+}
+
+async function safeFetchVacanciesData() {
+  return apiManager.bulletproofFetch('vacanciesData', fetchVacanciesData, {
+    cacheTTL: 30 * 60 * 1000,
+  });
+}
+
+async function safeLoadSignatories() {
+  // Skip as requested - signatory data is not a priority
+  console.log('Skipping signatories (not priority)');
+  return null;
+}
+
+async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
+  if (!name || !item || !evaluator) {
+    throw new Error('Missing required parameters: name, item, and evaluator are all required.');
+  }
+
+  const key = `rating:${evaluator}:${item}:${name}`;
+
+  const fetchFunction = async () => {
+    if (!await isTokenValid()) await refreshAccessToken();
+
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const values = response?.result?.values || [];
+    if (values.length === 0) return { values: [], ts: Date.now() };
+
+    const header = values[0];
+    const dataRows = values.slice(1);
+    const matchingRows = dataRows.filter(row => matchesRatingRow(row, item, name, evaluator));
+
+    console.log(`Found ${matchingRows.length} rating rows for:`, { evaluator, item, name });
+
+    return { values: [header, ...matchingRows], ts: Date.now() };
+  };
+
+  return apiManager.bulletproofFetch(key, fetchFunction, {
+    forceRefresh,
+  });
+}
+
+// Keep existing pending ratings manager
+const pendingRatingsManager = {
+  _getKey: (evaluator, item, name) => `pending_rating:${apiManager.deviceId}:${evaluator}:${item}:${name}`,
+
+  save(evaluator, item, name, ratingData) {
+    const key = this._getKey(evaluator, item, name);
+    const data = { ...ratingData, evaluator, item, name, timestamp: Date.now() };
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+      console.log(`Saved pending rating for "${name}" on item "${item}".`);
+    } catch (e) {
+      console.warn('Failed to save pending rating to localStorage:', e);
+    }
+  },
+
+  get(evaluator, item, name) {
+    const key = this._getKey(evaluator, item, name);
+    try {
+      const stored = localStorage.getItem(key);
+      if (!stored) return null;
+
+      const pending = JSON.parse(stored);
+      if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
+        console.log(`Restored pending rating for "${name}" on item "${item}".`);
+        return pending;
+      } else {
+        localStorage.removeItem(key);
+        return null;
+      }
+    } catch (e) {
+      console.warn('Failed to restore pending rating:', e);
+      return null;
+    }
+  },
+
+  clear(evaluator, item, name) {
+    const key = this._getKey(evaluator, item, name);
+    try {
+      localStorage.removeItem(key);
+      console.log(`Cleared pending rating for "${name}" on item "${item}".`);
+    } catch (e) {
+      console.warn('Failed to clear pending rating from localStorage:', e);
+    }
+  }
+};
 
 // ============================================================================
-// SIMPLIFIED INITIALIZATION
+// SIMPLIFIED INITIALIZATION - KEEPING ORIGINAL FUNCTION NAMES
 // ============================================================================
 
 let appInitializationPromise = null;
 
 async function initializeApp() {
   if (appInitializationPromise) {
-    console.warn("Initialization already in progress");
+    console.warn("Initialization already in progress. Waiting for it to complete...");
     return appInitializationPromise;
   }
 
   appInitializationPromise = (async () => {
+    showSpinner(true);
+
     try {
-      showSpinner(true);
-      
       // 1. Initialize API Manager
       await apiManager.init();
-      
+
       // 2. Initialize API Notifier
       await initializeApiNotifier();
-      
-      // 3. Initialize GAPI
+
+      // 3. Load GAPI client
       await new Promise((resolve, reject) => {
         gapi.load('client', async () => {
           try {
             await initializeGapiClient();
+            console.log('GAPI client initialized successfully.');
             resolve();
-          } catch (error) {
-            reject(error);
+          } catch (gapiError) {
+            reject(gapiError);
           }
         });
       });
-      
+
       // 4. Setup UI
       setupUI();
-      
-      console.log("✅ App initialization complete");
-      updateApiNotifier("success", "App initialized - ready to load data");
-      
+
+      // 5. Load initial data sequentially (not immediately from cache)
+      await loadInitialData();
+
+      // 6. Finalize initialization
+      finishInitialization();
+      console.log("Application initialized successfully.");
+
+      updateApiNotifier("success", "App initialized successfully.");
+
     } catch (error) {
-      console.error('❌ App initialization failed:', error);
+      console.error('Application initialization failed:', error);
       updateApiNotifier("error", `Initialization failed: ${error.message}`);
-      showErrorNotification(`Initialization failed: ${error.message}`);
+      handleInitializationFailure(error);
       throw error;
+
     } finally {
       showSpinner(false);
       appInitializationPromise = null;
@@ -1114,54 +1270,78 @@ async function initializeApp() {
 }
 
 /**
- * Load data after login - this replaces the complex loadInitialData
+ * SIMPLIFIED - Load data sequentially, not from cache first
  */
-async function loadDataAfterLogin() {
-  console.log("🚀 Starting data load after login");
-  await apiManager.loadAllDataSequentially();
+async function loadInitialData() {
+  console.log('Starting sequential initial data load...');
+
+  const apiRequests = [
+    { key: 'vacanciesData', fetchFunction: () => safeFetchVacanciesData(), priority: 2, required: true },
+    // Secretariat and signatory data ignored as requested
+  ];
+
+  console.log(`Loading ${apiRequests.length} data sources sequentially`);
+
+  const result = await apiManager.batchFetch(apiRequests);
+  
+  if (result.errors.length > 0) {
+    const criticalErrors = result.errors.filter(err =>
+      apiRequests.find(req => req.key === err.key)?.required
+    );
+
+    if (criticalErrors.length > 0) {
+      console.error('Critical API failures detected:', criticalErrors);
+      handleCriticalAPIFailure(criticalErrors);
+    }
+  } else {
+    console.log('Initial data load complete.');
+  }
 }
-
-/**
- * Clear data on logout
- */
-function clearDataOnLogout() {
-  console.log("🗑️ Clearing data on logout");
-  apiManager.clearAllData();
-}
-
-// ============================================================================
-// SIMPLE DATA ACCESS FUNCTIONS
-// ============================================================================
-
-/**
- * Get cached data by key
- */
-function getCachedData(key) {
-  return apiManager.getData(key);
-}
-
-/**
- * Check if data is available
- */
-function hasData(key) {
-  return apiManager.hasData(key);
-}
-
-/**
- * Get API manager status for debugging
- */
-function getAPIStatus() {
-  return apiManager.getStatus();
-}
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
 
 function setupUI() {
   if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
   if (typeof setupTabNavigation === 'function') setupTabNavigation();
-  console.log("UI setup complete");
+}
+
+function finishInitialization() {
+  if (typeof startUIMonitoring === 'function') startUIMonitoring();
+  if (typeof restoreState === 'function') restoreState();
+
+  if (window.elements) {
+    elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+    elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+    elements.closeSignatoriesModalBtns?.forEach?.(button =>
+      button.addEventListener('click', () => {
+        elements.signatoriesModal?.classList?.remove('active');
+      })
+    );
+    elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+  }
+
+  showSpinner(false);
+  console.log('App initialization complete.');
+  console.log('Final Metrics:', apiManager.getMetrics());
+}
+
+function handleCriticalAPIFailure(errors) {
+  console.warn('Handling critical API failures... App may be degraded.');
+  for (const error of errors) {
+    const staleData = apiManager._getCachedData(error.key);
+    if (staleData) {
+      console.log(`Using cached data for critical data: "${error.key}"`);
+    }
+  }
+  showErrorNotification(
+    'Some data is temporarily unavailable. The app is using cached data where possible.'
+  );
+}
+
+function handleInitializationFailure(error) {
+  console.error('Handling complete initialization failure...');
+  showSpinner(false);
+  showErrorNotification(
+    `Unable to load data: ${error.message}. Please check your connection and refresh.`
+  );
 }
 
 function showSpinner(show) {
@@ -1173,22 +1353,11 @@ function showSpinner(show) {
 }
 
 function showErrorNotification(message) {
-  console.error('🚨 Error:', message);
+  console.error('User Notification:', message);
   if (typeof alert === 'function') alert(message);
 }
 
-// ============================================================================
-// LIFECYCLE HOOKS
-// ============================================================================
-
-window.addEventListener('beforeunload', () => {
-  console.log("🧹 App shutting down");
-});
-
-// ============================================================================
-// AUTH/TOKEN HELPERS (simplified)
-// ============================================================================
-
+// Keep all existing auth/token functions unchanged
 async function initializeGapiClient() {
   try {
     await gapi.client.init({
@@ -1197,17 +1366,25 @@ async function initializeGapiClient() {
     });
 
     const authState = JSON.parse(localStorage.getItem('authState'));
+
     if (authState?.access_token) {
       gapi.client.setToken({ access_token: authState.access_token });
-      console.log('Token loaded from localStorage');
+      console.log('Loaded token from localStorage into GAPI client.');
+
+      if (!await isTokenValid()) {
+        console.log('Token validation failed after loading, will attempt refresh.');
+      } else {
+        console.log('Loaded token is valid.');
+      }
+    } else {
+      console.log('No saved token found in localStorage.');
     }
 
     window.gapiInitialized = true;
-    console.log('GAPI client initialized');
+    console.log('GAPI client initialization sequence complete.');
 
   } catch (error) {
-    console.error('GAPI initialization error:', error);
-    throw error;
+    console.error('Error initializing GAPI client:', error);
   }
 }
 
@@ -1218,69 +1395,128 @@ async function isTokenValid() {
   }
 
   const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft <= 300000) { // 5 minutes
-    console.log('Token expiring, attempting refresh');
+  if (timeLeft <= 300000) {
+    console.log('Token is expired or expiring soon, attempting refresh.');
     return await refreshAccessToken();
   }
 
   return true;
 }
 
-async function refreshAccessToken() {
+async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.session_id) {
-    console.warn('No session ID for refresh');
+    console.warn('No session ID available');
     return false;
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/refresh-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ session_id: authState.session_id }),
-    });
-
-    const newToken = await response.json();
-    if (!response.ok || newToken.error) {
-      console.error('Token refresh failed:', newToken.error);
-      return false;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt} to refresh token with session_id: ${authState.session_id}`);
+      const response = await fetch(`${API_BASE_URL}/refresh-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ session_id: authState.session_id }),
+      });
+      const responseBody = await response.text();
+      console.log('Full server response:', responseBody);
+      const newToken = JSON.parse(responseBody);
+      if (!response.ok || newToken.error) {
+        if (newToken.error === 'No refresh token') {
+          console.error('Non-retryable error: No refresh token');
+          if (typeof showToast === 'function') showToast('error', 'Session Expired', 'No refresh token found. Please sign in again.');
+          authState.access_token = null;
+          localStorage.setItem('authState', JSON.stringify(authState));
+          if (typeof handleAuthClick === 'function') handleAuthClick();
+          return false;
+        }
+        throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
+      }
+      authState.access_token = newToken.access_token;
+      authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
+      localStorage.setItem('authState', JSON.stringify(authState));
+      gapi.client.setToken({ access_token: newToken.access_token });
+      console.log('Token refreshed successfully');
+      scheduleTokenRefresh();
+      return true;
+    } catch (error) {
+      console.error(`Refresh attempt ${attempt} failed: ${error.message}`);
+      if (attempt === maxRetries) {
+        console.error('Max retries reached, prompting re-authentication');
+        if (typeof showToast === 'function') showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
+        authState.access_token = null;
+        localStorage.setItem('authState', JSON.stringify(authState));
+        if (typeof handleAuthClick === 'function') handleAuthClick();
+        return false;
+      }
+      await new Promise(resolve => setTimeout(resolve, retryDelay * Math.pow(2, attempt - 1)));
     }
+  }
+  return false;
+}
 
-    authState.access_token = newToken.access_token;
-    authState.expires_at = Date.now() + ((newToken.expires_in || 3600) * 1000);
-    localStorage.setItem('authState', JSON.stringify(authState));
-    gapi.client.setToken({ access_token: newToken.access_token });
-    
-    console.log('Token refreshed successfully');
-    return true;
+function scheduleTokenRefresh(maxRetries = 5) {
+  if (window.refreshTimer) clearTimeout(window.refreshTimer);
 
-  } catch (error) {
-    console.error('Token refresh error:', error);
-    return false;
+  const authState = JSON.parse(localStorage.getItem('authState'));
+  if (!authState?.expires_at || !authState.session_id) {
+    console.log('No valid auth state for scheduling refresh');
+    return;
+  }
+
+  const timeToExpiry = authState.expires_at - Date.now();
+  const refreshInterval = Math.max(300000, timeToExpiry - 900000);
+
+  let retryCount = 0;
+
+  window.refreshTimer = setTimeout(async function refresh() {
+    console.log(`Scheduled token refresh triggered (retry ${retryCount + 1})`);
+    const success = await refreshAccessToken();
+    if (!success) {
+      retryCount++;
+      if (retryCount < maxRetries) {
+        console.warn(`Refresh failed, retrying in 1 minute (attempt ${retryCount + 1}/${maxRetries})`);
+        window.refreshTimer = setTimeout(refresh, 60000);
+      } else {
+        console.error('Max refresh retries reached, prompting re-authentication');
+        if (typeof showToast === 'function') showToast('error', 'Session Expired', 'Please sign in again.');
+        if (typeof handleAuthClick === 'function') handleAuthClick();
+      }
+    }
+  }, refreshInterval);
+
+  console.log(`Token refresh scheduled in ${Math.round(refreshInterval / 60000)} minutes`);
+}
+
+function handleTokenCallback(tokenResponse) {
+  if (tokenResponse.error) {
+    console.error('Token error:', tokenResponse.error);
+    if (window.elements?.authStatus) elements.authStatus.textContent = 'Error during sign-in';
+  } else {
+    if (typeof saveAuthState === 'function') saveAuthState(tokenResponse, window.currentEvaluator);
+    gapi.client.setToken({ access_token: tokenResponse.access_token });
+    if (typeof updateUI === 'function') updateUI(true);
+    fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
+      .then(() => {
+        if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
+        if (typeof loadSheetData === 'function') loadSheetData();
+        if (typeof showToast === 'function') showToast('success', 'Welcome!', 'Successfully signed in.');
+        localStorage.setItem('hasWelcomed', 'true');
+      });
   }
 }
 
-// ============================================================================
-// USAGE EXAMPLES
-// ============================================================================
+// Lifecycle hooks
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    console.log('Tab visible - checking state.');
+  }
+});
 
-/*
-// After login:
-await loadDataAfterLogin();
-
-// Check if data is available:
-if (hasData('vacanciesData')) {
-  const vacancies = getCachedData('vacanciesData');
-  // Use the data
-}
-
-// On logout:
-clearDataOnLogout();
-
-// Check status for debugging:
-console.log(getAPIStatus());
-*/
+window.addEventListener('beforeunload', () => {
+  apiManager.cleanup();
+});
 
 
 
