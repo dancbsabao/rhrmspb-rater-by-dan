@@ -17,7 +17,7 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-//const submissionQueue = []; // Queue for pending submissions
+const submissionQueue = new SubmissionQueue();
 const loadingState = {
   gapi: false,
   dom: false,
@@ -3670,8 +3670,8 @@ class SubmissionQueue {
   }
 }
 
-// Global queue instance
-const submissionQueue = new SubmissionQueue();
+
+
 
 // =====================================
 // MAIN SUBMISSION FUNCTION
@@ -6126,6 +6126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
 
 
