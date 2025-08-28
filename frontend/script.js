@@ -3697,25 +3697,37 @@ class SubmissionQueue {
     this.process();
   }
 
-  async process() {
+    async process() {
     if (this.processing) return;
     this.processing = true;
-
+  
     while (this.queue.length > 0 || this.retryQueue.length > 0) {
       const submission = this.retryQueue.shift() || this.queue.shift();
       if (!submission) break;
-
+  
       try {
         const result = await this.processSubmission(submission);
         if (result.success) {
           handleSuccessfulSubmission(submission.ratings);
           showToastOptimized('success', 'Success', result.message);
+          // Add success modal
+          showModal(
+            'Submission Successful',
+            `<p>${result.message}</p>`,
+            () => {
+              console.log('Success modal closed');
+              fetchSubmittedRatings({ forceRefresh: true });
+              handleSuccessfulSubmission(submission.ratings);
+            },
+            null,
+            false
+          );
         }
       } catch (error) {
         await this.handleFailedSubmission(submission, error);
       }
     }
-
+  
     this.processing = false;
   }
 
@@ -4139,15 +4151,24 @@ async function showConfirmationModal(ratings, existingRatings, isUpdate) {
   });
 }
 
+let lastToastTime = 0;
+const TOAST_MIN_INTERVAL = 1000; // Minimum time (ms) between toasts
+
 function showToastOptimized(type, title, message) {
-  // Remove existing toasts of the same type to prevent spam
-  const existingToasts = document.querySelectorAll(`.toast.${type}`);
+  const now = Date.now();
+  if (now - lastToastTime < TOAST_MIN_INTERVAL) {
+    return; // Skip if another toast was shown too recently
+  }
+  lastToastTime = now;
+
+  // Remove all existing toasts to prevent overlap
+  const existingToasts = document.querySelectorAll('.toast');
   existingToasts.forEach(toastElement => {
     const container = toastElement.closest('.toast-container');
     if (container) container.remove();
   });
-  
-  // Use your existing showToast function
+
+  // Show the new toast
   showToast(type, title, message);
 }
 
@@ -6354,3 +6375,4 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
