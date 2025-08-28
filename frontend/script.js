@@ -17,7 +17,6 @@ let activeCommentModalOperations = new Set();
 let minimizedModals = new Map(); // Store minimized comment modal states
 let ballPositions = []; // Track positions of floating balls
 let vacanciesData = [];
-
 const loadingState = {
   gapi: false,
   dom: false,
@@ -532,612 +531,649 @@ function startUIMonitoring() {
 }
 
 
-// ===========================
-// ENHANCED LIVE API NOTIFIER (Fully Dynamic, Backward Compatible)
-// ===========================
-let apiNotifierEl = null;
-let updateInterval = null;
-let isMinimized = true;
-let lastUpdateTime = null;
-
-// Create or get the notifier element
-function createApiNotifier() {
-  if (!apiNotifierEl) {
-    apiNotifierEl = document.createElement("div");
-    apiNotifierEl.id = "apiNotifier";
-    apiNotifierEl.style.position = "fixed";
-    apiNotifierEl.style.bottom = "10px";
-    apiNotifierEl.style.right = "10px";
-    apiNotifierEl.style.padding = "12px 16px";
-    apiNotifierEl.style.background = "linear-gradient(135deg, #2d3748, #4a5568)";
-    apiNotifierEl.style.color = "white";
-    apiNotifierEl.style.borderRadius = "12px";
-    apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
-    apiNotifierEl.style.fontSize = "13px";
-    apiNotifierEl.style.fontFamily = "system-ui, -apple-system, sans-serif";
-    apiNotifierEl.style.zIndex = "9999";
-    apiNotifierEl.style.cursor = "pointer";
-    apiNotifierEl.style.transition = "all 0.3s ease";
-    apiNotifierEl.style.border = "1px solid rgba(255,255,255,0.1)";
-    apiNotifierEl.style.backdropFilter = "blur(10px)";
-    apiNotifierEl.style.userSelect = "none";
-    
-    // Click handler for minimize/expand
-    apiNotifierEl.addEventListener('click', toggleMinimize);
-    
-    // Hover effects
-    apiNotifierEl.addEventListener('mouseenter', () => {
-      apiNotifierEl.style.transform = "translateY(-2px)";
-      apiNotifierEl.style.boxShadow = "0 8px 25px rgba(0,0,0,0.4)";
-    });
-    
-    apiNotifierEl.addEventListener('mouseleave', () => {
-      apiNotifierEl.style.transform = "translateY(0)";
-      apiNotifierEl.style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
-    });
-    
-    document.body.appendChild(apiNotifierEl);
-  }
-
-  function update(status) {
-    const quotaRemaining = status.quota ?? "?";
-    const resetTimeFormatted = status.resetTime ? new Date(status.resetTime).toLocaleString() : "?";
-    const lastRequestFormatted = status.lastRequest ? new Date(status.lastRequest).toLocaleTimeString() : "?";
-    const connectionStatus = getConnectionStatus(status);
-    const quotaDisplay = getQuotaDisplay(status);
-    
-    lastUpdateTime = new Date();
-    
-    if (isMinimized) {
-      apiNotifierEl.innerHTML = `
-        <div style="font-weight:bold; font-size:12px;">
-          ${connectionStatus.icon} API ${connectionStatus.short}
-          <span style="opacity:0.7; margin-left:8px;">↗️</span>
-        </div>
-      `;
-      apiNotifierEl.style.padding = "8px 12px";
-    } else {
-      apiNotifierEl.innerHTML = `
-        <div style="font-weight:bold; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>${connectionStatus.icon} API Status: ${connectionStatus.text}</span>
-          <span style="opacity:0.6; font-size:11px; cursor:pointer;">↙️</span>
-        </div>
-        <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 12px; font-size:12px;">
-          <span style="opacity:0.8;"><strong>Device:</strong></span>
-          <span>${status.deviceId || "N/A"}</span>
-          
-          <span style="opacity:0.8;"><strong>Quota:</strong></span>
-          <span>${quotaDisplay}</span>
-          
-          <span style="opacity:0.8;"><strong>Reset:</strong></span>
-          <span>${resetTimeFormatted}</span>
-          
-          <span style="opacity:0.8;"><strong>Last Request:</strong></span>
-          <span>${lastRequestFormatted}</span>
-        </div>
-        ${status.message ? `<div style="margin-top:8px; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; font-size:11px; opacity:0.9;">${status.message}</div>` : ''}
-        <div style="margin-top:6px; font-size:10px; opacity:0.5; text-align:center;">
-          Updated: ${lastUpdateTime.toLocaleTimeString()}
-        </div>
-      `;
-      apiNotifierEl.style.padding = "12px 16px";
-    }
-  }
-
-  return { update };
-}
-
-// Helper functions for status display
-function getConnectionStatus(status) {
-  if (!status.ready) {
-    return { icon: "🔴", text: "NOT READY ❌", short: "DOWN" };
-  }
-  
-  if (status.isExceeded) {
-    return { icon: "⚠️", text: "QUOTA EXCEEDED ⚠️", short: "LIMIT" };
-  }
-  
-  if (status.hasError) {
-    return { icon: "🟡", text: "WARNING ⚠️", short: "WARN" };
-  }
-  
-  return { icon: "🟢", text: "READY ✅", short: "OK" };
-}
-
-function getQuotaDisplay(status) {
-  if (status.isExceeded) {
-    return "⚠️ EXCEEDED";
-  }
-  
-  if (typeof status.requestsToday === 'number' && status.quotaLimit) {
-    const remaining = status.quotaLimit - status.requestsToday;
-    const percentage = Math.round((remaining / status.quotaLimit) * 100);
-    return `${remaining} left (${percentage}%)`;
-  }
-  
-  return status.quota || "Unknown";
-}
-
-// Toggle minimize/expand
-function toggleMinimize() {
-  isMinimized = !isMinimized;
-  // Trigger immediate update to refresh display
-  liveUpdateNotifier();
-}
-
-// ✅ Backward compatibility shim
-function updateApiNotifier(status, message, extra = {}) {
-  const apiNotifier = createApiNotifier();
-  apiNotifier.update({
-    ready: status === "ready",
-    deviceId: extra.deviceId,
-    quota: extra.quota ?? "?",
-    quotaLimit: extra.quotaLimit,
-    requestsToday: extra.requestsToday,
-    resetTime: extra.resetTime ?? null,
-    lastRequest: extra.lastRequest ?? null,
-    isExceeded: extra.isExceeded ?? false,
-    hasError: extra.hasError ?? false,
-    message: message || "",
-  });
-}
-
-// ===========================
-// Fetch live device info from apiManager
-// ===========================
-async function fetchDeviceInfo() {
-  try {
-    // Check if apiManager exists
-    if (typeof apiManager === 'undefined') {
-      return {
-        requestsToday: "?",
-        isExceeded: false,
-        activeDevices: "?",
-        quotaResetTime: null,
-        lastQuotaError: "API Manager not found",
-        lastRequestTime: Date.now(),
-        deviceId: "unknown_device",
-        hasError: true
-      };
-    }
-
-    const metrics = apiManager.getMetrics();
-    const globalQuota = metrics.globalQuotaState || {};
-    
-    return {
-      requestsToday: globalQuota.requestsToday ?? 0,
-      quotaLimit: globalQuota.quotaLimit ?? 100, // Assume default limit
-      isExceeded: !!globalQuota.quotaExceededAt,
-      activeDevices: metrics.activeDevices ?? 1,
-      quotaResetTime: globalQuota.quotaResetTime ?? (Date.now() + 3600000),
-      lastQuotaError: globalQuota.lastQuotaError ?? null,
-      lastRequestTime: Date.now(),
-      deviceId: metrics.deviceId ?? "unknown_device",
-      hasError: false
-    };
-  } catch (err) {
-    console.error("❌ Failed to fetch device info:", err);
-    return {
-      requestsToday: "?",
-      quotaLimit: null,
-      isExceeded: false,
-      activeDevices: "?",
-      quotaResetTime: null,
-      lastQuotaError: err.message,
-      lastRequestTime: Date.now(),
-      deviceId: "error_device",
-      hasError: true
-    };
-  }
-}
-
-// ===========================
-// Live auto-update with smart intervals
-// ===========================
-async function liveUpdateNotifier() {
-  // Skip update if page is hidden (performance optimization)
-  if (document.hidden) return;
-  
-  const info = await fetchDeviceInfo();
-  const apiNotifier = createApiNotifier();
-  
-  let message = "";
-  if (info.hasError && info.lastQuotaError) {
-    message = `⚠️ ${info.lastQuotaError}`;
-  } else if (info.isExceeded) {
-    message = `🚫 Quota exceeded. Resets at ${new Date(info.quotaResetTime).toLocaleTimeString()}`;
-  }
-  
-  apiNotifier.update({
-    ready: !info.hasError && !info.isExceeded,
-    deviceId: info.deviceId,
-    quota: info.requestsToday >= 0 ? `${info.requestsToday}/${info.quotaLimit || '?'}` : "?",
-    quotaLimit: info.quotaLimit,
-    requestsToday: info.requestsToday,
-    resetTime: info.quotaResetTime,
-    lastRequest: info.lastRequestTime,
-    isExceeded: info.isExceeded,
-    hasError: info.hasError,
-    message: message
-  });
-}
-
-// ===========================
-// Lifecycle management
-// ===========================
-function startLiveUpdates() {
-  if (updateInterval) return; // Already running
-  
-  liveUpdateNotifier(); // Initial call
-  updateInterval = setInterval(liveUpdateNotifier, 5000);
-  
-  // Pause updates when page is hidden, resume when visible
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      liveUpdateNotifier(); // Immediate update when tab becomes visible
-    }
-  });
-  
-  console.log("🔔 API Notifier started");
-}
-
-function stopLiveUpdates() {
-  if (updateInterval) {
-    clearInterval(updateInterval);
-    updateInterval = null;
-    console.log("🔔 API Notifier stopped");
-  }
-}
-
-function removeNotifier() {
-  stopLiveUpdates();
-  if (apiNotifierEl) {
-    apiNotifierEl.remove();
-    apiNotifierEl = null;
-  }
-}
-
-// ===========================
-// Initialization integration
-// ===========================
-async function initializeApiNotifier() {
-  try {
-    console.log('🔔 Initializing API Notifier...');
-    
-    // Wait for apiManager to be available before starting
-    let attempts = 0;
-    const maxAttempts = 50; // 5 seconds maximum wait
-    
-    while (typeof apiManager === 'undefined' && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      attempts++;
-    }
-    
-    if (typeof apiManager === 'undefined') {
-      console.warn('⚠️ API Manager not found after 5s, starting notifier anyway...');
-    }
-    
-    // Start the live updates
-    startLiveUpdates();
-    console.log('✅ API Notifier initialized successfully');
-    
-    return true;
-  } catch (error) {
-    console.error('❌ API Notifier initialization failed:', error);
-    return false;
-  }
-}
-
-// ===========================
-// Auto-start and cleanup
-// ===========================
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', stopLiveUpdates);
-
-// Export functions for manual control
-window.apiNotifierControl = {
-  init: initializeApiNotifier,
-  start: startLiveUpdates,
-  stop: stopLiveUpdates,
-  remove: removeNotifier,
-  toggle: toggleMinimize,
-  update: liveUpdateNotifier,
-  isRunning: () => updateInterval !== null
-};
 
 
-
-
-
-
-
-
-
-
-
-// ============================================================================
-//
-//      SIMPLIFIED SEQUENTIAL API MANAGER
-//      Simplified version keeping original function names
-//
-// ============================================================================
+// ===================
+// BULLETPROOF API RATE LIMITER
+// ===================
 
 class BulletproofAPIManager {
   constructor(options = {}) {
-    this.config = {
-      baseDelay: options.baseDelay || 3000,
-      maxRetries: options.maxRetries || 3,
-    };
-
-    this.deviceId = this._generateDeviceId();
+    // Configuration
+    this.baseDelay = options.baseDelay || 3000; // 3 second base delay for multi-device
+    this.maxDelay = options.maxDelay || 300000; // 5 minute max delay
+    this.maxRetries = options.maxRetries || 8;
+    this.quotaResetTime = options.quotaResetTime || 24 * 60 * 60 * 1000; // 24 hours
+    
+    // Multi-device coordination (note: localStorage is per-device, so coordination is limited to same-device sessions)
+    this.deviceId = this.generateDeviceId();
+    this.globalQuotaKey = 'global_api_quota_tracker';
+    this.deviceQuotaKey = `device_quota_${this.deviceId}`;
+    
+    // State management
     this.cache = new Map();
     this.requestQueue = new Map();
-    this.isLoading = false;
-    this.retryQueue = [];
-    this.retryTimer = null;
+    this.rateLimitInfo = new Map();
+    this.circuitBreaker = new Map();
     
+    // Global quota tracking
+    this.globalQuotaState = this.loadGlobalQuotaState();
+    
+    // Metrics
     this.metrics = {
       totalRequests: 0,
       successfulRequests: 0,
       failedRequests: 0,
       cacheHits: 0,
-      deviceId: this.deviceId,
+      quotaExceeded: 0,
+      deviceId: this.deviceId
     };
+    
+    // Start quota monitoring
+    this.startQuotaMonitoring();
   }
 
-  async init() {
-    updateApiNotifier("loading", "Starting up...");
+  generateDeviceId() {
+    const stored = localStorage.getItem('device_id');
+    if (stored) return stored;
+    
+    const deviceId = 'device_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+    localStorage.setItem('device_id', deviceId);
+    return deviceId;
+  }
+
+  loadGlobalQuotaState() {
     try {
-      console.log(`BulletproofAPIManager Initialized. Device ID: ${this.deviceId}`);
-      updateApiNotifier("ready", `Device ${this.deviceId}`);
-    } catch (err) {
-      console.error("Init failed:", err);
-      updateApiNotifier("error", err.message);
+      const stored = localStorage.getItem(this.globalQuotaKey);
+      if (stored) {
+        const state = JSON.parse(stored);
+        state.activeDevices = new Set(state.activeDevices); // Ensure it's a Set
+        // Reset if it's a new day
+        if (Date.now() - state.lastReset > this.quotaResetTime) {
+          return this.resetGlobalQuotaState();
+        }
+        return state;
+      }
+    } catch (e) {
+      console.warn('Failed to load global quota state:', e);
+    }
+    return this.resetGlobalQuotaState();
+  }
+
+  resetGlobalQuotaState() {
+    const state = {
+      requestsToday: 0,
+      quotaExceededAt: null,
+      lastReset: Date.now(),
+      activeDevices: new Set([this.deviceId]),
+      lastQuotaError: null
+    };
+    this.saveGlobalQuotaState(state);
+    return state;
+  }
+
+  saveGlobalQuotaState(state = null) {
+    const stateToSave = state || this.globalQuotaState;
+    try {
+      // Convert Set to Array for JSON serialization
+      const serializable = {
+        ...stateToSave,
+        activeDevices: Array.from(stateToSave.activeDevices)
+      };
+      localStorage.setItem(this.globalQuotaKey, JSON.stringify(serializable));
+    } catch (e) {
+      console.warn('Failed to save global quota state:', e);
     }
   }
 
-  /**
-   * Simplified bulletproof fetch - just cache and retry logic
-   */
+  startQuotaMonitoring() {
+    // Register this device
+    this.globalQuotaState.activeDevices.add(this.deviceId);
+    this.saveGlobalQuotaState();
+    
+    // Monitor other devices' quota usage
+    this.quotaMonitor = setInterval(() => {
+      this.syncGlobalQuotaState();
+    }, 10000); // Check every 10 seconds
+  }
+
+  syncGlobalQuotaState() {
+    try {
+      const stored = localStorage.getItem(this.globalQuotaKey);
+      if (stored) {
+        const state = JSON.parse(stored);
+        state.activeDevices = new Set(state.activeDevices);
+        
+        // If quota was exceeded by another device, respect it
+        if (state.quotaExceededAt && !this.globalQuotaState.quotaExceededAt) {
+          console.log('🚨 Another device hit quota limit. Entering conservative mode.');
+          this.globalQuotaState = state;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to sync global quota state:', e);
+    }
+  }
+
+  // Check if we're in quota exceeded state globally
+  isGlobalQuotaExceeded() {
+    if (!this.globalQuotaState.quotaExceededAt) return false;
+    
+    const timeSinceQuotaError = Date.now() - this.globalQuotaState.quotaExceededAt;
+    const cooldownTime = Math.min(300000 + (timeSinceQuotaError * 0.1), 3600000); // 5min to 1hour
+    
+    if (timeSinceQuotaError < cooldownTime) {
+      console.log(`🛑 Global quota exceeded. Cooling down for ${Math.round((cooldownTime - timeSinceQuotaError)/1000)}s more`);
+      return true;
+    }
+    
+    // Reset quota exceeded state
+    this.globalQuotaState.quotaExceededAt = null;
+    this.saveGlobalQuotaState();
+    return false;
+  }
+
+  // Smart device coordination delay
+  calculateDeviceDelay() {
+    const deviceCount = this.globalQuotaState.activeDevices.size;
+    const deviceIndex = Array.from(this.globalQuotaState.activeDevices).indexOf(this.deviceId);
+    
+    // Stagger requests across devices
+    const baseStagger = 2000; // 2 seconds base
+    const deviceDelay = deviceIndex * baseStagger;
+    
+    console.log(`📱 Device ${deviceIndex + 1}/${deviceCount}: Adding ${deviceDelay}ms stagger delay`);
+    return deviceDelay;
+  }
+
+  // Enhanced cache with TTL and versioning
+  getCachedData(key, maxAge = 5 * 60 * 1000) { // 5 minutes default
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+    
+    const age = Date.now() - cached.timestamp;
+    if (age > maxAge) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    this.metrics.cacheHits++;
+    console.log(`📦 Cache hit for ${key} (age: ${Math.round(age/1000)}s)`);
+    return cached.data;
+  }
+
+  setCachedData(key, data, customTTL = null) {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl: customTTL
+    });
+  }
+
+  // Exponential backoff with jitter
+  calculateBackoffDelay(attempt, baseDelay = this.baseDelay) {
+    const exponentialDelay = baseDelay * Math.pow(2, attempt);
+    const jitter = Math.random() * 0.1 * exponentialDelay; // 10% jitter
+    return Math.min(exponentialDelay + jitter, this.maxDelay);
+  }
+
+  // Circuit breaker pattern
+  isCircuitOpen(key) {
+    const breaker = this.circuitBreaker.get(key);
+    if (!breaker) return false;
+    
+    const now = Date.now();
+    if (now - breaker.lastFailure < breaker.cooldownTime) {
+      console.log(`🚫 Circuit breaker OPEN for ${key}. Cooling down...`);
+      return true;
+    }
+    
+    // Reset circuit breaker
+    this.circuitBreaker.delete(key);
+    return false;
+  }
+
+  recordFailure(key, isQuotaError = false) {
+    const now = Date.now();
+    const current = this.circuitBreaker.get(key) || { failures: 0, lastFailure: 0 };
+    
+    current.failures++;
+    current.lastFailure = now;
+    
+    if (isQuotaError) {
+      // Longer cooldown for quota errors
+      current.cooldownTime = Math.min(30000 * current.failures, 300000); // 30s to 5min
+      this.metrics.quotaExceeded++;
+    } else {
+      current.cooldownTime = Math.min(5000 * current.failures, 60000); // 5s to 1min
+    }
+    
+    this.circuitBreaker.set(key, current);
+    console.log(`🔥 Circuit breaker recorded failure for ${key}. Failures: ${current.failures}, Cooldown: ${current.cooldownTime}ms`);
+  }
+
+  recordSuccess(key) {
+    // Reset circuit breaker on success
+    this.circuitBreaker.delete(key);
+    this.metrics.successfulRequests++;
+  }
+
+  // Advanced error classification with quota awareness
+  classifyError(error) {
+    const errorMessage = error.message || error.toString();
+    const errorCode = error.code || error.status;
+    
+    // Quota exceeded errors - CRITICAL for multi-device
+    if (errorCode === 403 || errorMessage.includes('quotaExceeded') || 
+        errorMessage.includes('userRateLimitExceeded') ||
+        errorMessage.includes('dailyLimitExceeded') ||
+        errorMessage.includes('Quota exceeded')) {
+      
+      // Mark global quota as exceeded
+      this.globalQuotaState.quotaExceededAt = Date.now();
+      this.globalQuotaState.lastQuotaError = errorMessage;
+      this.saveGlobalQuotaState();
+      
+      return { 
+        type: 'quota', 
+        retryable: true, 
+        backoffMultiplier: 5, // Much longer backoff
+        isGlobal: true 
+      };
+    }
+    
+    // Rate limit errors
+    if (errorCode === 429 || errorMessage.includes('rateLimitExceeded')) {
+      return { type: 'rateLimit', retryable: true, backoffMultiplier: 3 };
+    }
+    
+    // Network errors
+    if (errorMessage.includes('network') || errorMessage.includes('timeout') ||
+        errorCode >= 500) {
+      return { type: 'network', retryable: true, backoffMultiplier: 2 };
+    }
+    
+    // Authentication errors
+    if (errorCode === 401 || errorMessage.includes('unauthorized')) {
+      return { type: 'auth', retryable: false, backoffMultiplier: 1 };
+    }
+    
+    // Default to non-retryable
+    return { type: 'unknown', retryable: false, backoffMultiplier: 1 };
+  }
+
+  // Enhanced main fetch with multi-device awareness
   async bulletproofFetch(key, fetchFunction, options = {}) {
     this.metrics.totalRequests++;
-
+    
+    // Check global quota first
+    if (this.isGlobalQuotaExceeded()) {
+      const staleData = this.cache.get(key);
+      if (staleData) {
+        console.log(`🗃️  Using stale cache for ${key} due to global quota exceeded`);
+        return staleData.data;
+      }
+      throw new Error(`Global quota exceeded for ${key}. Try again later.`);
+    }
+    
     // Check cache first
-    const cachedData = this._getCachedData(key);
+    const maxCacheAge = options.maxCacheAge || 5 * 60 * 1000;
+    const cachedData = this.getCachedData(key, maxCacheAge);
     if (cachedData && !options.forceRefresh) {
-      this.metrics.cacheHits++;
       return cachedData;
     }
 
-    // Coalesce concurrent requests
-    if (this.requestQueue.has(key)) {
-      console.log(`Waiting for existing request: "${key}"`);
-      return this.requestQueue.get(key);
+    // Check circuit breaker
+    if (this.isCircuitOpen(key)) {
+      const staleData = this.cache.get(key);
+      if (staleData) {
+        console.log(`⚡ Using stale cache for ${key} due to circuit breaker`);
+        return staleData.data;
+      }
+      throw new Error(`Circuit breaker is open for ${key}. No cached data available.`);
     }
 
-    const requestPromise = this._executeWithRetry(key, fetchFunction, options);
+    // Ensure only one request per key is in flight
+    if (this.requestQueue.has(key)) {
+      console.log(`⏳ Waiting for existing request: ${key}`);
+      return await this.requestQueue.get(key);
+    }
+
+    // Add device coordination delay
+    const deviceDelay = this.calculateDeviceDelay();
+    if (deviceDelay > 0) {
+      console.log(`⏱️  Device coordination delay: ${deviceDelay}ms`);
+      await this.wait(deviceDelay);
+    }
+
+    // Create the request promise
+    const requestPromise = this.executeWithRetry(key, fetchFunction, options);
     this.requestQueue.set(key, requestPromise);
 
     try {
-      return await requestPromise;
+      const result = await requestPromise;
+      return result;
     } finally {
       this.requestQueue.delete(key);
     }
   }
 
-  /**
-   * Sequential batch fetch - loads items one by one
-   */
+  async executeWithRetry(key, fetchFunction, options) {
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        // Check global quota before each attempt
+        if (this.isGlobalQuotaExceeded()) {
+          throw new Error('Global quota exceeded - using cache fallback');
+        }
+        
+        console.log(`🚀 Attempt ${attempt + 1}/${this.maxRetries + 1} for ${key} (Device: ${this.deviceId})`);
+        
+        // Pre-request delay increases with attempts and device count
+        if (attempt > 0) {
+          const deviceCount = this.globalQuotaState.activeDevices.size;
+          const extraDelay = attempt * 1000 * deviceCount; // Progressively longer delays
+          await this.wait(extraDelay);
+        }
+        
+        const result = await fetchFunction();
+        
+        // Success! Update global counters
+        this.recordGlobalSuccess(key);
+        this.recordSuccess(key);
+        this.setCachedData(key, result, options.cacheTTL);
+        
+        console.log(`✅ Successfully fetched ${key}`);
+        return result;
+        
+      } catch (error) {
+        lastError = error;
+        this.metrics.failedRequests++;
+        
+        const errorInfo = this.classifyError(error);
+        console.log(`❌ Attempt ${attempt + 1} failed for ${key}:`, {
+          type: errorInfo.type,
+          retryable: errorInfo.retryable,
+          message: error.message,
+          deviceId: this.deviceId
+        });
+        
+        // Record failure for circuit breaker
+        this.recordFailure(key, errorInfo.type === 'quota');
+        
+        // If it's a global quota issue, mark it globally
+        if (errorInfo.isGlobal) {
+          this.recordGlobalQuotaFailure(error);
+        }
+        
+        // Don't retry if not retryable or max retries reached
+        if (!errorInfo.retryable || attempt === this.maxRetries) {
+          break;
+        }
+        
+        // Calculate smart backoff delay
+        const baseDelay = this.baseDelay * errorInfo.backoffMultiplier;
+        const deviceMultiplier = this.globalQuotaState.activeDevices.size;
+        const delay = this.calculateBackoffDelay(attempt, baseDelay) * deviceMultiplier;
+        
+        console.log(`⏱️  Waiting ${Math.round(delay/1000)}s before retry (${deviceMultiplier} devices active)...`);
+        await this.wait(delay);
+      }
+    }
+    
+    // All retries failed - try to return stale cache
+    const staleData = this.cache.get(key);
+    if (staleData) {
+      console.log(`🗃️  All retries failed for ${key}. Using stale cache (age: ${Math.round((Date.now() - staleData.timestamp)/1000)}s)`);
+      return staleData.data;
+    }
+    
+    throw new Error(`All retry attempts failed for ${key}. Last error: ${lastError.message}`);
+  }
+
+  recordGlobalSuccess(key) {
+    this.globalQuotaState.requestsToday++;
+    this.saveGlobalQuotaState();
+  }
+
+  recordGlobalQuotaFailure(error) {
+    this.globalQuotaState.quotaExceededAt = Date.now();
+    this.globalQuotaState.lastQuotaError = error.message;
+    this.saveGlobalQuotaState();
+    
+    console.log(`🚨 GLOBAL QUOTA EXCEEDED recorded by device ${this.deviceId}`);
+  }
+
+  // Multi-device aware batch processing
   async batchFetch(requests, options = {}) {
-    console.log(`Starting sequential batch fetch for ${requests.length} items.`);
+    const {
+      concurrency = 1, // Always 1 for multi-device safety
+      adaptiveDelay = true,
+      priorityOrder = true,
+      emergencyMode = false
+    } = options;
+    
+    // Check if we're in emergency mode (quota exceeded recently)
+    const isEmergency = emergencyMode || this.isGlobalQuotaExceeded();
+    
+    console.log(`🎯 Starting ${isEmergency ? 'EMERGENCY' : 'NORMAL'} batch fetch:`, {
+      requests: requests.length,
+      deviceId: this.deviceId,
+      activeDevices: this.globalQuotaState.activeDevices.size,
+      quotaExceeded: !!this.globalQuotaState.quotaExceededAt
+    });
+    
+    let cacheResults = [];
+    if (isEmergency) {
+      const missedRequests = [];
+      
+      for (const request of requests) {
+        const cached = this.getCachedData(request.key, 30 * 60 * 1000); // Accept 30min old cache
+        if (cached) {
+          cacheResults.push({ key: request.key, data: cached, success: true, fromCache: true });
+        } else {
+          missedRequests.push(request);
+        }
+      }
+      
+      console.log(`🗄️  Emergency cache results: ${cacheResults.length} hits, ${missedRequests.length} misses`);
+      
+      // If we got everything from cache, return early
+      if (missedRequests.length === 0) {
+        return {
+          results: cacheResults,
+          errors: [],
+          metrics: this.getMetrics()
+        };
+      }
+      
+      // For cache misses in emergency mode, use much longer delays
+      requests = missedRequests;
+    }
+    
+    // Sort by priority if specified
+    if (priorityOrder) {
+      requests.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+    }
     
     const results = [];
     const errors = [];
-
+    let adaptiveDelayMs = isEmergency ? 10000 : 3000; // Start higher in emergency
+    
+    // Process requests one by one (safest for multi-device)
     for (let i = 0; i < requests.length; i++) {
       const request = requests[i];
       
-      updateApiNotifier("loading", `Loading ${request.key}... (${i + 1}/${requests.length})`);
-      console.log(`Loading ${request.key}...`);
-
       try {
-        const result = await this.bulletproofFetch(request.key, request.fetchFunction, request.options);
-        results.push({ key: request.key, data: result, success: true });
-        console.log(`Successfully loaded ${request.key}`);
-        
-        // Small delay between requests
-        if (i < requests.length - 1) {
-          await this._wait(1000);
+        // Add progressive delay between requests
+        if (i > 0) {
+          const progressiveDelay = adaptiveDelayMs + (i * 1000); // Each request waits longer
+          console.log(`⏳ Progressive delay: ${progressiveDelay}ms (request ${i + 1}/${requests.length})`);
+          await this.wait(progressiveDelay);
         }
+        
+        const result = await this.bulletproofFetch(
+          request.key,
+          request.fetchFunction,
+          request.options || {}
+        );
+        
+        results.push({ key: request.key, data: result, success: true });
+        
+        // Success reduces delay slightly
+        if (adaptiveDelay && adaptiveDelayMs > 2000) {
+          adaptiveDelayMs = Math.max(adaptiveDelayMs * 0.9, 2000);
+        }
+        
       } catch (error) {
-        console.error(`Failed to load ${request.key}:`, error.message);
         errors.push({ key: request.key, error: error.message, success: false });
         
-        // Add to retry queue if no cache available
-        const cachedData = this._getCachedData(request.key);
-        if (!cachedData) {
-          console.log(`Adding ${request.key} to retry queue`);
-          this.retryQueue.push(request);
+        // Failure increases delay significantly
+        if (adaptiveDelay) {
+          adaptiveDelayMs = Math.min(adaptiveDelayMs * 1.5, 30000);
+          console.log(`📈 Request failed. Increasing delay to ${adaptiveDelayMs}ms`);
+        }
+        
+        // If this was a quota error, abort remaining requests
+        if (error.message.includes('quota') || error.message.includes('Quota')) {
+          console.log(`🛑 Quota error detected. Aborting remaining ${requests.length - i - 1} requests.`);
+          break;
         }
       }
     }
+    
+    console.log(`🏁 Multi-device batch complete:`, {
+      successful: results.length,
+      failed: errors.length,
+      deviceId: this.deviceId,
+      totalDevices: this.globalQuotaState.activeDevices.size
+    });
+    
+    return {
+      results: isEmergency ? [...cacheResults, ...results] : results,
+      errors,
+      metrics: this.getMetrics()
+    };
+  }
 
-    if (this.retryQueue.length > 0) {
-      console.log(`${this.retryQueue.length} items will retry in 1 minute`);
-      this._scheduleRetry();
-    }
-
-    console.log(`Sequential batch complete: ${results.length} successful, ${errors.length} failed.`);
-    return { results, errors, metrics: this.getMetrics() };
+  // Utility methods
+  wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   getMetrics() {
+    const cacheSize = this.cache.size;
+    const queueSize = this.requestQueue.size;
+    const circuitBreakers = this.circuitBreaker.size;
+    
     return {
       ...this.metrics,
-      cacheSize: this.cache.size,
-      activeRequests: this.requestQueue.size,
-      retryQueueSize: this.retryQueue.length,
+      cacheSize,
+      queueSize,
+      circuitBreakers,
+      successRate: this.metrics.totalRequests > 0 ? 
+        (this.metrics.successfulRequests / this.metrics.totalRequests) * 100 : 0,
+      globalQuotaState: {
+        requestsToday: this.globalQuotaState.requestsToday,
+        quotaExceeded: !!this.globalQuotaState.quotaExceededAt,
+        activeDevices: this.globalQuotaState.activeDevices.size
+      }
     };
   }
 
   clearCache() {
     this.cache.clear();
-    this.retryQueue = [];
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-    console.log('Cache cleared.');
+    console.log('🗑️  Cache cleared');
   }
 
+  resetMetrics() {
+    this.metrics = {
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+      cacheHits: 0,
+      quotaExceeded: 0,
+      deviceId: this.deviceId
+    };
+    console.log('📊 Metrics reset');
+  }
+
+  // Cleanup method for when device goes offline
   cleanup() {
-    this.clearCache();
-    console.log(`Device ${this.deviceId} cleaned up.`);
-  }
-
-  // ========================================================================
-  // PRIVATE METHODS
-  // ========================================================================
-
-  async _executeWithRetry(key, fetchFunction, options) {
-    let lastError = null;
-    const maxRetries = options.maxRetries ?? this.config.maxRetries;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`Attempt ${attempt + 1}/${maxRetries + 1} for "${key}"`);
-        const result = await fetchFunction();
-
-        this.metrics.successfulRequests++;
-        this._setCachedData(key, result);
-        console.log(`Successfully fetched "${key}"`);
-        return result;
-
-      } catch (error) {
-        lastError = error;
-        this.metrics.failedRequests++;
-        console.error(`Attempt ${attempt + 1} failed for "${key}": ${error.message}`);
-
-        if (attempt === maxRetries) {
-          break;
-        }
-
-        const delay = this.config.baseDelay * (attempt + 1);
-        console.log(`Waiting ${Math.round(delay/1000)}s before retry for "${key}"...`);
-        await this._wait(delay);
-      }
+    if (this.quotaMonitor) {
+      clearInterval(this.quotaMonitor);
     }
-
-    // Try to return cached data if available
-    const staleData = this._getCachedData(key);
-    if (staleData) {
-      console.warn(`All retries failed for "${key}". Returning cached data.`);
-      return staleData;
-    }
-
-    throw new Error(`All retry attempts failed for "${key}". Last error: ${lastError?.message || 'Unknown error'}`);
-  }
-
-  _getCachedData(key) {
-    const cached = this.cache.get(key);
-    return cached ? cached.data : null;
-  }
-
-  _setCachedData(key, data) {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
-    console.log(`Cached data for: ${key}`);
-  }
-
-  _wait(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  _generateDeviceId() {
-    const storedId = localStorage.getItem('device_id');
-    if (storedId) return storedId;
-    const newId = `device_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
-    localStorage.setItem('device_id', newId);
-    return newId;
-  }
-
-  _scheduleRetry() {
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-    }
-
-    this.retryTimer = setTimeout(async () => {
-      if (this.retryQueue.length === 0) return;
-
-      console.log(`Retrying ${this.retryQueue.length} failed requests`);
-      updateApiNotifier("loading", "Retrying failed requests...");
-
-      const failedRequests = [...this.retryQueue];
-      this.retryQueue = [];
-
-      for (const request of failedRequests) {
-        try {
-          console.log(`Retrying ${request.key}...`);
-          const result = await this.bulletproofFetch(request.key, request.fetchFunction, request.options);
-          console.log(`Successfully retried ${request.key}`);
-        } catch (error) {
-          console.error(`Retry failed for ${request.key}:`, error.message);
-          this.retryQueue.push(request);
-        }
-        
-        await this._wait(2000);
-      }
-
-      if (this.retryQueue.length > 0) {
-        console.log(`${this.retryQueue.length} items still failed, scheduling another retry`);
-        this._scheduleRetry();
-      } else {
-        console.log("All retries completed successfully");
-        updateApiNotifier("success", "All data loaded after retry");
-      }
-    }, 60000); // 1 minute retry delay
+    
+    // Remove this device from active devices
+    this.globalQuotaState.activeDevices.delete(this.deviceId);
+    this.saveGlobalQuotaState();
+    
+    console.log(`🧹 Device ${this.deviceId} cleaned up`);
   }
 }
 
-// ============================================================================
-// SINGLETON INSTANCE & EXISTING WRAPPERS
-// ============================================================================
+// ===================
+// ENHANCED IMPLEMENTATION FOR MULTI-DEVICE ENVIRONMENTS
+// ===================
 
+// Create global instance with multi-device settings
 const apiManager = new BulletproofAPIManager({
-  baseDelay: 3000,
-  maxRetries: 3,
+  baseDelay: 5000,     // 5 second base delay for multi-device
+  maxDelay: 300000,    // 5 minute max delay
+  maxRetries: 10       // More retries for critical data
 });
 
-// Keep existing wrapper functions
+// Enhanced wrapper functions for your existing API calls
 async function safeFetchSecretariatMembers() {
-  // Skip as requested - secretariat data is not a priority
-  console.log('Skipping secretariat members (not priority)');
-  return null;
+  return await apiManager.bulletproofFetch('secretariatMembers', fetchSecretariatMembers, {
+    maxCacheAge: 15 * 60 * 1000,  // 15 minutes cache
+    cacheTTL: 60 * 60 * 1000      // 1 hour TTL
+  });
 }
 
 async function safeFetchVacanciesData() {
-  return apiManager.bulletproofFetch('vacanciesData', fetchVacanciesData, {
-    cacheTTL: 30 * 60 * 1000,
+  return await apiManager.bulletproofFetch('vacanciesData', fetchVacanciesData, {
+    maxCacheAge: 10 * 60 * 1000,  // 10 minutes cache
+    cacheTTL: 30 * 60 * 1000      // 30 minutes TTL
   });
 }
 
 async function safeLoadSignatories() {
-  // Skip as requested - signatory data is not a priority
-  console.log('Skipping signatories (not priority)');
-  return null;
+  if (!loadSignatories || typeof loadSignatories !== 'function') {
+    console.log('loadSignatories function not available');
+    return null;
+  }
+  
+  return await apiManager.bulletproofFetch('signatories', loadSignatories, {
+    maxCacheAge: 20 * 60 * 1000,  // 20 minutes cache
+    cacheTTL: 2 * 60 * 60 * 1000  // 2 hour TTL
+  });
 }
+
+// ===================
+// CORRECTED safeFetchRatings - MATCHES YOUR SHEET STRUCTURE
+// ===================
 
 async function safeFetchRatings({ name, item, evaluator, forceRefresh = false }) {
   if (!name || !item || !evaluator) {
-    throw new Error('Missing required parameters: name, item, and evaluator are all required.');
+    throw new Error('Missing required parameters: name, item, evaluator are all required');
   }
 
-  const key = `rating:${evaluator}:${item}:${name}`;
+  // Make the cache key hyper-specific to prevent cross-contamination
+  const key = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
 
+  console.log(`🔍 Fetching ratings with precise key:`, {
+    key,
+    evaluator,
+    item, 
+    name,
+    deviceId: apiManager.deviceId
+  });
+
+  // The actual function that hits GAPI
   const fetchFunction = async () => {
+    // Always ensure token is fresh right before the call
     if (!await isTokenValid()) await refreshAccessToken();
 
     const response = await gapi.client.sheets.spreadsheets.values.get({
@@ -1146,244 +1182,492 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
     });
 
     const values = response?.result?.values || [];
-    if (values.length === 0) return { values: [], ts: Date.now() };
+    
+    // CORRECTED: Filter using your existing matchesRatingRow logic
+    const filteredValues = [];
+    
+    // Add header row if it exists
+    if (values.length > 0) {
+      filteredValues.push(values[0]); // Keep header
+      
+      // Filter data rows using your existing logic
+      const dataRows = values.slice(1);
+      const matchingRows = dataRows.filter(row => {
+        return matchesRatingRow(row, item, name, evaluator);
+      });
+      
+      filteredValues.push(...matchingRows);
+      
+      console.log(`✅ Found ${matchingRows.length} matching rating rows for:`, {
+        evaluator, item, name,
+        totalRows: dataRows.length,
+        matchingRows: matchingRows.length
+      });
+    }
+    
+    console.log(`📊 Rating fetch results:`, {
+      totalRows: values.length,
+      filteredRows: filteredValues.length - 1, // -1 for header
+      searchCriteria: { evaluator, item, name },
+      deviceId: apiManager.deviceId
+    });
 
-    const header = values[0];
-    const dataRows = values.slice(1);
-    const matchingRows = dataRows.filter(row => matchesRatingRow(row, item, name, evaluator));
-
-    console.log(`Found ${matchingRows.length} rating rows for:`, { evaluator, item, name });
-
-    return { values: [header, ...matchingRows], ts: Date.now() };
+    // Return the filtered data for THIS specific combination
+    return { 
+      values: filteredValues, 
+      ts: Date.now(),
+      evaluator,  // Include for validation
+      item,       // Include for validation  
+      name        // Include for validation
+    };
   };
 
-  return apiManager.bulletproofFetch(key, fetchFunction, {
-    forceRefresh,
+  // Cache with shorter duration for ratings since they change frequently
+  return await apiManager.bulletproofFetch(key, fetchFunction, {
+    maxCacheAge: 30 * 1000,      // Only 30 seconds fresh cache
+    cacheTTL: 2 * 60 * 1000,     // 2 minutes TTL for fallback
+    forceRefresh
   });
 }
 
-// Keep existing pending ratings manager
-const pendingRatingsManager = {
-  _getKey: (evaluator, item, name) => `pending_rating:${apiManager.deviceId}:${evaluator}:${item}:${name}`,
 
-  save(evaluator, item, name, ratingData) {
-    const key = this._getKey(evaluator, item, name);
-    const data = { ...ratingData, evaluator, item, name, timestamp: Date.now() };
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-      console.log(`Saved pending rating for "${name}" on item "${item}".`);
-    } catch (e) {
-      console.warn('Failed to save pending rating to localStorage:', e);
-    }
-  },
 
-  get(evaluator, item, name) {
-    const key = this._getKey(evaluator, item, name);
+
+// ===================
+// IMPROVED PENDING RATING MANAGEMENT
+// ===================
+
+const pendingRatings = new Map(); // Store pending ratings by specific key
+
+function savePendingRating(evaluator, item, name, ratingData) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  const pendingData = {
+    ...ratingData,
+    evaluator,
+    item,
+    name,
+    deviceId: apiManager.deviceId,
+    timestamp: Date.now()
+  };
+  
+  pendingRatings.set(key, pendingData);
+  
+  // Store in localStorage with device-specific key
+  try {
+    localStorage.setItem(key, JSON.stringify(pendingData));
+    console.log(`💾 Saved pending rating:`, { evaluator, item, name, deviceId: apiManager.deviceId });
+  } catch (e) {
+    console.warn('Failed to save pending rating to localStorage:', e);
+  }
+}
+
+function getPendingRating(evaluator, item, name) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  // First check memory
+  let pending = pendingRatings.get(key);
+  
+  // If not in memory, try localStorage
+  if (!pending) {
     try {
       const stored = localStorage.getItem(key);
-      if (!stored) return null;
-
-      const pending = JSON.parse(stored);
-      if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
-        console.log(`Restored pending rating for "${name}" on item "${item}".`);
-        return pending;
-      } else {
-        localStorage.removeItem(key);
-        return null;
+      if (stored) {
+        pending = JSON.parse(stored);
+        // Validate it matches exactly
+        if (pending.evaluator === evaluator && 
+            pending.item === item && 
+            pending.name === name &&
+            pending.deviceId === apiManager.deviceId) {
+          
+          // Check if not too old (5 minutes)
+          if (Date.now() - pending.timestamp < 5 * 60 * 1000) {
+            pendingRatings.set(key, pending);
+            console.log(`📤 Restored pending rating:`, { evaluator, item, name });
+          } else {
+            // Too old, remove it
+            localStorage.removeItem(key);
+            pending = null;
+          }
+        } else {
+          pending = null;
+        }
       }
     } catch (e) {
       console.warn('Failed to restore pending rating:', e);
-      return null;
-    }
-  },
-
-  clear(evaluator, item, name) {
-    const key = this._getKey(evaluator, item, name);
-    try {
-      localStorage.removeItem(key);
-      console.log(`Cleared pending rating for "${name}" on item "${item}".`);
-    } catch (e) {
-      console.warn('Failed to clear pending rating from localStorage:', e);
+      pending = null;
     }
   }
-};
-
-// ============================================================================
-// SIMPLIFIED INITIALIZATION - KEEPING ORIGINAL FUNCTION NAMES
-// ============================================================================
-
-let appInitializationPromise = null;
-
-async function initializeApp() {
-  if (appInitializationPromise) {
-    console.warn("Initialization already in progress. Waiting for it to complete...");
-    return appInitializationPromise;
-  }
-
-  appInitializationPromise = (async () => {
-    showSpinner(true);
-
-    try {
-      // 1. Initialize API Manager
-      await apiManager.init();
-
-      // 2. Initialize API Notifier
-      await initializeApiNotifier();
-
-      // 3. Load GAPI client
-      await new Promise((resolve, reject) => {
-        gapi.load('client', async () => {
-          try {
-            await initializeGapiClient();
-            console.log('GAPI client initialized successfully.');
-            resolve();
-          } catch (gapiError) {
-            reject(gapiError);
-          }
-        });
-      });
-
-      // 4. Setup UI
-      setupUI();
-
-      // 5. Load initial data sequentially (not immediately from cache)
-      await loadInitialData();
-
-      // 6. Finalize initialization
-      finishInitialization();
-      console.log("Application initialized successfully.");
-
-      updateApiNotifier("success", "App initialized successfully.");
-
-    } catch (error) {
-      console.error('Application initialization failed:', error);
-      updateApiNotifier("error", `Initialization failed: ${error.message}`);
-      handleInitializationFailure(error);
-      throw error;
-
-    } finally {
-      showSpinner(false);
-      appInitializationPromise = null;
-    }
-  })();
-
-  return appInitializationPromise;
-}
-
-/**
- * SIMPLIFIED - Load data sequentially, not from cache first
- */
-async function loadInitialData() {
-  console.log('Starting sequential initial data load...');
-
-  const apiRequests = [
-    { key: 'vacanciesData', fetchFunction: () => safeFetchVacanciesData(), priority: 2, required: true },
-    // Secretariat and signatory data ignored as requested
-  ];
-
-  console.log(`Loading ${apiRequests.length} data sources sequentially`);
-
-  const result = await apiManager.batchFetch(apiRequests);
   
-  if (result.errors.length > 0) {
-    const criticalErrors = result.errors.filter(err =>
-      apiRequests.find(req => req.key === err.key)?.required
-    );
+  return pending;
+}
 
-    if (criticalErrors.length > 0) {
-      console.error('Critical API failures detected:', criticalErrors);
-      handleCriticalAPIFailure(criticalErrors);
-    }
-  } else {
-    console.log('Initial data load complete.');
+function clearPendingRating(evaluator, item, name) {
+  const key = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
+  
+  pendingRatings.delete(key);
+  
+  try {
+    localStorage.removeItem(key);
+    console.log(`🧹 Cleared pending rating:`, { evaluator, item, name });
+  } catch (e) {
+    console.warn('Failed to clear pending rating from localStorage:', e);
   }
 }
 
-function setupUI() {
-  if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
-  if (typeof setupTabNavigation === 'function') setupTabNavigation();
-}
 
-function finishInitialization() {
-  if (typeof startUIMonitoring === 'function') startUIMonitoring();
-  if (typeof restoreState === 'function') restoreState();
 
-  if (window.elements) {
-    elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
-    elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
-    elements.closeSignatoriesModalBtns?.forEach?.(button =>
-      button.addEventListener('click', () => {
-        elements.signatoriesModal?.classList?.remove('active');
-      })
-    );
-    elements.addSignatoryBtn?.addEventListener('click', addSignatory);
-  }
 
-  showSpinner(false);
-  console.log('App initialization complete.');
-  console.log('Final Metrics:', apiManager.getMetrics());
-}
 
-function handleCriticalAPIFailure(errors) {
-  console.warn('Handling critical API failures... App may be degraded.');
-  for (const error of errors) {
-    const staleData = apiManager._getCachedData(error.key);
-    if (staleData) {
-      console.log(`Using cached data for critical data: "${error.key}"`);
-    }
-  }
-  showErrorNotification(
-    'Some data is temporarily unavailable. The app is using cached data where possible.'
-  );
-}
 
-function handleInitializationFailure(error) {
-  console.error('Handling complete initialization failure...');
-  showSpinner(false);
-  showErrorNotification(
-    `Unable to load data: ${error.message}. Please check your connection and refresh.`
-  );
-}
 
-function showSpinner(show) {
+
+
+
+
+// Ultra-safe initialization with fallback UI loading
+async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
-  if (spinner) spinner.style.opacity = show ? '1' : '0';
-  if (pageWrapper) pageWrapper.style.opacity = show ? '0.3' : '1';
-  if (!show && spinner) setTimeout(() => spinner.style.display = 'none', 300);
+  
+  if (spinner) {
+    spinner.style.display = 'flex';
+    spinner.style.opacity = '1';
+  }
+  if (pageWrapper) {
+    pageWrapper.style.opacity = '0.3';
+  }
+
+  gapi.load('client', async () => {
+    try {
+      await initializeGapiClient();
+      gapiInitialized = true;
+      console.log('✅ GAPI client initialized');
+      loadingState.gapi = true;
+      maybeEnableButtons();
+      createEvaluatorSelector();
+      setupTabNavigation();
+
+      // ===================
+      // BULLETPROOF MULTI-DEVICE API STRATEGY
+      // ===================
+      
+      console.log('🎯 Starting bulletproof multi-device API calls...');
+      console.log('📱 Device Info:', {
+        deviceId: apiManager.deviceId,
+        activeDevices: apiManager.globalQuotaState.activeDevices.size,
+        globalQuotaStatus: apiManager.isGlobalQuotaExceeded() ? 'EXCEEDED' : 'OK'
+      });
+      
+      // Try cache-first approach
+      const cacheOnlyResults = await tryLoadFromCacheOnly();
+      
+      if (cacheOnlyResults.allLoaded) {
+        console.log('🚀 All data loaded from cache! Skipping API calls.');
+        loadingState.apiDone = true;
+        finishInitialization();
+        return;
+      }
+      
+      // Define API requests with conservative settings
+      const apiRequests = [
+        {
+          key: 'secretariatMembers',
+          fetchFunction: safeFetchSecretariatMembers,
+          priority: 3,
+          required: true
+        },
+        {
+          key: 'vacanciesData', 
+          fetchFunction: safeFetchVacanciesData,
+          priority: 2,
+          required: true
+        },
+        {
+          key: 'signatories',
+          fetchFunction: safeLoadSignatories,
+          priority: 1,
+          required: false
+        }
+      ].filter(req => !cacheOnlyResults.loadedKeys.includes(req.key));
+      
+      if (apiRequests.length === 0) {
+        console.log('✅ All required data already cached');
+        loadingState.apiDone = true;
+        finishInitialization();
+        return;
+      }
+      
+      // Execute with ultra-conservative settings
+      const batchResult = await apiManager.batchFetch(apiRequests, {
+        concurrency: 1,
+        adaptiveDelay: true,
+        priorityOrder: true,
+        emergencyMode: apiManager.isGlobalQuotaExceeded()
+      });
+      
+      // Enhanced error handling
+      const criticalErrors = batchResult.errors.filter(err => 
+        apiRequests.find(req => req.key === err.key)?.required
+      );
+      
+      if (criticalErrors.length > 0) {
+        console.error('🚨 Critical API failures detected:', criticalErrors);
+        
+        // Try emergency fallback
+        await handleCriticalAPIFailure(criticalErrors);
+      }
+      
+      // Log comprehensive results
+      console.log('📊 Multi-device API Results:', {
+        successful: batchResult.results.length,
+        failed: batchResult.errors.length,
+        metrics: batchResult.metrics,
+        quotaStatus: apiManager.globalQuotaState.quotaExceededAt ? 'EXCEEDED' : 'OK'
+      });
+      
+      loadingState.apiDone = true;
+      finishInitialization();
+      
+    } catch (error) {
+      console.error('❌ Critical initialization error:', error);
+      await handleInitializationFailure();
+    }
+  });
 }
 
-function showErrorNotification(message) {
-  console.error('User Notification:', message);
-  if (typeof alert === 'function') alert(message);
+// Cache-only loading attempt
+async function tryLoadFromCacheOnly() {
+  const results = {
+    loadedKeys: [],
+    allLoaded: false
+  };
+  
+  const cacheTests = [
+    { key: 'secretariatMembers', required: true },
+    { key: 'vacanciesData', required: true },
+    { key: 'signatories', required: false }
+  ];
+  
+  let requiredLoaded = 0;
+  let requiredCount = 0;
+  
+  for (const test of cacheTests) {
+    if (test.required) requiredCount++;
+    
+    const cached = apiManager.getCachedData(test.key, 30 * 60 * 1000); // 30min tolerance
+    if (cached) {
+      results.loadedKeys.push(test.key);
+      if (test.required) requiredLoaded++;
+      console.log(`✅ ${test.key} loaded from cache`);
+    }
+  }
+  
+  results.allLoaded = (requiredLoaded === requiredCount);
+  return results;
 }
 
-// Keep all existing auth/token functions unchanged
+// Handle critical API failures with graceful degradation
+async function handleCriticalAPIFailure(criticalErrors) {
+  console.log('🆘 Handling critical API failures...');
+  
+  // Try to load any available stale cache
+  for (const error of criticalErrors) {
+    const staleData = apiManager.cache.get(error.key);
+    if (staleData) {
+      console.log(`🗃️  Using stale cache for critical data: ${error.key}`);
+      // You might want to populate your UI with this stale data
+    }
+  }
+  
+  // Show user notification
+  showErrorNotification(
+    'Some data is temporarily unavailable due to high server load. ' +
+    'The app is using cached data where possible. Please try refreshing in a few minutes.'
+  );
+}
+
+// Handle complete initialization failure
+async function handleInitializationFailure() {
+  console.log('🆘 Handling complete initialization failure...');
+  
+  // Force mark everything as ready to show UI
+  loadingState.gapi = true;
+  loadingState.uiReady = true;
+  loadingState.dom = true;
+  loadingState.apiDone = true;
+  
+  // Try to load any cached data
+  await tryLoadFromCacheOnly();
+  
+  checkAndHideSpinner();
+  
+  showErrorNotification(
+    'Unable to load fresh data. The app is running in offline mode with cached data. ' +
+    'Please check your internet connection and try refreshing.'
+  );
+}
+
+// Finish initialization process
+function finishInitialization() {
+  startUIMonitoring();
+  restoreState();
+  
+  // Event listeners
+  elements.generatePdfBtn?.addEventListener('click', generatePdfSummary);
+  elements.manageSignatoriesBtn?.addEventListener('click', manageSignatories);
+  elements.closeSignatoriesModalBtns.forEach(button =>
+    button.addEventListener('click', () => {
+      elements.signatoriesModal.classList.remove('active');
+    })
+  );
+  elements.addSignatoryBtn?.addEventListener('click', addSignatory);
+  
+  loadingState.dom = true;
+  checkAndHideSpinner();
+  
+  console.log('✅ App initialization complete');
+  console.log('📊 Final metrics:', apiManager.getMetrics());
+}
+
+// Enhanced error notification with retry option
+function showErrorNotification(message, options = {}) {
+  console.error('🚨 User notification:', message);
+  
+  // Create enhanced notification UI
+  const notification = document.createElement('div');
+  notification.className = 'api-error-notification';
+  notification.innerHTML = `
+    <div class="notification-content">
+      <div class="notification-icon">⚠️</div>
+      <div class="notification-text">${message}</div>
+      ${options.showRetry ? `
+        <button class="notification-retry-btn" onclick="retryFailedAPIRequests()">
+          🔄 Retry Now
+        </button>
+      ` : ''}
+      <button class="notification-close-btn" onclick="this.parentElement.parentElement.remove()">
+        ✕
+      </button>
+    </div>
+  `;
+  
+  // Add styles
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #ff4444;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10000;
+    max-width: 400px;
+    font-family: system-ui, -apple-system, sans-serif;
+  `;
+  
+  document.body.appendChild(notification);
+  
+  // Auto-remove after 30 seconds
+  setTimeout(() => {
+    if (notification.parentElement) {
+      notification.remove();
+    }
+  }, 30000);
+}
+
+// Retry mechanism for failed requests
+async function retryFailedAPIRequests() {
+  console.log('🔄 Manual retry triggered...');
+  
+  // Clear any quota exceeded state older than 5 minutes
+  if (apiManager.globalQuotaState.quotaExceededAt) {
+    const timeSince = Date.now() - apiManager.globalQuotaState.quotaExceededAt;
+    if (timeSince > 300000) { // 5 minutes
+      apiManager.globalQuotaState.quotaExceededAt = null;
+      apiManager.saveGlobalQuotaState();
+      console.log('🔓 Reset quota exceeded state for manual retry');
+    }
+  }
+  
+  // Try the initialization again
+  const apiRequests = [
+    {
+      key: 'secretariatMembers',
+      fetchFunction: safeFetchSecretariatMembers,
+      priority: 3,
+      options: { forceRefresh: true }
+    },
+    {
+      key: 'vacanciesData',
+      fetchFunction: safeFetchVacanciesData, 
+      priority: 2,
+      options: { forceRefresh: true }
+    },
+    {
+      key: 'signatories',
+      fetchFunction: safeLoadSignatories,
+      priority: 1,
+      options: { forceRefresh: true }
+    }
+  ];
+  
+  const result = await apiManager.batchFetch(apiRequests, {
+    concurrency: 1,
+    adaptiveDelay: true,
+    priorityOrder: true
+  });
+  
+  if (result.errors.length === 0) {
+    showErrorNotification('✅ All data refreshed successfully!');
+    window.location.reload(); // Refresh to apply new data
+  } else {
+    showErrorNotification('Some requests still failing. Please wait longer before retrying.');
+  }
+}
+
+// Monitor page visibility to pause requests when tab is hidden
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    console.log('📱 Tab hidden - pausing API requests');
+    // The queue system will naturally pause when tab is hidden
+  } else {
+    console.log('📱 Tab visible - resuming API requests');
+    apiManager.syncGlobalQuotaState(); // Sync state when coming back
+  }
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+  apiManager.cleanup();
+});
+
+// Optional: Add periodic cache cleanup
+setInterval(() => {
+  const metrics = apiManager.getMetrics();
+  if (metrics.cacheSize > 100) { // Arbitrary limit
+    console.log('🧹 Cleaning up old cache entries...');
+    // You could implement smarter cache eviction here
+  }
+}, 5 * 60 * 1000); // Every 5 minutes
+
+
+
+
+
+
+
 async function initializeGapiClient() {
   try {
     await gapi.client.init({
       apiKey: API_KEY,
       discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
     });
-
-    const authState = JSON.parse(localStorage.getItem('authState'));
-
-    if (authState?.access_token) {
-      gapi.client.setToken({ access_token: authState.access_token });
-      console.log('Loaded token from localStorage into GAPI client.');
-
-      if (!await isTokenValid()) {
-        console.log('Token validation failed after loading, will attempt refresh.');
-      } else {
-        console.log('Loaded token is valid.');
-      }
-    } else {
-      console.log('No saved token found in localStorage.');
-    }
-
-    window.gapiInitialized = true;
-    console.log('GAPI client initialization sequence complete.');
-
+    const token = gapi.client.getToken();
+    if (token && !await isTokenValid()) await refreshAccessToken();
+    gapiInitialized = true;
+    console.log('GAPI client initialized');
   } catch (error) {
     console.error('Error initializing GAPI client:', error);
   }
@@ -1391,17 +1675,24 @@ async function initializeGapiClient() {
 
 async function isTokenValid() {
   const authState = JSON.parse(localStorage.getItem('authState'));
-  if (!authState?.access_token || !authState?.expires_at) {
-    return false;
-  }
+  if (!authState?.access_token) return false;
 
   const timeLeft = authState.expires_at - Date.now();
-  if (timeLeft <= 300000) {
-    console.log('Token is expired or expiring soon, attempting refresh.');
+  if (timeLeft <= 0) {
+    console.log('Token expired, refreshing');
     return await refreshAccessToken();
   }
 
-  return true;
+  try {
+    await gapi.client.sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    return true;
+  } catch (error) {
+    console.log('Token validation failed:', error);
+    if (timeLeft < 300000) {
+      return await refreshAccessToken();
+    }
+    return false;
+  }
 }
 
 async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
@@ -1414,6 +1705,8 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`Attempt ${attempt} to refresh token with session_id: ${authState.session_id}`);
+      console.log('Request headers:', { 'Content-Type': 'application/json' });
+      console.log('Request body:', JSON.stringify({ session_id: authState.session_id }));
       const response = await fetch(`${API_BASE_URL}/refresh-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1426,10 +1719,10 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
       if (!response.ok || newToken.error) {
         if (newToken.error === 'No refresh token') {
           console.error('Non-retryable error: No refresh token');
-          if (typeof showToast === 'function') showToast('error', 'Session Expired', 'No refresh token found. Please sign in again.');
+          showToast('error', 'Session Expired', 'No refresh token found. Please sign in again.');
           authState.access_token = null;
           localStorage.setItem('authState', JSON.stringify(authState));
-          if (typeof handleAuthClick === 'function') handleAuthClick();
+          handleAuthClick();
           return false;
         }
         throw new Error(newToken.error || `Refresh failed with status ${response.status}`);
@@ -1445,10 +1738,10 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
       console.error(`Refresh attempt ${attempt} failed: ${error.message}`);
       if (attempt === maxRetries) {
         console.error('Max retries reached, prompting re-authentication');
-        if (typeof showToast === 'function') showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
+        showToast('warning', 'Session Issue', 'Unable to refresh session, please sign in again.');
         authState.access_token = null;
         localStorage.setItem('authState', JSON.stringify(authState));
-        if (typeof handleAuthClick === 'function') handleAuthClick();
+        handleAuthClick();
         return false;
       }
       await new Promise(resolve => setTimeout(resolve, retryDelay * Math.pow(2, attempt - 1)));
@@ -1458,7 +1751,7 @@ async function refreshAccessToken(maxRetries = 3, retryDelay = 2000) {
 }
 
 function scheduleTokenRefresh(maxRetries = 5) {
-  if (window.refreshTimer) clearTimeout(window.refreshTimer);
+  if (refreshTimer) clearTimeout(refreshTimer);
 
   const authState = JSON.parse(localStorage.getItem('authState'));
   if (!authState?.expires_at || !authState.session_id) {
@@ -1471,64 +1764,42 @@ function scheduleTokenRefresh(maxRetries = 5) {
 
   let retryCount = 0;
 
-  window.refreshTimer = setTimeout(async function refresh() {
+  refreshTimer = setTimeout(async function refresh() {
     console.log(`Scheduled token refresh triggered (retry ${retryCount + 1})`);
     const success = await refreshAccessToken();
     if (!success) {
       retryCount++;
       if (retryCount < maxRetries) {
         console.warn(`Refresh failed, retrying in 1 minute (attempt ${retryCount + 1}/${maxRetries})`);
-        window.refreshTimer = setTimeout(refresh, 60000);
+        refreshTimer = setTimeout(refresh, 60000);
       } else {
         console.error('Max refresh retries reached, prompting re-authentication');
-        if (typeof showToast === 'function') showToast('error', 'Session Expired', 'Please sign in again.');
-        if (typeof handleAuthClick === 'function') handleAuthClick();
+        showToast('error', 'Session Expired', 'Please sign in again.');
+        handleAuthClick();
       }
     }
   }, refreshInterval);
 
-  console.log(`Token refresh scheduled in ${Math.round(refreshInterval / 60000)} minutes`);
+  console.log(`Token refresh scheduled in ${refreshInterval / 60000} minutes`);
 }
 
 function handleTokenCallback(tokenResponse) {
   if (tokenResponse.error) {
     console.error('Token error:', tokenResponse.error);
-    if (window.elements?.authStatus) elements.authStatus.textContent = 'Error during sign-in';
+    elements.authStatus.textContent = 'Error during sign-in';
   } else {
-    if (typeof saveAuthState === 'function') saveAuthState(tokenResponse, window.currentEvaluator);
+    saveAuthState(tokenResponse, currentEvaluator);
     gapi.client.setToken({ access_token: tokenResponse.access_token });
-    if (typeof updateUI === 'function') updateUI(true);
+    updateUI(true);
     fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
       .then(() => {
-        if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
-        if (typeof loadSheetData === 'function') loadSheetData();
-        if (typeof showToast === 'function') showToast('success', 'Welcome!', 'Successfully signed in.');
+        createEvaluatorSelector();
+        loadSheetData();
+        showToast('success', 'Welcome!', 'Successfully signed in.');
         localStorage.setItem('hasWelcomed', 'true');
       });
   }
 }
-
-// Lifecycle hooks
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    console.log('Tab visible - checking state.');
-  }
-});
-
-window.addEventListener('beforeunload', () => {
-  apiManager.cleanup();
-});
-
-
-
-
-
-
-
-
-
-
-
 
 function maybeEnableButtons() {
   if (gapiInitialized) {
@@ -1569,7 +1840,7 @@ function setupTabNavigation() {
             saveAuthState(gapi.client.getToken(), currentEvaluator);
             switchTab('secretariat');
             showToast('success', 'Success', `Logged in as ${member.name}`);
-            //setTimeout(() => location.reload(), 1000);
+            setTimeout(() => location.reload(), 1000);
         } else {
           showToast('error', 'Error', 'Incorrect credentials');
         }
@@ -1591,13 +1862,13 @@ function setupTabNavigation() {
         async () => {
           const name = document.getElementById('newMemberName').value.trim();
           const password = document.getElementById('newMemberPassword').value.trim();
-          const memberVacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
+          const vacancies = document.getElementById('newMemberVacancies').value.split(',').map(v => v.trim().toUpperCase()).filter(v => v);
           if (!name || !password || !vacancies.length) {
             showToast('error', 'Error', 'All fields are required');
             return;
           }
           const id = Date.now().toString();
-          await saveSecretariatMember({ id, name, password, vacancies: memberVacancies }); // Use memberVacancies here
+          await saveSecretariatMember({ id, name, password, vacancies });
           showToast('success', 'Success', 'Member added successfully');
         }
       );
@@ -2727,181 +2998,86 @@ function handleAuthClick() {
   window.location.href = `${API_BASE_URL}/auth/google`;
 }
 
-// Fixed handleSignOutClick to handle errors gracefully
+// Update handleSignOutClick to make it robust
 async function handleSignOutClick() {
   const modalContent = `<p>Are you sure you want to sign out?</p>`;
   const result = await showModal('Confirm Sign Out', modalContent, async () => {
     try {
       const accessToken = gapi.client.getToken()?.access_token;
-      
-      // Try to revoke the access token (ignore errors)
       if (accessToken) {
-        try {
-          await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-          });
-          console.log('Access token revoked successfully');
-        } catch (revokeError) {
-          console.warn('Failed to revoke access token (non-critical):', revokeError.message);
-        }
-      }
-      
-      // Try to clear refresh token cookie on backend (ignore errors)
-      try {
-        await fetch(`${API_BASE_URL}/clear-session`, {
+        // Revoke the access token
+        await fetch('https://accounts.google.com/o/oauth2/revoke?token=' + accessToken, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(accessToken && { 'Authorization': `Bearer ${accessToken}` })
-          },
-          body: JSON.stringify({ sessionId: window.sessionId }),
-          credentials: 'include'
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
         });
-        console.log('Session cleared on backend');
-      } catch (backendError) {
-        console.warn('Failed to clear backend session (non-critical):', backendError.message);
       }
-      
-      // Reset client-side state (this always works)
+      // Clear refresh token cookie on backend
+      await fetch(`${API_BASE_URL}/clear-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({ sessionId }),
+        credentials: 'include'
+      });
+      // Reset client-side state
       gapi.client.setToken(null);
       localStorage.clear();
       console.log('All localStorage cleared');
-      
-      // Reset global variables (use window object to avoid const errors)
-      window.currentEvaluator = null;
-      window.sessionId = null;
-      window.secretariatMemberId = null;
-      
-      // Reset arrays (clear contents instead of reassigning to avoid const errors)
-      if (window.vacancies && Array.isArray(window.vacancies)) {
-        window.vacancies.length = 0;
-      }
-      if (window.candidates && Array.isArray(window.candidates)) {
-        window.candidates.length = 0;
-      }
-      if (window.compeCodes && Array.isArray(window.compeCodes)) {
-        window.compeCodes.length = 0;
-      }
-      if (window.competencies && Array.isArray(window.competencies)) {
-        window.competencies.length = 0;
-      }
-      if (window.submissionQueue && Array.isArray(window.submissionQueue)) {
-        window.submissionQueue.length = 0;
-      }
-      
+      currentEvaluator = null;
+      sessionId = null;
+      secretariatMemberId = null;
+      vacancies = [];
+      candidates = [];
+      compeCodes = [];
+      competencies = [];
+      submissionQueue = [];
       console.log('Global variables reset');
-      
-      // Clear API manager cache
-      if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
-        window.apiManager.clearCache();
-      }
-      
-      // Update UI
-      if (typeof updateUI === 'function') updateUI(false);
-      if (typeof resetDropdowns === 'function') resetDropdowns([]);
-      if (typeof clearRatings === 'function') clearRatings();
-      
-      // Clean up UI elements
-      if (window.elements?.competencyContainer) {
-        window.elements.competencyContainer.innerHTML = '';
-      }
-      
-      // Remove evaluator selector
+      updateUI(false);
+      resetDropdowns([]);
+      elements.competencyContainer.innerHTML = '';
+      clearRatings();
       const evaluatorSelect = document.getElementById('evaluatorSelect');
-      if (evaluatorSelect && evaluatorSelect.parentElement) {
+      if (evaluatorSelect) {
+        evaluatorSelect.value = '';
         evaluatorSelect.parentElement.remove();
       }
-      
-      // Disable submit button
-      if (window.elements?.submitRatings) {
-        window.elements.submitRatings.disabled = true;
+      if (elements.submitRatings) {
+        elements.submitRatings.disabled = true;
       }
-      
-      // Clear timeouts
-      if (window.fetchTimeout) {
-        clearTimeout(window.fetchTimeout);
-        window.fetchTimeout = null;
+      if (fetchTimeout) {
+        clearTimeout(fetchTimeout);
+        fetchTimeout = null;
       }
-      if (window.refreshTimer) {
-        clearTimeout(window.refreshTimer);
-        window.refreshTimer = null;
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
       }
-      
-      // Clean up results area
       const resultsArea = document.querySelector('.results-area');
       if (resultsArea) {
         resultsArea.remove();
       }
-      
-      // Reset container styling
       const container = document.querySelector('.container');
-      if (container) {
-        container.style.marginTop = '20px';
-      }
-      
-      // Update auth section
+      container.style.marginTop = '20px';
       const authSection = document.querySelector('.auth-section');
-      if (authSection) {
-        authSection.classList.add('signed-out');
-      }
-      
-      if (typeof showToast === 'function') {
-        showToast('success', 'Signed Out', 'You have been successfully signed out.');
-      }
-      
+      authSection.classList.add('signed-out');
+      showToast('success', 'Signed Out', 'You have been successfully signed out.');
     } catch (error) {
       console.error('Error during sign out:', error);
-      
-      // Even if there's an error, try to clean up locally
-      try {
-        gapi.client.setToken(null);
-        localStorage.clear();
-        window.currentEvaluator = null;
-        window.sessionId = null;
-        
-        // Clear arrays safely
-        if (window.submissionQueue && Array.isArray(window.submissionQueue)) {
-          window.submissionQueue.length = 0;
-        }
-        if (window.vacancies && Array.isArray(window.vacancies)) {
-          window.vacancies.length = 0;
-        }
-        if (window.candidates && Array.isArray(window.candidates)) {
-          window.candidates.length = 0;
-        }
-        if (window.compeCodes && Array.isArray(window.compeCodes)) {
-          window.compeCodes.length = 0;
-        }
-        if (window.competencies && Array.isArray(window.competencies)) {
-          window.competencies.length = 0;
-        }
-        
-        if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
-          window.apiManager.clearCache();
-        }
-        if (typeof showToast === 'function') {
-          showToast('warning', 'Partial Sign Out', 'Local data cleared, but server cleanup may have failed.');
-        }
-      } catch (cleanupError) {
-        console.error('Failed to clean up even locally:', cleanupError);
-        if (typeof showToast === 'function') {
-          showToast('error', 'Sign Out Error', 'Failed to sign out properly. Please refresh the page.');
-        }
-      }
+      showToast('error', 'Error', 'Failed to sign out completely. Please try again.');
     }
   }, () => {
     console.log('Sign out canceled');
   });
 }
 
-// Fixed handleLogoutAll to handle errors and const variables properly
+// Update handleLogoutAll to ensure correct password handling
 async function handleLogoutAll() {
   const contentHTML = `
     <p>Enter the admin password to log out all sessions:</p>
     <input type="password" id="logoutAllPasswordInput" placeholder="Enter password">
   `;
-  
   const result = await showModal(
     'Confirm Logout All Sessions',
     contentHTML,
@@ -2909,140 +3085,80 @@ async function handleLogoutAll() {
       const passwordInput = document.getElementById('logoutAllPasswordInput');
       if (!passwordInput) {
         console.error('Password input not found');
-        if (typeof showToast === 'function') {
-          showToast('error', 'Error', 'Password input not found. Please try again.');
-        }
+        showToast('error', 'Error', 'Password input not found. Please try again.');
         return;
       }
-      
       const password = passwordInput.value.trim();
       if (password !== 'admindan') {
-        console.warn('Invalid password entered');
-        if (typeof showToast === 'function') {
-          showToast('error', 'Error', 'Invalid password');
-        }
+        console.warn('Invalid password entered:', password);
+        showToast('error', 'Error', 'Invalid password');
         return;
       }
-      
       try {
         const accessToken = gapi.client.getToken()?.access_token;
         if (!accessToken) {
-          if (typeof showToast === 'function') {
-            showToast('error', 'Error', 'No valid session found');
-          }
+          showToast('error', 'Error', 'No valid session found');
           return;
         }
-        
         const response = await fetch(`${API_BASE_URL}/logout-all`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`
           },
-          body: JSON.stringify({ sessionId: window.sessionId })
+          body: JSON.stringify({ sessionId })
         });
-        
         if (response.ok) {
           // Reset client-side state
           gapi.client.setToken(null);
           localStorage.clear();
           console.log('All localStorage cleared');
-          
-          // Reset global variables (use window object to avoid const errors)
-          window.currentEvaluator = null;
-          window.sessionId = null;
-          window.secretariatMemberId = null;
-          
-          // Reset arrays (clear contents instead of reassigning to avoid const errors)
-          if (window.vacancies && Array.isArray(window.vacancies)) {
-            window.vacancies.length = 0;
-          }
-          if (window.candidates && Array.isArray(window.candidates)) {
-            window.candidates.length = 0;
-          }
-          if (window.compeCodes && Array.isArray(window.compeCodes)) {
-            window.compeCodes.length = 0;
-          }
-          if (window.competencies && Array.isArray(window.competencies)) {
-            window.competencies.length = 0;
-          }
-          if (window.submissionQueue && Array.isArray(window.submissionQueue)) {
-            window.submissionQueue.length = 0;
-          }
-          
+          currentEvaluator = null;
+          sessionId = null;
+          secretariatMemberId = null;
+          vacancies = [];
+          candidates = [];
+          compeCodes = [];
+          competencies = [];
+          submissionQueue = [];
           console.log('Global variables reset');
-          
-          // Clear API manager cache
-          if (window.apiManager && typeof window.apiManager.clearCache === 'function') {
-            window.apiManager.clearCache();
-          }
-          
-          // Update UI
-          if (typeof updateUI === 'function') updateUI(false);
-          if (typeof resetDropdowns === 'function') resetDropdowns([]);
-          if (typeof clearRatings === 'function') clearRatings();
-          
-          // Clean up UI elements
-          if (window.elements?.competencyContainer) {
-            window.elements.competencyContainer.innerHTML = '';
-          }
-          
-          // Remove evaluator selector
+          updateUI(false);
+          resetDropdowns([]);
+          elements.competencyContainer.innerHTML = '';
+          clearRatings();
           const evaluatorSelect = document.getElementById('evaluatorSelect');
-          if (evaluatorSelect && evaluatorSelect.parentElement) {
+          if (evaluatorSelect) {
+            evaluatorSelect.value = '';
             evaluatorSelect.parentElement.remove();
           }
-          
-          // Disable submit button
-          if (window.elements?.submitRatings) {
-            window.elements.submitRatings.disabled = true;
+          if (elements.submitRatings) {
+            elements.submitRatings.disabled = true;
           }
-          
-          // Clear timeouts
-          if (window.fetchTimeout) {
-            clearTimeout(window.fetchTimeout);
-            window.fetchTimeout = null;
+          if (fetchTimeout) {
+            clearTimeout(fetchTimeout);
+            fetchTimeout = null;
           }
-          if (window.refreshTimer) {
-            clearTimeout(window.refreshTimer);
-            window.refreshTimer = null;
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
           }
-          
-          // Clean up results area
           const resultsArea = document.querySelector('.results-area');
           if (resultsArea) {
             resultsArea.remove();
           }
-          
-          // Reset container styling
           const container = document.querySelector('.container');
-          if (container) {
-            container.style.marginTop = '20px';
-          }
-          
-          // Update auth section
+          container.style.marginTop = '20px';
           const authSection = document.querySelector('.auth-section');
-          if (authSection) {
-            authSection.classList.add('signed-out');
-          }
-          
-          if (typeof showToast === 'function') {
-            showToast('success', 'Success', 'All sessions logged out');
-          }
-          
+          authSection.classList.add('signed-out');
+          showToast('success', 'Success', 'All sessions logged out');
         } else {
-          const errorData = await response.json().catch(() => ({}));
+          const errorData = await response.json();
           console.error('Logout all failed:', errorData);
-          if (typeof showToast === 'function') {
-            showToast('error', 'Error', 'Failed to log out all sessions');
-          }
-        }
-        
-      } catch (error) {
-        console.error('Error logging out all sessions:', error);
-        if (typeof showToast === 'function') {
           showToast('error', 'Error', 'Failed to log out all sessions');
         }
+      } catch (error) {
+        console.error('Error logging out all sessions:', error);
+        showToast('error', 'Error', 'Failed to log out all sessions');
       }
     },
     () => {
@@ -3590,40 +3706,12 @@ class SubmissionQueue {
       if (!submission) break;
 
       try {
-        showSubmittingIndicator();
-        console.log('🔄 Starting submission process');
-
         const result = await this.processSubmission(submission);
-        
-        // Always hide indicator immediately after submission attempt
-        hideSubmittingIndicator();
-        console.log('🔄 Submitting indicator hidden');
-
         if (result.success) {
-          const candidateName = submission.ratings[0][2];
-          const item = submission.ratings[0][1];
-          
-          // Clear stored data
-          localStorage.removeItem(`radioState_${candidateName}_${item}`);
           handleSuccessfulSubmission(submission.ratings);
-          
-          // Show success modal
-          await new Promise((resolve) => {
-            showModal(
-              'Submission Successful',
-              `<p>${result.message}</p>`,
-              () => {
-                console.log('Success modal closed');
-                fetchSubmittedRatings({ forceRefresh: true });
-                resolve();
-              },
-              null,
-              false
-            );
-          });
+          showToastOptimized('success', 'Success', result.message);
         }
       } catch (error) {
-        hideSubmittingIndicator(); // Ensure indicator is hidden on error
         await this.handleFailedSubmission(submission, error);
       }
     }
@@ -3664,27 +3752,22 @@ class SubmissionQueue {
       console.error('Final submission failure:', error);
     }
   }
-
-  isEmpty() {
-    return this.queue.length === 0 && this.retryQueue.length === 0;
-  }
 }
 
-
+// Global queue instance
 const submissionQueue = new SubmissionQueue();
 
 // =====================================
-// MAIN SUBMISSION FUNCTION
+// MAIN SUBMISSION FUNCTION (OPTIMIZED)
 // =====================================
 
 async function submitRatings() {
-  if (submissionQueue.processing) {
-    showToastOptimized('info', 'Info', 'Submission already in progress');
+  if (isSubmitting) {
+    showToastOptimized('info', 'Info', 'Submission already queued');
     return;
   }
 
   try {
-    // Validate authentication
     const token = gapi.client.getToken();
     if (!token || !await isTokenValid()) {
       await refreshAccessToken();
@@ -3695,25 +3778,23 @@ async function submitRatings() {
       }
     }
 
-    // Validate evaluator
     if (!currentEvaluator) {
       showToastOptimized('warning', 'Warning', 'Please select an evaluator');
       return;
     }
 
-    // Validate form data
     const item = elements.itemDropdown.value;
     const candidateName = elements.nameDropdown.value;
+
     if (!item || !candidateName) {
       showToastOptimized('error', 'Error', 'Please select both item and candidate');
       return;
     }
 
-    // Check for existing ratings
     const existingRatings = await checkExistingRatingsCached(item, candidateName, currentEvaluator);
     const isUpdate = existingRatings.length > 0;
 
-    // Handle updates with password verification
+    let tempRatings = {};
     if (isUpdate) {
       const isVerified = await verifyEvaluatorPassword(existingRatings);
       if (!isVerified) {
@@ -3721,9 +3802,15 @@ async function submitRatings() {
         showToastOptimized('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
+      // Store current ratings before update
+      const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+      Array.from(competencyItems).forEach(item => {
+        const competencyName = item.querySelector('label').textContent.split('. ')[1];
+        const rating = Array.from(item.querySelectorAll('input[type="radio"]')).find(r => r.checked)?.value;
+        if (rating) tempRatings[competencyName] = rating;
+      });
     }
 
-    // Prepare ratings data
     const { ratings, error } = prepareRatingsData(item, candidateName, currentEvaluator);
     if (error) {
       showToastOptimized('error', 'Error', error);
@@ -3737,12 +3824,13 @@ async function submitRatings() {
         revertToExistingRatings(existingRatings);
         showToastOptimized('info', 'Canceled', 'Ratings reverted to original values');
       } else {
+        console.log('Submission canceled');
         showToastOptimized('info', 'Canceled', 'Ratings submission aborted');
       }
       return;
     }
 
-    // Add to queue and process
+    // Add to optimized queue instead of direct submission
     submissionQueue.add(ratings, 'normal');
     showToastOptimized('info', 'Queued', 'Submission queued for processing');
 
@@ -3754,26 +3842,28 @@ async function submitRatings() {
 }
 
 // =====================================
-// OPTIMIZED SUBMISSION LOGIC
+// OPTIMIZED CORE SUBMISSION LOGIC
 // =====================================
 
 async function submitRatingsOptimized(ratings) {
+  // Try lockless submission first for better performance
   try {
-    // Try lockless submission first for better performance
     const result = await tryLocklessSubmission(ratings);
     if (result.success) return result;
   } catch (error) {
     console.log('Lockless failed, trying with lock:', error.message);
   }
 
-  // Fall back to locked submission
-  return await submitWithLock(ratings);
+  // Fall back to optimized locked submission
+  return await submitWithOptimizedLock(ratings);
 }
 
 async function tryLocklessSubmission(ratings) {
+  // For new submissions only, we can avoid locks
   const hasUpdates = await checkForUpdates(ratings);
   
   if (!hasUpdates) {
+    // Pure append operation - no lock needed
     if (!await isTokenValid()) await refreshAccessToken();
     
     await gapi.client.sheets.spreadsheets.values.append({
@@ -3790,7 +3880,7 @@ async function tryLocklessSubmission(ratings) {
   throw new Error('Updates detected, lock required');
 }
 
-async function submitWithLock(ratings) {
+async function submitWithOptimizedLock(ratings) {
   const lockData = {
     sessionId: sessionId,
     timestamp: Date.now(),
@@ -3800,7 +3890,7 @@ async function submitWithLock(ratings) {
   let lockAcquired = false;
   
   try {
-    lockAcquired = await acquireLock(lockData);
+    lockAcquired = await acquireOptimizedLock(lockData);
     if (!lockAcquired) {
       throw new Error('Could not acquire lock - system busy');
     }
@@ -3810,16 +3900,16 @@ async function submitWithLock(ratings) {
     
   } finally {
     if (lockAcquired) {
-      await releaseLock(lockData);
+      await releaseOptimizedLock(lockData);
     }
   }
 }
 
 // =====================================
-// LOCK SYSTEM
+// OPTIMIZED LOCK SYSTEM
 // =====================================
 
-async function acquireLock(lockData) {
+async function acquireOptimizedLock(lockData) {
   const lockRange = "RATELOG!G1:J1";
   const maxAttempts = 3;
   
@@ -3872,7 +3962,7 @@ async function acquireLock(lockData) {
   return false;
 }
 
-async function releaseLock(lockData) {
+async function releaseOptimizedLock(lockData) {
   try {
     await gapi.client.sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
@@ -3961,7 +4051,7 @@ async function processRatingsBatch(ratings) {
 }
 
 // =====================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS (NEW)
 // =====================================
 
 async function checkExistingRatingsCached(item, candidateName, evaluator) {
@@ -3978,24 +4068,6 @@ async function checkExistingRatingsCached(item, candidateName, evaluator) {
   return ratings;
 }
 
-async function checkExistingRatings(item, candidateName, evaluator) {
-  try {
-    if (!await isTokenValid()) await refreshAccessToken();
-    const response = await gapi.client.sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: SHEET_RANGES.RATELOG,
-    });
-
-    const existingData = response.result.values || [];
-    return existingData.filter(row =>
-      matchesRatingRow(row, item, candidateName, evaluator)
-    );
-  } catch (error) {
-    console.error('Error checking ratings:', error);
-    return [];
-  }
-}
-
 async function checkForUpdates(ratings) {
   const firstRating = ratings[0];
   if (!firstRating) return false;
@@ -4009,73 +4081,12 @@ async function checkForUpdates(ratings) {
   return existingRatings.length > 0;
 }
 
-function prepareRatingsData(item, candidateName, currentEvaluator) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  const ratings = [];
-
-  for (let itemElement of competencyItems) {
-    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
-    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
-      .find(radio => radio.checked)?.value;
-
-    if (!rating) {
-      return { error: 'Please rate all competencies' };
-    }
-
-    const competencyCode = getCompetencyCode(competencyName);
-    const candidateInitials = getInitials(candidateName);
-    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
-    
-    ratings.push([
-      ratingCode,
-      item,
-      candidateName,
-      competencyName,
-      rating,
-      currentEvaluator,
-      '',
-      ''
-    ]);
-  }
-  console.log('Ratings to submit:', ratings);
-  return { ratings };
-}
-
 function showSubmissionProgress(submission) {
   const message = submission.attempts > 1 
     ? `Submitting... (attempt ${submission.attempts})`
     : 'Submitting...';
     
   showToastOptimized('info', 'Processing', message);
-}
-
-// =====================================
-// UI FUNCTIONS
-// =====================================
-
-function showSubmittingIndicator() {
-  // Remove any existing indicator first
-  hideSubmittingIndicator();
-  
-  const indicator = document.createElement('div');
-  indicator.id = 'submittingIndicator';
-  indicator.className = 'submitting-indicator';
-  indicator.innerHTML = `
-    <div class="submitting-content">
-      <span class="spinner"></span>
-      <span>SUBMITTING...</span>
-    </div>
-  `;
-  document.body.appendChild(indicator);
-  console.log('🔄 Submitting indicator shown');
-}
-
-function hideSubmittingIndicator() {
-  const indicator = document.getElementById('submittingIndicator');
-  if (indicator) {
-    indicator.remove();
-    console.log('🔄 Submitting indicator removed');
-  }
 }
 
 async function showConfirmationModal(ratings, existingRatings, isUpdate) {
@@ -4128,44 +4139,6 @@ async function showConfirmationModal(ratings, existingRatings, isUpdate) {
   });
 }
 
-async function verifyEvaluatorPassword(existingRatings) {
-  return new Promise((resolve) => {
-    const modalContent = `
-      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
-      <input type="password" id="verificationPassword" class="modal-input">
-    `;
-    showModal('Password Verification', modalContent, () => {
-      const password = document.getElementById('verificationPassword').value;
-      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    }, () => {
-      revertToExistingRatings(existingRatings);
-      resolve(false);
-    });
-  });
-}
-
-function revertToExistingRatings(existingRatings) {
-  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
-  Array.from(competencyItems).forEach(item => {
-    const competencyName = item.querySelector('label').textContent.split('. ')[1];
-    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
-    if (existingRating) {
-      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change'));
-      }
-    } else {
-      const radios = item.querySelectorAll('input[type="radio"]');
-      radios.forEach(radio => radio.checked = false);
-    }
-  });
-}
-
 function showToastOptimized(type, title, message) {
   // Remove existing toasts of the same type to prevent spam
   const existingToasts = document.querySelectorAll(`.toast.${type}`);
@@ -4179,8 +4152,102 @@ function showToastOptimized(type, title, message) {
 }
 
 // =====================================
-// SUCCESS HANDLING
+// CORE SUBMISSION LOGIC (OPTIMIZED)
 // =====================================
+
+async function submitRatingsOptimized(ratings) {
+  // Try lockless submission first
+  try {
+    const result = await tryLocklessSubmission(ratings);
+    if (result.success) return result;
+  } catch (error) {
+    console.log('Lockless failed, using lock:', error.message);
+  }
+
+  // Fall back to locked submission
+  return await submitRatingsWithLock(ratings, SUBMISSION_CONFIG.MAX_RETRIES);
+}
+
+async function tryLocklessSubmission(ratings) {
+  const hasUpdates = await checkForUpdates(ratings);
+  
+  if (!hasUpdates) {
+    if (!await isTokenValid()) await refreshAccessToken();
+    
+    await gapi.client.sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      resource: { values: ratings },
+    });
+    
+    return { success: true, message: 'Ratings submitted successfully' };
+  }
+  
+  throw new Error('Updates detected, lock required');
+}
+
+// =====================================
+// ORIGINAL FUNCTIONS (KEEP AS-IS)
+// =====================================
+
+function showSubmittingIndicator() {
+  let indicator = document.getElementById('submittingIndicator');
+  if (!indicator) {
+    indicator = document.createElement('div');
+    indicator.id = 'submittingIndicator';
+    indicator.className = 'submitting-indicator';
+    indicator.innerHTML = `
+      <div class="submitting-content">
+        <span class="spinner"></span>
+        <span>SUBMITTING...</span>
+      </div>
+    `;
+    document.body.appendChild(indicator);
+  }
+}
+
+function hideSubmittingIndicator() {
+  const indicator = document.getElementById('submittingIndicator');
+  if (indicator) indicator.remove();
+}
+
+async function processSubmissionQueue() {
+  if (isSubmitting || !submissionQueue.length) return;
+  isSubmitting = true;
+
+  const ratings = submissionQueue.shift();
+
+  try {
+    const result = await submitRatingsWithLock(ratings);
+    if (result.success) {
+      const candidateName = ratings[0][2];
+      const item = ratings[0][1];
+      localStorage.removeItem(`radioState_${candidateName}_${item}`);
+      showModal(
+        'Submission Successful',
+        `<p>${result.message}</p>`,
+        () => {
+          console.log('Success modal closed');
+          fetchSubmittedRatings({ forceRefresh: true });
+          handleSuccessfulSubmission(ratings);
+        },
+        null,
+        false
+      );
+    }
+  } catch (error) {
+    console.error('Queue submission failed:', error);
+    showToast('error', 'Error', error.message);
+    submissionQueue.unshift(ratings);
+    setTimeout(processSubmissionQueue, 5000);
+  } finally {
+    isSubmitting = false;
+    hideSubmittingIndicator();
+    processSubmissionQueue();
+  }
+}
 
 function handleSuccessfulSubmission(ratings) {
   const candidateName = ratings[0][2];
@@ -4195,10 +4262,6 @@ function handleSuccessfulSubmission(ratings) {
     evaluator, item, candidateName
   });
 }
-
-// =====================================
-// DEBUG FUNCTIONS
-// =====================================
 
 function debugRatingSync(evaluator, item, name) {
   console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
@@ -4227,11 +4290,229 @@ function debugRatingSync(evaluator, item, name) {
   console.groupEnd();
 }
 
-// Make debug function available globally
 window.debugRatingSync = debugRatingSync;
 
+async function checkExistingRatings(item, candidateName, evaluator) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: SHEET_RANGES.RATELOG,
+    });
+
+    const existingData = response.result.values || [];
+    return existingData.filter(row =>
+      matchesRatingRow(row, item, candidateName, evaluator)
+    );
+  } catch (error) {
+    console.error('Error checking ratings:', error);
+    return [];
+  }
+}
+
+function revertToExistingRatings(existingRatings) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  Array.from(competencyItems).forEach(item => {
+    const competencyName = item.querySelector('label').textContent.split('. ')[1];
+    const existingRating = existingRatings.find(row => row[3] === competencyName)?.[4];
+    if (existingRating) {
+      const radio = item.querySelector(`input[type="radio"][value="${existingRating}"]`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change'));
+      }
+    } else {
+      const radios = item.querySelectorAll('input[type="radio"]');
+      radios.forEach(radio => radio.checked = false);
+    }
+  });
+}
+
+async function verifyEvaluatorPassword(existingRatings) {
+  return new Promise((resolve) => {
+    const modalContent = `
+      <p>Please verify password for ${currentEvaluator === "In-charge, Administrative Division" ? "Chief, Administrative Division" : currentEvaluator} to update ratings:</p>
+      <input type="password" id="verificationPassword" class="modal-input">
+    `;
+    showModal('Password Verification', modalContent, () => {
+      const password = document.getElementById('verificationPassword').value;
+      if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
+        resolve(true);
+      } else {
+        resolve(false);
+      }
+    }, () => {
+      revertToExistingRatings(existingRatings);
+      resolve(false);
+    });
+  });
+}
+
+function prepareRatingsData(item, candidateName, currentEvaluator) {
+  const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
+  const ratings = [];
+
+  for (let itemElement of competencyItems) {
+    const competencyName = itemElement.querySelector('label').textContent.split('. ')[1];
+    const rating = Array.from(itemElement.querySelectorAll('input[type="radio"]'))
+      .find(radio => radio.checked)?.value;
+
+    if (!rating) {
+      return { error: 'Please rate all competencies' };
+    }
+
+    const competencyCode = getCompetencyCode(competencyName);
+    const candidateInitials = getInitials(candidateName);
+    const ratingCode = `${item}-${candidateInitials}-${competencyCode}-${currentEvaluator}`;
+    
+    ratings.push([
+      ratingCode,
+      item,
+      candidateName,
+      competencyName,
+      rating,
+      currentEvaluator,
+      '',
+      ''
+    ]);
+  }
+  console.log('Ratings to submit:', ratings);
+  return { ratings };
+}
+
+async function submitRatingsWithLock(ratings, maxRetries = 5) {
+  const lockRange = "RATELOG!G1:I1";
+  const LOCK_TIMEOUT = SUBMISSION_CONFIG.LOCK_TIMEOUT;
+  let retryCount = 0;
+  let lockAcquired = false;
+
+  while (retryCount < maxRetries) {
+    try {
+      if (!await isTokenValid()) await refreshAccessToken();
+      const { acquired, owner } = await acquireLock(sessionId);
+      if (!acquired) {
+        showToastOptimized('info', 'Waiting', `Another user (${owner}) is submitting… Retrying in ${Math.pow(2, retryCount)}s`);
+        await delay(Math.pow(2, retryCount) * 1000);
+        retryCount++;
+        continue;
+      }
+      lockAcquired = true;
+
+      const result = await processRatings(ratings);
+      await releaseLock(sessionId);
+      return result;
+    } catch (error) {
+      console.error('Error in submitRatingsWithLock:', error);
+      retryCount++;
+      if (lockAcquired) await releaseLock(sessionId);
+      if (retryCount === maxRetries) {
+        throw new Error('Submission failed after retries—queued for later');
+      }
+      await delay(Math.pow(2, retryCount) * 1000);
+    }
+  }
+}
+
+async function acquireLock(sessionId) {
+  const lockRange = "RATELOG!G1:I1";
+  try {
+    const lockStatusResponse = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: lockRange,
+    });
+    const [lockStatus, lockTimestamp, lockOwner] = lockStatusResponse.result.values?.[0] || ['', '', ''];
+    
+    if (lockStatus === 'locked' && (new Date().getTime() - new Date(lockTimestamp).getTime()) < SUBMISSION_CONFIG.LOCK_TIMEOUT) {
+      return { acquired: false, owner: lockOwner || 'unknown' };
+    }
+
+    const timestamp = new Date().toISOString();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: lockRange,
+      valueInputOption: 'RAW',
+      resource: { values: [['locked', timestamp, sessionId]] },
+    });
+    return { acquired: true };
+  } catch (error) {
+    console.error('Lock acquisition failed:', error);
+    return { acquired: false, owner: 'error' };
+  }
+}
+
+async function releaseLock(sessionId) {
+  try {
+    if (!await isTokenValid()) await refreshAccessToken();
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: "RATELOG!G1:I1",
+      valueInputOption: 'RAW',
+      resource: { values: [['', '', '']] },
+    });
+  } catch (error) {
+    console.error('Failed to release lock:', error);
+    showToastOptimized('error', 'Lock Error', 'Lock release failed—may resolve in 8s');
+  }
+}
+
+async function processRatings(ratings) {
+  if (!await isTokenValid()) await refreshAccessToken();
+  const response = await gapi.client.sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: SHEET_RANGES.RATELOG,
+  });
+
+  let existingData = response.result.values || [];
+  const newRatings = [];
+  let isUpdated = false;
+
+  const existingRatingsMap = new Map();
+  existingData.forEach((row, index) => {
+    if (row[0]) existingRatingsMap.set(row[0], { row, index });
+  });
+
+  ratings.forEach(newRating => {
+    const ratingCode = newRating[0];
+    if (existingRatingsMap.has(ratingCode)) {
+      const { index } = existingRatingsMap.get(ratingCode);
+      existingData[index] = newRating;
+      isUpdated = true;
+    } else {
+      newRatings.push(newRating);
+    }
+  });
+
+  const batchUpdates = [];
+  if (isUpdated) {
+    batchUpdates.push(
+      gapi.client.sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+        valueInputOption: 'RAW',
+        resource: { values: existingData },
+      })
+    );
+  }
+  if (newRatings.length > 0) {
+    batchUpdates.push(
+      gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: SHEET_RANGES.RATELOG,
+        valueInputOption: 'RAW',
+        resource: { values: newRatings },
+      })
+    );
+  }
+
+  await Promise.all(batchUpdates);
+  return {
+    success: true,
+    message: isUpdated ? 'Ratings updated successfully' : 'Ratings submitted successfully'
+  };
+}
+
 // =====================================
-// CLEANUP AND UTILITIES
+// CACHE CLEANUP
 // =====================================
 
 // Clean up cache periodically
@@ -4532,59 +4813,6 @@ async function displayCompetencies(name, competencies, salaryGrade = 0) {
 
   loadRadioState(name, elements.itemDropdown.value);
 }
-
-
-
-
-// ------------------------------
-// Backwards-compatible pending-rating helpers
-// ------------------------------
-// Add these if older UI code calls savePendingRating/getPendingRating/clearPendingRating
-
-function savePendingRating(evaluator, item, name, ratingData) {
-  // Prefer the new manager if present
-  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.save) {
-    return pendingRatingsManager.save(evaluator, item, name, ratingData);
-  }
-  // Fallback: store in localStorage using same key format
-  try {
-    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
-    localStorage.setItem(key, JSON.stringify({ ...ratingData, evaluator, item, name, timestamp: Date.now() }));
-    console.log(`💾 (fallback) Saved pending rating for "${name}" on item "${item}".`);
-  } catch (e) {
-    console.warn('Failed to save pending rating fallback:', e);
-  }
-}
-
-function getPendingRating(evaluator, item, name) {
-  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.get) {
-    return pendingRatingsManager.get(evaluator, item, name);
-  }
-  try {
-    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : null;
-  } catch (e) {
-    console.warn('Failed to get pending rating fallback:', e);
-    return null;
-  }
-}
-
-function clearPendingRating(evaluator, item, name) {
-  if (typeof pendingRatingsManager !== 'undefined' && pendingRatingsManager.clear) {
-    return pendingRatingsManager.clear(evaluator, item, name);
-  }
-  try {
-    const key = `pending_rating:${apiManager?.deviceId || 'device_unknown'}:${evaluator}:${item}:${name}`;
-    localStorage.removeItem(key);
-    console.log(`🧹 (fallback) Cleared pending rating for "${name}" on item "${item}".`);
-  } catch (e) {
-    console.warn('Failed to clear pending rating fallback:', e);
-  }
-}
-
-
-
 
 
 
@@ -6126,11 +6354,3 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
-
-
-
-
-
-
-
