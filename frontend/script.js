@@ -3540,8 +3540,8 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
 // CONFIGURATION
 // =====================================
 
-const SUBMISSION_CONFIG = {const SUBMISSION_CONFIG = {
-  MAX_RETRIES: 5, // Changed from 3 to 5
+const SUBMISSION_CONFIG = {
+  MAX_RETRIES: 3,
   BASE_DELAY: 500,
   MAX_DELAY: 3000,
   LOCK_TIMEOUT: 8000,
@@ -3709,24 +3709,18 @@ async function submitRatings() {
       return;
     }
 
-    // ALWAYS check for existing ratings - this ensures proper detection
-    console.log('🔍 Checking for existing ratings...');
+    // Check for existing ratings
     const existingRatings = await checkExistingRatingsCached(item, candidateName, currentEvaluator);
-    const isUpdate = existingRatings && existingRatings.length > 0;
-    
-    console.log('📊 Existing ratings found:', existingRatings);
-    console.log('🔄 Is update operation:', isUpdate);
+    const isUpdate = existingRatings.length > 0;
 
     // Handle updates with password verification
     if (isUpdate) {
-      console.log('🔐 Requesting password verification for update...');
       const isVerified = await verifyEvaluatorPassword(existingRatings);
       if (!isVerified) {
         revertToExistingRatings(existingRatings);
         showToastOptimized('warning', 'Update Canceled', 'Ratings reverted to original values');
         return;
       }
-      console.log('✅ Password verification successful');
     }
 
     // Prepare ratings data
@@ -3737,7 +3731,7 @@ async function submitRatings() {
     }
 
     // Show confirmation modal
-    const confirmed = await showConfirmationModal(ratings, existingRatings || [], isUpdate);
+    const confirmed = await showConfirmationModal(ratings, existingRatings, isUpdate);
     if (!confirmed) {
       if (isUpdate) {
         revertToExistingRatings(existingRatings);
@@ -3827,7 +3821,7 @@ async function submitWithLock(ratings) {
 
 async function acquireLock(lockData) {
   const lockRange = "RATELOG!G1:J1";
-  const maxAttempts = 5; // Increased from 3 to match MAX_RETRIES
+  const maxAttempts = 3;
   
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -3967,7 +3961,7 @@ async function processRatingsBatch(ratings) {
 }
 
 // =====================================
-// HELPER FUNCTIONS - IMPROVED EXISTING RATINGS CHECK
+// HELPER FUNCTIONS
 // =====================================
 
 async function checkExistingRatingsCached(item, candidateName, evaluator) {
@@ -3975,11 +3969,9 @@ async function checkExistingRatingsCached(item, candidateName, evaluator) {
   const cached = ratingsCache.get(cacheKey);
   
   if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-    console.log('📋 Using cached ratings data for:', cacheKey);
     return cached.data;
   }
   
-  console.log('🔍 Fetching fresh ratings data for:', cacheKey);
   const ratings = await checkExistingRatings(item, candidateName, evaluator);
   ratingsCache.set(cacheKey, { data: ratings, timestamp: Date.now() });
   
@@ -3989,68 +3981,24 @@ async function checkExistingRatingsCached(item, candidateName, evaluator) {
 async function checkExistingRatings(item, candidateName, evaluator) {
   try {
     if (!await isTokenValid()) await refreshAccessToken();
-    
-    console.log('🔍 Checking existing ratings for:', { item, candidateName, evaluator });
-    
     const response = await gapi.client.sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: SHEET_RANGES.RATELOG,
     });
 
     const existingData = response.result.values || [];
-    console.log('📊 Total rows in sheet:', existingData.length);
-    
-    const matchingRatings = existingData.filter(row => {
-      const matches = matchesRatingRow(row, item, candidateName, evaluator);
-      if (matches) {
-        console.log('✅ Found matching rating:', row);
-      }
-      return matches;
-    });
-    
-    console.log('📋 Found', matchingRatings.length, 'existing ratings');
-    return matchingRatings;
-    
+    return existingData.filter(row =>
+      matchesRatingRow(row, item, candidateName, evaluator)
+    );
   } catch (error) {
-    console.error('❌ Error checking existing ratings:', error);
-    // Clear cache on error to force fresh fetch next time
-    const cacheKey = `${item}:${candidateName}:${evaluator}`;
-    ratingsCache.delete(cacheKey);
+    console.error('Error checking ratings:', error);
     return [];
   }
-}
-
-// Improved matching function to ensure accurate detection
-function matchesRatingRow(row, item, candidateName, evaluator) {
-  if (!row || row.length < 6) return false;
-  
-  const [ratingCode, rowItem, rowCandidate, competency, rating, rowEvaluator] = row;
-  
-  // More precise matching with trimming and case handling
-  const itemMatch = (rowItem || '').trim() === (item || '').trim();
-  const candidateMatch = (rowCandidate || '').trim() === (candidateName || '').trim();
-  const evaluatorMatch = (rowEvaluator || '').trim() === (evaluator || '').trim();
-  
-  const matches = itemMatch && candidateMatch && evaluatorMatch;
-  
-  if (matches) {
-    console.log('🎯 Rating row match found:', {
-      ratingCode,
-      item: rowItem,
-      candidate: rowCandidate,
-      evaluator: rowEvaluator,
-      competency
-    });
-  }
-  
-  return matches;
 }
 
 async function checkForUpdates(ratings) {
   const firstRating = ratings[0];
   if (!firstRating) return false;
-  
-  console.log('🔄 Checking for updates with rating:', firstRating);
   
   const existingRatings = await checkExistingRatingsCached(
     firstRating[1], // item
@@ -4058,10 +4006,7 @@ async function checkForUpdates(ratings) {
     firstRating[5]  // evaluator
   );
   
-  const hasUpdates = existingRatings.length > 0;
-  console.log('📊 Has updates:', hasUpdates, '(found', existingRatings.length, 'existing ratings)');
-  
-  return hasUpdates;
+  return existingRatings.length > 0;
 }
 
 function prepareRatingsData(item, candidateName, currentEvaluator) {
@@ -4092,13 +4037,13 @@ function prepareRatingsData(item, candidateName, currentEvaluator) {
       ''
     ]);
   }
-  console.log('📝 Ratings to submit:', ratings);
+  console.log('Ratings to submit:', ratings);
   return { ratings };
 }
 
 function showSubmissionProgress(submission) {
   const message = submission.attempts > 1 
-    ? `Submitting... (attempt ${submission.attempts}/${SUBMISSION_CONFIG.MAX_RETRIES})`
+    ? `Submitting... (attempt ${submission.attempts})`
     : 'Submitting...';
     
   showToastOptimized('info', 'Processing', message);
@@ -4152,7 +4097,7 @@ async function showConfirmationModal(ratings, existingRatings, isUpdate) {
           <div class="modal-field"><span class="modal-label">POTENTIAL:</span> <span class="modal-value rating-value">${potentialRating}</span></div>
     `;
 
-    if (isUpdate && existingRatings.length > 0) {
+    if (isUpdate) {
       modalContent += '<h4>CHANGES:</h4>';
       ratings.forEach(row => {
         const competencyName = row[3];
@@ -4194,7 +4139,6 @@ async function verifyEvaluatorPassword(existingRatings) {
       if (password === EVALUATOR_PASSWORDS[currentEvaluator]) {
         resolve(true);
       } else {
-        showToastOptimized('error', 'Invalid Password', 'Password verification failed');
         resolve(false);
       }
     }, () => {
@@ -4205,10 +4149,6 @@ async function verifyEvaluatorPassword(existingRatings) {
 }
 
 function revertToExistingRatings(existingRatings) {
-  if (!existingRatings || existingRatings.length === 0) return;
-  
-  console.log('🔄 Reverting to existing ratings:', existingRatings);
-  
   const competencyItems = elements.competencyContainer.getElementsByClassName('competency-item');
   Array.from(competencyItems).forEach(item => {
     const competencyName = item.querySelector('label').textContent.split('. ')[1];
@@ -4251,12 +4191,8 @@ function handleSuccessfulSubmission(ratings) {
   localStorage.removeItem(`radioState_${candidateName}_${item}`);
   clearPendingRating(evaluator, item, candidateName);
   
-  // Clear cache for this specific rating to force fresh fetch
-  const cacheKey = `${item}:${candidateName}:${evaluator}`;
-  ratingsCache.delete(cacheKey);
-  
   console.log(`🧹 Cleared all stored data for successful submission:`, {
-    evaluator, item, candidateName, cacheKey
+    evaluator, item, candidateName
   });
 }
 
@@ -4267,7 +4203,7 @@ function handleSuccessfulSubmission(ratings) {
 function debugRatingSync(evaluator, item, name) {
   console.group(`🔍 Rating Sync Debug: ${evaluator} | ${item} | ${name}`);
   
-  const cacheKey = `${item}:${name}:${evaluator}`;
+  const cacheKey = `ratings:${encodeURIComponent(evaluator)}:${encodeURIComponent(item)}:${encodeURIComponent(name)}`;
   const pendingKey = `pending:${evaluator}:${item}:${name}:${apiManager.deviceId}`;
   const oldKey = `radioState_${name}_${item}`;
   
@@ -4275,7 +4211,7 @@ function debugRatingSync(evaluator, item, name) {
   console.log('Pending Key:', pendingKey);
   console.log('Old RadioState Key:', oldKey);
   console.log('Device ID:', apiManager.deviceId);
-  console.log('Cached Data:', ratingsCache.get(cacheKey));
+  console.log('Cached Data:', apiManager.getCachedData(cacheKey));
   console.log('Pending Data:', getPendingRating(evaluator, item, name));
   console.log('Old RadioState Data:', localStorage.getItem(oldKey));
   
@@ -4293,14 +4229,6 @@ function debugRatingSync(evaluator, item, name) {
 
 // Make debug function available globally
 window.debugRatingSync = debugRatingSync;
-
-// Function to manually clear all rating caches (for debugging)
-function clearAllRatingCaches() {
-  ratingsCache.clear();
-  console.log('🧹 All rating caches cleared');
-}
-
-window.clearAllRatingCaches = clearAllRatingCaches;
 
 // =====================================
 // CLEANUP AND UTILITIES
@@ -4321,7 +4249,7 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-console.log('✅ Optimized submission system loaded with 5 retries and improved existing ratings detection');
+console.log('✅ Optimized submission system loaded');
 
 
 
@@ -6198,5 +6126,11 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
+
+
+
+
+
 
 
