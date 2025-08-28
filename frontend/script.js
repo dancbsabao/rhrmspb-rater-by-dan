@@ -858,8 +858,8 @@ window.apiNotifierControl = {
 
 // ============================================================================
 //
-//      ENHANCED BULLETPROOF API MANAGER WITH EVALUATOR SELECTOR INTEGRATION
-//      Ensures evaluator selector loads reliably even with token issues
+//      SIMPLIFIED SEQUENTIAL API MANAGER
+//      Simplified version keeping original function names
 //
 // ============================================================================
 
@@ -877,12 +877,6 @@ class BulletproofAPIManager {
     this.retryQueue = [];
     this.retryTimer = null;
     
-    // Track UI component states
-    this.uiComponents = {
-      evaluatorSelector: false,
-      tabNavigation: false,
-    };
-    
     this.metrics = {
       totalRequests: 0,
       successfulRequests: 0,
@@ -896,303 +890,10 @@ class BulletproofAPIManager {
     updateApiNotifier("loading", "Starting up...");
     try {
       console.log(`BulletproofAPIManager Initialized. Device ID: ${this.deviceId}`);
-      
-      // Ensure evaluator selector is created early and reliably
-      await this._ensureEvaluatorSelector();
-      
       updateApiNotifier("ready", `Device ${this.deviceId}`);
     } catch (err) {
       console.error("Init failed:", err);
       updateApiNotifier("error", err.message);
-    }
-  }
-
-  /**
-   * Ensures evaluator selector is created and handles token-related issues
-   */
-  async _ensureEvaluatorSelector(maxRetries = 3) {
-    let attempts = 0;
-    
-    while (attempts < maxRetries && !this.uiComponents.evaluatorSelector) {
-      attempts++;
-      console.log(`Ensuring evaluator selector creation (attempt ${attempts}/${maxRetries})`);
-      
-      try {
-        // Check if we have the required global variables
-        if (typeof EVALUATOR_PASSWORDS === 'undefined' || !EVALUATOR_PASSWORDS) {
-          console.warn('EVALUATOR_PASSWORDS not available, waiting...');
-          await this._wait(1000);
-          continue;
-        }
-
-        // Create the evaluator selector
-        this._createEvaluatorSelector();
-        
-        // Verify it was created successfully
-        if (document.getElementById('evaluatorSelect')) {
-          this.uiComponents.evaluatorSelector = true;
-          console.log('Evaluator selector created successfully');
-          break;
-        }
-        
-      } catch (error) {
-        console.error(`Failed to create evaluator selector (attempt ${attempts}):`, error);
-        
-        // If we're dealing with token issues, try to handle them
-        if (error.message.includes('token') || error.message.includes('auth')) {
-          await this._handleTokenIssues();
-        }
-        
-        if (attempts < maxRetries) {
-          await this._wait(2000 * attempts); // Exponential backoff
-        }
-      }
-    }
-
-    if (!this.uiComponents.evaluatorSelector) {
-      console.error('Failed to create evaluator selector after all attempts');
-      // Fallback: schedule a retry in 5 seconds
-      setTimeout(() => this._ensureEvaluatorSelector(1), 5000);
-    }
-  }
-
-  /**
-   * Creates the evaluator selector with enhanced error handling
-   */
-  _createEvaluatorSelector() {
-    if (!EVALUATOR_PASSWORDS || Object.keys(EVALUATOR_PASSWORDS).length === 0) {
-      throw new Error('EVALUATOR_PASSWORDS not available');
-    }
-    
-    if (document.getElementById('evaluatorSelect')) {
-      console.log('Evaluator selector already exists');
-      return;
-    }
-    
-    const formGroup = document.createElement('div');
-    formGroup.className = 'form-group';
-    
-    const label = document.createElement('label');
-    label.htmlFor = 'evaluatorSelect';
-    label.textContent = 'Evaluator:';
-    
-    const select = document.createElement('select');
-    select.id = 'evaluatorSelect';
-    select.required = true;
-    
-    const defaultOption = document.createElement('option');
-    defaultOption.value = '';
-    defaultOption.textContent = 'Select Evaluator';
-    select.appendChild(defaultOption);
-    
-    Object.keys(EVALUATOR_PASSWORDS).forEach((evaluator) => {
-      const option = document.createElement('option');
-      option.value = evaluator;
-      
-      // Change display text only for "In-charge, Administrative Division"
-      if (evaluator === "In-charge, Administrative Division") {
-        option.textContent = "Chief, Administrative Division";
-      } else {
-        option.textContent = evaluator;
-      }
-      
-      select.appendChild(option);
-    });
-    
-    // Enhanced event listener with error handling
-    select.addEventListener('change', async (event) => {
-      try {
-        await this._handleEvaluatorSelection(event);
-      } catch (error) {
-        console.error('Error handling evaluator selection:', error);
-        if (typeof showToast === 'function') {
-          showToast('error', 'Error', 'Failed to process evaluator selection. Please try again.');
-        }
-      }
-    });
-    
-    formGroup.appendChild(label);
-    formGroup.appendChild(select);
-    
-    const ratingForm = document.querySelector('.rating-form');
-    if (ratingForm) {
-      ratingForm.insertBefore(formGroup, ratingForm.firstChild);
-      console.log('Evaluator selector added to rating form');
-    } else {
-      console.warn('Rating form not found, evaluator selector not added');
-      throw new Error('Rating form not available');
-    }
-  }
-
-  /**
-   * Enhanced evaluator selection handler with token management
-   */
-  async _handleEvaluatorSelection(event) {
-    const selectElement = event.target;
-    const newSelection = selectElement.value;
-    
-    if (!newSelection) {
-      if (typeof currentEvaluator !== 'undefined') {
-        currentEvaluator = null;
-      }
-      
-      // Safely handle auth state saving
-      try {
-        if (typeof gapi !== 'undefined' && gapi.client && typeof saveAuthState === 'function') {
-          saveAuthState(gapi.client.getToken(), null);
-        }
-      } catch (error) {
-        console.warn('Error saving auth state:', error);
-      }
-      
-      if (typeof saveDropdownState === 'function') saveDropdownState();
-      if (typeof resetDropdowns === 'function' && typeof vacancies !== 'undefined') {
-        resetDropdowns(vacancies);
-      }
-      return;
-    }
-
-    const displayName = newSelection === "In-charge, Administrative Division" ? 
-                       "Chief, Administrative Division" : newSelection;
-    
-    const modalContent = `
-      <p>Please enter the password for ${displayName}:</p>
-      <input type="password" id="evaluatorPassword" class="modal-input">
-    `;
-    
-    if (typeof showModal === 'function') {
-      showModal('Evaluator Authentication', modalContent, async () => {
-        const passwordInput = document.getElementById('evaluatorPassword');
-        const password = passwordInput.value.trim();
-        
-        if (password === EVALUATOR_PASSWORDS[newSelection]) {
-          if (typeof currentEvaluator !== 'undefined') {
-            currentEvaluator = newSelection;
-          }
-          selectElement.value = newSelection;
-          
-          // Enhanced token and auth state handling
-          try {
-            if (typeof gapi !== 'undefined' && gapi.client && typeof saveAuthState === 'function') {
-              saveAuthState(gapi.client.getToken(), currentEvaluator);
-            }
-          } catch (error) {
-            console.warn('Error saving auth state during evaluator selection:', error);
-            // Continue with the process even if auth state saving fails
-          }
-          
-          if (typeof saveDropdownState === 'function') saveDropdownState();
-          if (typeof showToast === 'function') {
-            showToast('success', 'Success', `Logged in as ${displayName}`);
-          }
-          if (typeof resetDropdowns === 'function' && typeof vacancies !== 'undefined') {
-            resetDropdowns(vacancies);
-          }
-          if (typeof fetchSubmittedRatings === 'function') {
-            try {
-              await fetchSubmittedRatings();
-            } catch (error) {
-              console.warn('Error fetching submitted ratings:', error);
-            }
-          }
-        } else {
-          if (typeof showToast === 'function') {
-            showToast('error', 'Error', 'Incorrect password');
-          }
-          selectElement.value = (typeof currentEvaluator !== 'undefined' ? currentEvaluator : null) || '';
-        }
-      });
-    } else {
-      console.error('showModal function not available');
-      // Fallback to simple prompt
-      const password = prompt(`Please enter the password for ${displayName}:`);
-      if (password === EVALUATOR_PASSWORDS[newSelection]) {
-        if (typeof currentEvaluator !== 'undefined') {
-          currentEvaluator = newSelection;
-        }
-        selectElement.value = newSelection;
-        alert(`Logged in as ${displayName}`);
-      } else {
-        alert('Incorrect password');
-        selectElement.value = '';
-      }
-    }
-  }
-
-  /**
-   * Handles token-related issues that might prevent UI components from loading
-   */
-  async _handleTokenIssues() {
-    console.log('Handling potential token issues...');
-    
-    try {
-      // Check if token refresh is needed and possible
-      if (typeof isTokenValid === 'function') {
-        const isValid = await isTokenValid();
-        if (!isValid) {
-          console.log('Token invalid, attempting refresh...');
-          if (typeof refreshAccessToken === 'function') {
-            await refreshAccessToken();
-          }
-        }
-      }
-      
-      // Ensure GAPI is initialized
-      if (typeof gapi === 'undefined' || !gapi.client) {
-        console.log('GAPI not properly initialized, attempting reinitialization...');
-        if (typeof initializeGapiClient === 'function') {
-          await initializeGapiClient();
-        }
-      }
-      
-    } catch (error) {
-      console.warn('Error handling token issues:', error);
-      // Continue despite token issues - UI should still be functional
-    }
-  }
-
-  /**
-   * Enhanced UI setup with better error handling and retry logic
-   */
-  async setupUIComponents() {
-    console.log('Setting up UI components...');
-    
-    const uiSetupTasks = [
-      {
-        name: 'evaluatorSelector',
-        setup: () => this._ensureEvaluatorSelector(),
-        required: true
-      },
-      {
-        name: 'tabNavigation', 
-        setup: () => {
-          if (typeof setupTabNavigation === 'function') {
-            setupTabNavigation();
-            this.uiComponents.tabNavigation = true;
-          }
-        },
-        required: false
-      }
-    ];
-
-    for (const task of uiSetupTasks) {
-      try {
-        console.log(`Setting up ${task.name}...`);
-        await task.setup();
-        console.log(`✓ ${task.name} setup complete`);
-      } catch (error) {
-        console.error(`✗ Failed to setup ${task.name}:`, error);
-        
-        if (task.required) {
-          // For required components, schedule a retry
-          setTimeout(() => {
-            console.log(`Retrying setup for required component: ${task.name}`);
-            task.setup().catch(retryError => 
-              console.error(`Retry failed for ${task.name}:`, retryError)
-            );
-          }, 3000);
-        }
-      }
     }
   }
 
@@ -1277,7 +978,6 @@ class BulletproofAPIManager {
       cacheSize: this.cache.size,
       activeRequests: this.requestQueue.size,
       retryQueueSize: this.retryQueue.length,
-      uiComponents: { ...this.uiComponents },
     };
   }
 
@@ -1293,7 +993,6 @@ class BulletproofAPIManager {
 
   cleanup() {
     this.clearCache();
-    this.uiComponents = { evaluatorSelector: false, tabNavigation: false };
     console.log(`Device ${this.deviceId} cleaned up.`);
   }
 
@@ -1463,16 +1162,6 @@ async function safeFetchRatings({ name, item, evaluator, forceRefresh = false })
   });
 }
 
-// Enhanced createEvaluatorSelector as standalone function for backward compatibility
-function createEvaluatorSelector() {
-  return apiManager._createEvaluatorSelector();
-}
-
-// Enhanced handleEvaluatorSelection as standalone function
-async function handleEvaluatorSelection(event) {
-  return apiManager._handleEvaluatorSelection(event);
-}
-
 // Keep existing pending ratings manager
 const pendingRatingsManager = {
   _getKey: (evaluator, item, name) => `pending_rating:${apiManager.deviceId}:${evaluator}:${item}:${name}`,
@@ -1520,7 +1209,7 @@ const pendingRatingsManager = {
 };
 
 // ============================================================================
-// ENHANCED INITIALIZATION WITH IMPROVED UI COMPONENT HANDLING
+// SIMPLIFIED INITIALIZATION - KEEPING ORIGINAL FUNCTION NAMES
 // ============================================================================
 
 let appInitializationPromise = null;
@@ -1554,8 +1243,8 @@ async function initializeApp() {
         });
       });
 
-      // 4. Enhanced UI setup with integrated evaluator selector
-      await setupUI();
+      // 4. Setup UI
+      setupUI();
 
       // 5. Load initial data sequentially (not immediately from cache)
       await loadInitialData();
@@ -1582,7 +1271,7 @@ async function initializeApp() {
 }
 
 /**
- * ENHANCED - Load data sequentially, not from cache first
+ * SIMPLIFIED - Load data sequentially, not from cache first
  */
 async function loadInitialData() {
   console.log('Starting sequential initial data load...');
@@ -1610,32 +1299,9 @@ async function loadInitialData() {
   }
 }
 
-/**
- * ENHANCED - Setup UI with integrated API manager functionality
- */
-async function setupUI() {
-  console.log('Setting up UI components...');
-  
-  // Use the API manager's enhanced UI setup
-  await apiManager.setupUIComponents();
-  
-  // Fallback for legacy components
-  if (!apiManager.uiComponents.evaluatorSelector) {
-    console.log('Attempting fallback evaluator selector creation...');
-    try {
-      if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
-    } catch (error) {
-      console.error('Fallback evaluator selector creation failed:', error);
-    }
-  }
-  
-  if (!apiManager.uiComponents.tabNavigation) {
-    try {
-      if (typeof setupTabNavigation === 'function') setupTabNavigation();
-    } catch (error) {
-      console.error('Tab navigation setup failed:', error);
-    }
-  }
+function setupUI() {
+  if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
+  if (typeof setupTabNavigation === 'function') setupTabNavigation();
 }
 
 function finishInitialization() {
@@ -1834,10 +1500,7 @@ function handleTokenCallback(tokenResponse) {
     if (typeof updateUI === 'function') updateUI(true);
     fetch(`${API_BASE_URL}/config`, { credentials: 'include' })
       .then(() => {
-        // Ensure evaluator selector is created after successful auth
-        apiManager._ensureEvaluatorSelector().catch(error => 
-          console.error('Error ensuring evaluator selector after auth:', error)
-        );
+        if (typeof createEvaluatorSelector === 'function') createEvaluatorSelector();
         if (typeof loadSheetData === 'function') loadSheetData();
         if (typeof showToast === 'function') showToast('success', 'Welcome!', 'Successfully signed in.');
         localStorage.setItem('hasWelcomed', 'true');
@@ -1845,57 +1508,16 @@ function handleTokenCallback(tokenResponse) {
   }
 }
 
-// Enhanced lifecycle hooks with evaluator selector monitoring
+// Lifecycle hooks
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    console.log('Tab visible - checking state and UI components.');
-    
-    // Check if evaluator selector needs to be recreated
-    setTimeout(async () => {
-      if (!document.getElementById('evaluatorSelect') && !apiManager.uiComponents.evaluatorSelector) {
-        console.log('Evaluator selector missing after tab focus, recreating...');
-        try {
-          await apiManager._ensureEvaluatorSelector();
-        } catch (error) {
-          console.error('Error recreating evaluator selector on tab focus:', error);
-        }
-      }
-    }, 1000);
+    console.log('Tab visible - checking state.');
   }
 });
 
 window.addEventListener('beforeunload', () => {
   apiManager.cleanup();
 });
-
-// Enhanced error recovery mechanism
-window.addEventListener('error', (event) => {
-  // If there's a critical error and the evaluator selector is missing, try to recreate it
-  if (event.error && !document.getElementById('evaluatorSelect')) {
-    console.log('Critical error detected, checking UI components...');
-    setTimeout(async () => {
-      try {
-        await apiManager._ensureEvaluatorSelector();
-      } catch (error) {
-        console.error('Error in critical error recovery:', error);
-      }
-    }, 2000);
-  }
-});
-
-// Additional utility function for manual UI recovery
-window.recoverEvaluatorSelector = async function() {
-  console.log('Manual evaluator selector recovery initiated...');
-  try {
-    apiManager.uiComponents.evaluatorSelector = false;
-    await apiManager._ensureEvaluatorSelector();
-    console.log('Manual evaluator selector recovery completed successfully.');
-    return true;
-  } catch (error) {
-    console.error('Manual evaluator selector recovery failed:', error);
-    return false;
-  }
-};
 
 
 
@@ -3918,7 +3540,7 @@ function prefillRatings(competencyRatings, noFetchedData, name, item) {
 // CONFIGURATION
 // =====================================
 
-const SUBMISSION_CONFIG = {
+const SUBMISSION_CONFIG = {const SUBMISSION_CONFIG = {
   MAX_RETRIES: 5, // Changed from 3 to 5
   BASE_DELAY: 500,
   MAX_DELAY: 3000,
@@ -6576,14 +6198,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
-
-
-
-
-
-
-
-
 
 
