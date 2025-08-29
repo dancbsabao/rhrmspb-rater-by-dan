@@ -461,30 +461,24 @@ fetch(`${API_BASE_URL}/config`)
     elements.authStatus.textContent = 'Error loading configuration';
   });
 
-// Modified checkAndHideSpinner to work with progress bar
 function checkAndHideSpinner() {
   if (loadingState.gapi && loadingState.dom && loadingState.uiReady && loadingState.apiDone) {
     const spinner = document.getElementById('loadingSpinner');
     const pageWrapper = document.querySelector('.page-wrapper');
-    
-    console.log('✅ All loading complete - hiding progress bar');
-    
-    // Add final completion message
-    updateLoadingProgress('ui', 'completed', 'Application ready! 🎉');
-    
-    setTimeout(() => {
-      if (spinner) {
-        spinner.style.transition = 'opacity 0.4s ease';
-        spinner.style.opacity = '0';
-        setTimeout(() => {
-          spinner.style.display = 'none';
-          if (pageWrapper) {
-            pageWrapper.style.opacity = '1';
-          }
-        }, 400);
-      }
-    }, 1000); // Give users a moment to see the completion
-    
+
+    console.log('✅ All loading complete - hiding spinner');
+
+    if (spinner) {
+      spinner.style.transition = 'opacity 0.4s ease';
+      spinner.style.opacity = '0';
+      setTimeout(() => {
+        spinner.style.display = 'none';
+        if (pageWrapper) {
+          pageWrapper.style.opacity = '1';
+        }
+      }, 400);
+    }
+
     if (uiObserver) uiObserver.disconnect();
     if (uiCheckTimeout) clearTimeout(uiCheckTimeout);
   }
@@ -1332,216 +1326,32 @@ function clearPendingRating(evaluator, item, name) {
 
 
 // Ultra-safe initialization with fallback UI loading
-// Enhanced loading system with progress bar and log
-const loadingProgress = {
-  total: 6, // Total steps: gapi, cache check, api calls (3 types), ui ready
-  current: 0,
-  steps: {
-    gapi: { completed: false, label: 'Initializing Google API client...' },
-    cache: { completed: false, label: 'Checking cached data...' },
-    secretariat: { completed: false, label: 'Loading secretariat members...' },
-    vacancies: { completed: false, label: 'Loading vacancy data...' },
-    signatories: { completed: false, label: 'Loading signatories...' },
-    ui: { completed: false, label: 'Preparing user interface...' }
-  }
-};
-
-// Initialize loading bar instead of spinner
-function initializeLoadingBar() {
+async function initializeApp() {
   const spinner = document.getElementById('loadingSpinner');
   const pageWrapper = document.querySelector('.page-wrapper');
   
   if (spinner) {
-    spinner.innerHTML = `
-      <div class="loading-container">
-        <div class="loading-header">
-          <h3>Loading Application...</h3>
-          <div class="progress-info">
-            <span id="progressText">0 of ${loadingProgress.total} steps completed</span>
-            <span id="progressPercent">0%</span>
-          </div>
-        </div>
-        <div class="progress-bar-container">
-          <div class="progress-bar">
-            <div class="progress-fill" id="progressFill"></div>
-          </div>
-        </div>
-        <div class="loading-log" id="loadingLog">
-          <div class="log-entry active">🔄 Starting application initialization...</div>
-        </div>
-      </div>
-    `;
-    
-    // Add CSS styles
-    const style = document.createElement('style');
-    style.textContent = `
-      .loading-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 2rem;
-        max-width: 500px;
-        margin: 0 auto;
-        font-family: system-ui, -apple-system, sans-serif;
-      }
-      
-      .loading-header {
-        text-align: center;
-        margin-bottom: 1.5rem;
-        width: 100%;
-      }
-      
-      .loading-header h3 {
-        margin: 0 0 0.5rem 0;
-        color: #333;
-        font-size: 1.25rem;
-      }
-      
-      .progress-info {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.875rem;
-        color: #666;
-      }
-      
-      .progress-bar-container {
-        width: 100%;
-        margin-bottom: 1.5rem;
-      }
-      
-      .progress-bar {
-        width: 100%;
-        height: 8px;
-        background-color: #e0e0e0;
-        border-radius: 4px;
-        overflow: hidden;
-      }
-      
-      .progress-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #4CAF50, #45a049);
-        border-radius: 4px;
-        width: 0%;
-        transition: width 0.3s ease;
-      }
-      
-      .loading-log {
-        width: 100%;
-        max-height: 200px;
-        overflow-y: auto;
-        background: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-radius: 6px;
-        padding: 1rem;
-        font-size: 0.875rem;
-      }
-      
-      .log-entry {
-        padding: 0.25rem 0;
-        color: #666;
-        opacity: 0.7;
-        transition: all 0.2s ease;
-      }
-      
-      .log-entry.active {
-        color: #007bff;
-        opacity: 1;
-        font-weight: 500;
-      }
-      
-      .log-entry.completed {
-        color: #28a745;
-        opacity: 0.8;
-      }
-      
-      .log-entry.error {
-        color: #dc3545;
-        opacity: 1;
-        font-weight: 500;
-      }
-    `;
-    document.head.appendChild(style);
-    
     spinner.style.display = 'flex';
     spinner.style.opacity = '1';
   }
   if (pageWrapper) {
     pageWrapper.style.opacity = '0.3';
   }
-}
 
-// Update progress and log
-function updateLoadingProgress(stepKey, status = 'active', customMessage = null) {
-  const step = loadingProgress.steps[stepKey];
-  if (!step) return;
-  
-  const logElement = document.getElementById('loadingLog');
-  const progressFill = document.getElementById('progressFill');
-  const progressText = document.getElementById('progressText');
-  const progressPercent = document.getElementById('progressPercent');
-  
-  if (!logElement) return;
-  
-  // Mark previous entries as completed if this is a new active step
-  if (status === 'active') {
-    const logEntries = logElement.querySelectorAll('.log-entry');
-    logEntries.forEach(entry => {
-      if (entry.classList.contains('active')) {
-        entry.classList.remove('active');
-        entry.classList.add('completed');
-      }
-    });
-  }
-  
-  // Add new log entry
-  const message = customMessage || step.label;
-  const logEntry = document.createElement('div');
-  logEntry.className = `log-entry ${status}`;
-  
-  const icon = status === 'completed' ? '✅' : 
-               status === 'error' ? '❌' : '🔄';
-  
-  logEntry.textContent = `${icon} ${message}`;
-  logElement.appendChild(logEntry);
-  
-  // Auto-scroll to bottom
-  logElement.scrollTop = logElement.scrollHeight;
-  
-  // Update progress if completed
-  if (status === 'completed' && !step.completed) {
-    step.completed = true;
-    loadingProgress.current++;
-    
-    const percentage = Math.round((loadingProgress.current / loadingProgress.total) * 100);
-    
-    if (progressFill) {
-      progressFill.style.width = `${percentage}%`;
-    }
-    if (progressText) {
-      progressText.textContent = `${loadingProgress.current} of ${loadingProgress.total} steps completed`;
-    }
-    if (progressPercent) {
-      progressPercent.textContent = `${percentage}%`;
-    }
-  }
-}
-
-// Modified initialization function
-async function initializeApp() {
-  initializeLoadingBar(); // Use loading bar instead of spinner
-  
   gapi.load('client', async () => {
     try {
-      updateLoadingProgress('gapi', 'active');
       await initializeGapiClient();
       gapiInitialized = true;
-      updateLoadingProgress('gapi', 'completed');
       console.log('✅ GAPI client initialized');
       loadingState.gapi = true;
       maybeEnableButtons();
       createEvaluatorSelector();
       setupTabNavigation();
 
+      // ===================
+      // BULLETPROOF MULTI-DEVICE API STRATEGY
+      // ===================
+      
       console.log('🎯 Starting bulletproof multi-device API calls...');
       console.log('📱 Device Info:', {
         deviceId: apiManager.deviceId,
@@ -1550,42 +1360,34 @@ async function initializeApp() {
       });
       
       // Try cache-first approach
-      updateLoadingProgress('cache', 'active');
       const cacheOnlyResults = await tryLoadFromCacheOnly();
-      updateLoadingProgress('cache', 'completed');
       
       if (cacheOnlyResults.allLoaded) {
-        updateLoadingProgress('secretariat', 'completed', 'Secretariat data loaded from cache');
-        updateLoadingProgress('vacancies', 'completed', 'Vacancy data loaded from cache');
-        updateLoadingProgress('signatories', 'completed', 'Signatories loaded from cache');
         console.log('🚀 All data loaded from cache! Skipping API calls.');
         loadingState.apiDone = true;
         finishInitialization();
         return;
       }
       
-      // Define API requests with progress tracking
+      // Define API requests with conservative settings
       const apiRequests = [
         {
           key: 'secretariatMembers',
           fetchFunction: safeFetchSecretariatMembers,
           priority: 3,
-          required: true,
-          progressKey: 'secretariat'
+          required: true
         },
         {
           key: 'vacanciesData', 
           fetchFunction: safeFetchVacanciesData,
           priority: 2,
-          required: true,
-          progressKey: 'vacancies'
+          required: true
         },
         {
           key: 'signatories',
           fetchFunction: safeLoadSignatories,
           priority: 1,
-          required: false,
-          progressKey: 'signatories'
+          required: false
         }
       ].filter(req => !cacheOnlyResults.loadedKeys.includes(req.key));
       
@@ -1596,41 +1398,27 @@ async function initializeApp() {
         return;
       }
       
-      // Execute API requests with progress updates
-      for (const request of apiRequests) {
-        updateLoadingProgress(request.progressKey, 'active');
-      }
-      
+      // Execute with ultra-conservative settings
       const batchResult = await apiManager.batchFetch(apiRequests, {
         concurrency: 1,
         adaptiveDelay: true,
         priorityOrder: true,
-        emergencyMode: apiManager.isGlobalQuotaExceeded(),
-        onProgress: (completedRequest) => {
-          const request = apiRequests.find(r => r.key === completedRequest.key);
-          if (request) {
-            updateLoadingProgress(request.progressKey, 'completed');
-          }
-        }
+        emergencyMode: apiManager.isGlobalQuotaExceeded()
       });
       
-      // Handle any failures
+      // Enhanced error handling
       const criticalErrors = batchResult.errors.filter(err => 
         apiRequests.find(req => req.key === err.key)?.required
       );
       
       if (criticalErrors.length > 0) {
         console.error('🚨 Critical API failures detected:', criticalErrors);
-        // Mark failed requests in progress
-        criticalErrors.forEach(err => {
-          const request = apiRequests.find(r => r.key === err.key);
-          if (request) {
-            updateLoadingProgress(request.progressKey, 'error', `Failed to load ${request.progressKey}`);
-          }
-        });
+        
+        // Try emergency fallback
         await handleCriticalAPIFailure(criticalErrors);
       }
       
+      // Log comprehensive results
       console.log('📊 Multi-device API Results:', {
         successful: batchResult.results.length,
         failed: batchResult.errors.length,
@@ -1643,7 +1431,6 @@ async function initializeApp() {
       
     } catch (error) {
       console.error('❌ Critical initialization error:', error);
-      updateLoadingProgress('gapi', 'error', 'Critical initialization error occurred');
       await handleInitializationFailure();
     }
   });
@@ -1721,10 +1508,8 @@ async function handleInitializationFailure() {
   );
 }
 
-// Modified finish initialization to include UI progress
+// Finish initialization process
 function finishInitialization() {
-  updateLoadingProgress('ui', 'active');
-  
   startUIMonitoring();
   restoreState();
   
@@ -1739,7 +1524,6 @@ function finishInitialization() {
   elements.addSignatoryBtn?.addEventListener('click', addSignatory);
   
   loadingState.dom = true;
-  updateLoadingProgress('ui', 'completed');
   checkAndHideSpinner();
   
   console.log('✅ App initialization complete');
@@ -6601,6 +6385,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
-
 
 
