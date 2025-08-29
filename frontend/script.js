@@ -3697,20 +3697,21 @@ class SubmissionQueue {
     this.process();
   }
 
-    async process() {
+  async process() {
     if (this.processing) return;
     this.processing = true;
-  
+    showSubmittingIndicator(); // Show spinner when processing starts
+
     while (this.queue.length > 0 || this.retryQueue.length > 0) {
       const submission = this.retryQueue.shift() || this.queue.shift();
       if (!submission) break;
-  
+
       try {
         const result = await this.processSubmission(submission);
         if (result.success) {
           handleSuccessfulSubmission(submission.ratings);
           showToastOptimized('success', 'Success', result.message);
-          // Add success modal
+          // Optionally show success modal (as added in previous response)
           showModal(
             'Submission Successful',
             `<p>${result.message}</p>`,
@@ -3722,12 +3723,21 @@ class SubmissionQueue {
             null,
             false
           );
+          hideSubmittingIndicator(); // Hide spinner on success
         }
       } catch (error) {
         await this.handleFailedSubmission(submission, error);
+        // Only hide spinner if this was the final attempt and it failed
+        if (submission.attempts >= SUBMISSION_CONFIG.MAX_RETRIES) {
+          hideSubmittingIndicator();
+        }
       }
     }
-  
+
+    // If queue is empty, ensure spinner is hidden
+    if (this.queue.length === 0 && this.retryQueue.length === 0) {
+      hideSubmittingIndicator();
+    }
     this.processing = false;
   }
 
@@ -6375,4 +6385,5 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('rater'); // Default to rater tab
     }
 });
+
 
